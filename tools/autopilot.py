@@ -35,6 +35,7 @@ try:
     from . import autocode_claim_evidence as claim_evidence
     from . import autocode_completion as completion_gate
     from . import autocode_completion_result as completion_result
+    from . import autocode_compound_exit as compound_exit
     from . import autocode_decision_routes as decision_routes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency as efficiency
@@ -95,6 +96,7 @@ except ImportError:
     import autocode_claim_evidence as claim_evidence
     import autocode_completion as completion_gate
     import autocode_completion_result as completion_result
+    import autocode_compound_exit as compound_exit
     import autocode_decision_routes as decision_routes
     import autocode_design_coverage as design_coverage
     import autocode_efficiency as efficiency
@@ -753,7 +755,8 @@ def apply_build_result(runtime, state: RunState, value, record, workspace, run_d
 def apply_review_result(runtime, state: RunState, stage, value, record, workspace, run_dir):
     modern = state.get("version", 2) >= 3
     progressive_state.require_reported_checks(state, value["checks"])
-    support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
+    evidence_options = {**runtime.check_evidence_options(record), "hidden_exit": []}  # replay must see these (#4165)
+    support.verify_checks(value["checks"], workspace, record["events"], **evidence_options)
     check_refs.resolve(value)  # check:<n> evidence names a check whose event the runner just attached
     design_refs = design_coverage.report_refs(state, value, stage=stage)
     cited = [ref for row in value["criterion_results"] for ref in row.get("evidence_refs") or []]
@@ -880,6 +883,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         if value["verdict"] == "PASS" or human_pending or progressive_pass
         else None
     )
+    compound_exit.require_replayed(evidence_options["hidden_exit"], validation["check_replay"])
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     changed_code_review_application.accept(

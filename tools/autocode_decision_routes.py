@@ -230,7 +230,9 @@ def resolver_builder_failure(runtime, state: RunState, value, record, workspace,
         )
         if accepted:
             checked = copy.deepcopy(validation.get("checks", []))
-            support.verify_checks(checked, workspace, accepted["events"], **runtime.check_evidence_options(accepted))
+            support.verify_checks(  # an accepted report's hidden exit codes were seen by its replay (#4165)
+                checked, workspace, accepted["events"], hidden_exit=[], **runtime.check_evidence_options(accepted)
+            )
             evidence["checks"] = builder_failure.check_facts(checked, accepted, workspace, read_events=support.events)
             evidence["checks_verified"] = True
     action = route(state, evidence, value["diagnosis"], completed_record=record)

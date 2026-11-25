@@ -48,6 +48,7 @@ try:
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     from . import autocode_context_window as context_window  # noqa: F401 - compatibility API
     from . import autocode_provider_funds as provider_funds
+    from . import autocode_compound_exit as compound_exit
     from . import autocode_model_unavailable as model_unavailable
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_usage as token_usage
     import autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     import autocode_event_matching as event_matching
+    import autocode_compound_exit as compound_exit
     import autocode_event_metrics as event_summary
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_output_cap as output_cap
@@ -263,9 +265,10 @@ def _receipt_mismatch_error(check, receipt, path, workspace, tool_outputs, *, re
     return receipt_repair.attach(error, value)
 
 
-def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
+def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None, hidden_exit=None):
     """Verify checks against executed events or attempt-bound, output-hashed receipts.
-    Fill omitted commands and exit codes only from unique authenticated evidence."""
+    Fill omitted commands and exit codes only from unique authenticated evidence. A check run inside a longer
+    line takes the exit code the line shows; ``hidden_exit`` lists those it hides (autocode_compound_exit)."""
     rows = [] if receipt_only else events(event_path)
     tool_outputs = [
         e["item"]
@@ -323,6 +326,8 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["exit_code"] = matches[0]["exit_code"]
                     if not _bind_capture_receipt(check, workspace):
                         continue
+                if not same and compound_exit.bind(check, matches[0], workspace, missing_exit, hidden_exit):
+                    continue
             # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
             # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
             if not matches and not missing_command:
@@ -349,6 +354,20 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["command"] = latest["command"]
                     if not _bind_capture_receipt(check, workspace):
                         continue
+                # Ran only inside a longer line after its latest run alone: the latest such line decides (#4165).
+                after = tool_outputs[tool_outputs.index(latest) + 1 :] if latest else tool_outputs
+                line = next(
+                    (
+                        item
+                        for item in reversed(after)
+                        if check["evidence_ref"].startswith("event:")
+                        and item.get("type") == "command_execution"
+                        and compound_exit.part(item.get("command"), check["command"], item.get("exit_code"), workspace)
+                    ),
+                    None,
+                )
+                if line and compound_exit.bind(check, line, workspace, missing_exit, hidden_exit):
+                    continue
             if check["evidence_ref"].startswith("event:"):
                 raise ValueError(
                     "Check is not supported by an exact executed Validator event"

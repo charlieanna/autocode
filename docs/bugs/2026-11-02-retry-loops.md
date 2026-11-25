@@ -55,3 +55,11 @@ through the isolated collector (`autocode_component_tests.py --package-family FO
 package with tests runs from its own directory, and same-named modules keep distinct identities
 (`packages.invoices.test_pager...`, `packages.search.test_pager...`). Live rerun: bugfix-monorepo-package
 PASS, $2.67, 431 s (master: blocked at the $5.05 cap; before this fix: stopped at $2.52 asking a person).
+
+## Commands cited from a longer line (2026-11-25, #4165)
+
+The 2026-11-24 `claude-tiers` starter sweep (8 runs) still had 8 Tester and 3 repair rejections for checks cited
+from a piped or joined call, the most common rejected answer; 208 saved survey runs had 4 in 256 Tester stages.
+The prompt rule above did not stop it, and no Tester in those 256 stages ran `report-check`. The runner now reads
+the line as the shell runs it (`tools/autocode_compound_exit.py`): an exit code the line shows is taken, and one it
+hides counts only when the passing report's clean-copy replay runs that command and sees exit 0.

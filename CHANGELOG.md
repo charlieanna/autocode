@@ -17,6 +17,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Gemini CLI as a backend, and as the second vendor that checks a Claude Code run** ([Gemini CLI provider](docs/providers.md#gemini-cli-provider)): with Gemini CLI signed in with Google, `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro` has Gemini test what Claude Code built, and `--provider gemini` runs every stage on Gemini. Before, a person with Claude Code got checks by a second vendor only through an OpenCode or Kilo account with API keys. `autocode setup` and `autocode doctor` find a signed-in Gemini CLI and print that command; a Google Workspace account whose sign-in fails for want of a Google Cloud project is told the `export GOOGLE_CLOUD_PROJECT="your-project-id"` line that fixes it, and an API key, Vertex or an expired sign-in is named too. Gemini CLI reports no command exit codes, so its stages cite checks by their capture receipts.
 
+### Fixed
+
+- **A Tester check run inside a longer command no longer costs a rejected answer** (#4165): a Tester that ran `pytest -q 2>&1 | tail -3` or `git diff --stat; git diff --name-only` as one call and cited one command was refused as "not supported by an exact executed Validator event", then a report-only repair that could not run anything was refused again. The check now takes the exit code the line shows under shell semantics (the last command of `a; b`, every command of an `&&` chain that exited 0); a command whose exit code the line hides (`cmd | tail`, the first of `a; b`) counts only in a passing report whose clean-copy replay runs it and sees exit 0 (`autocode_compound_exit`). Anything that could run the command differently (`|| `, `set -e`, `| head`, `grep -q`, a substitution, `cd` out of the workspace) is refused as before.
+
 ## [0.11.1] - 2026-11-25
 
 ### Added
