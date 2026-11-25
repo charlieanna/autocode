@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-25
+
 ### Added
 
 - **A Claude Code plugin, `autocode mcp` and `autocode agent-step`** ([AutoCode inside your coding agent](docs/agent-step.md)): drive AutoCode from Claude Code or Codex instead of VS Code or the terminal chat. In Claude Code, `/plugin install autocode --marketplace charlieanna/autocode` adds the AutoCode skill; for Codex, `codex mcp add autocode -- autocode mcp` adds the MCP server. The skill and the example `.mcp.json` used to run `python3 -m autocode_cli...`, which fails with "No module named autocode_cli" after a pipx or Homebrew install, where only `autocode` is on `PATH`; both are now `autocode` commands, and the skill adds no engine flags, so a run uses the account and models `autocode setup` saved.
@@ -4753,6 +4755,7 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/charlieanna/autocode/compare/v0.11.0...v0.11.1
 [0.9.0]: https://github.com/charlieanna/autocode/compare/v0.8.2...v0.9.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1

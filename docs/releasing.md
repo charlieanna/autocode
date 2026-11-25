@@ -10,9 +10,9 @@ store or rotate.
 
 ## Published baseline
 
-PyPI publishes **0.8.0** through **0.10.2**, checked on 2026-11-24; `v0.10.2` points to
-`f03ef6802e15e973cf4f1ba6af4815595773a3b0`, the 0.10.2 release commit. The Homebrew tap was last
-verified at 0.8.2 (see the [distribution verification
+PyPI publishes **0.8.0** through **0.11.0**, checked on 2026-11-25; `v0.11.0` points to
+`a6d080ab1bc783081876c4a313c2eddc00e46af2`, the 0.11.0 release commit. The Homebrew tap was last
+verified at 0.11.0 (see the [distribution verification
 record](bugs/2026-10-27-release-installation.md)); check it before each release. Existing versions/tags must
 not be republished or moved to ship later master fixes: choose a new version
 and follow the release process below.
