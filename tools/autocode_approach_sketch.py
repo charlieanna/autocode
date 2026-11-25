@@ -72,7 +72,7 @@ def sketch(report) -> dict:
     raw = report.get(FIELD) if isinstance(report, dict) else None
     if not isinstance(raw, dict) or not _clean(raw.get("summary")):
         return dict(EMPTY)
-    alternatives = []
+    alternatives: list[dict] = []
     for row in raw.get("alternatives") or []:
         label = _clean(row.get("label")) if isinstance(row, dict) else ""
         if label and label.lower() not in {item["label"].lower() for item in alternatives}:
