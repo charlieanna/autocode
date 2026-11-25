@@ -125,11 +125,17 @@ with ChatTUI() as ui:
             tmux=require_tmux(self),
         ) as screen:
             try:
-                screen.wait_for(
-                    lambda shown: ready.exists() and "Type a message" in shown,
-                    60,
-                    what="member Planner with anchor-owned composer",
-                )
+                try:
+                    screen.wait_for(
+                        lambda shown: ready.exists() and "Type a message" in shown,
+                        60,
+                        what="member Planner with anchor-owned composer",
+                    )
+                except AssertionError as error:
+                    # Say where the member stopped: the screen shows only the anchor run.
+                    member = {key: peer.status().get(key) for key in ("status", "next_stage", "stop_reason")}
+                    stages = calls.read_text() if calls.exists() else "(no provider call)"
+                    raise AssertionError(f"{error}\nmember: {member}\nprovider calls:\n{stages}") from None
                 screen.paste("Could we reuse the conversion?")
                 screen.keys("Enter")
                 screen.wait_for(lambda shown: "Message saved" in shown and "Requirements will reply" in shown, 30)
