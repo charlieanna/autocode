@@ -551,6 +551,8 @@ jobs:
               "tests.test_native_initial_callers.OriginalCheckFailureTests",
               # --agent-sandbox around a whole agent process (Seatbelt).
               "tests.test_agent_sandbox.KernelTests",
+              # A proof command's read boundary (#4152 phase 3).
+              "tests.test_read_boundary.BoundaryTests",
           )
           suite = unittest.TestSuite()
           for name in names:
@@ -613,6 +615,7 @@ jobs:
               "tests.test_tool_containment.UnicodeKernelTests",
               "tests.test_tool_containment.KernelTests",
               "tests.test_tool_containment.BubblewrapKernelTests",
+              "tests.test_read_boundary.BoundaryTests",
               "tests.test_toolchain.SelectedToolchainTests",
               "tests.test_elf_dependencies.LoaderFixtureTests",
               "tests.test_native_linux_boundary.NativeLinuxKernelTests",

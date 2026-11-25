@@ -602,7 +602,31 @@ source (`autocode_source_binding.assess`). Before, a project that kept its virtu
 reached through those directories resolves outside them and is still held: custody is what keeps
 it out, and the boundary still holds what custody missed (a link nested inside an installed
 package, a path a test names itself). Installed directories are shared by the original code's and
-the candidate's copies, as before; a kernel read boundary is phase 3.
+the candidate's copies, as before.
+
+### A read boundary around each proof command (#4152, phase 3)
+
+A test can still name the live tree itself: an absolute path, a fixture link, an ancestor a tool
+walks up to that the observer does not model. Each command a proof runs in a proof copy therefore
+runs inside a kernel read boundary where the host has one (`autocode_read_boundary`, applied in
+`autocode_command_supervision.run`). A proof copy is a Git worktree of the live repository under a
+scratch mirror, so Git lists what it must not read: every other checkout of the repository, which
+is the live workspace, the main checkout, other chats' worktrees and the other proof copy. Those
+are hidden; inside them the copy itself, its Git directories, the directory the command writes its
+results to and the installed dependencies the copy links to stay visible. A deeper rule overrides a
+shallower one, so a task worktree inside a visible directory is hidden again. Nothing else changes:
+writes, the network, processes and the environment are as before.
+
+Linux uses bubblewrap (an empty tmpfs over each hidden path, the visible ones bound back from the
+host) and macOS Seatbelt (`file-read-data` denied under each hidden path and allowed again under
+each visible one, in the same order; a path still resolves through a hidden directory, so links
+into installed dependencies keep working). Each receipt records the boundary as `read_boundary`:
+its backend and the hidden and visible paths. Where no boundary can be set up (no bubblewrap able
+to create its namespaces, no working `sandbox-exec`, another platform, a checkout that holds the
+home directory) the command runs as before and `read_boundary` records why, owner decision
+2026-11-25: phases 1 and 2 still hold or prevent what they see, and holding every proof would stop
+AutoCode on such a host. A command run outside a proof copy (in the workspace itself, or a native
+check with its own owner) is not wrapped.
 
 The saved-proof inventory found 180 retained verification receipts (168 unittest,
 5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are
