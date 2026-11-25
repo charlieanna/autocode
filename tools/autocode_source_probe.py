@@ -1242,15 +1242,23 @@ def _python(request):
     context_targets = {}
     context_mutations = {}
     target_paths = set()
-    if kind == "pytest" and (
-        environment.get("PYTEST_ADDOPTS")
-        or environment.get("PYTEST_PLUGINS")
-        or (
-            not environment.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD")
-            and any(importlib.metadata.entry_points(group="pytest11"))
-        )
-    ):
-        errors.append("pytest environment options or plugin autoload are not observed")
+    if kind == "pytest":
+        if environment.get("PYTEST_ADDOPTS") or environment.get("PYTEST_PLUGINS"):
+            errors.append("pytest environment options are not observed")
+        elif not environment.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
+            # Autoloaded plugins are installed dependencies, pytest's own trust class: their
+            # files are dependency custody (phase 2 of #4152), recorded so a plugin that would
+            # resolve into the live workspace still shows as the leak it is.
+            for row in importlib.metadata.entry_points(group="pytest11"):
+                name = str(row.value).partition(":")[0].strip()
+                if not name:
+                    continue
+                try:
+                    spec = importlib.util.find_spec(name)
+                except (ImportError, ValueError):
+                    spec = None
+                for value in _origins(spec):
+                    observations.append({"kind": "python_module", "name": name, "path": value, "role": "dependency"})
 
     def imports(text, filename, inherited=()):
         try:
