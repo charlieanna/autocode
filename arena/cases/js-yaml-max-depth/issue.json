@@ -1,0 +1,6 @@
+{
+  "title": "Limit how deeply a YAML document may nest (maxDepth)",
+  "html_url": "https://github.com/nodeca/js-yaml",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream commit nodeca/js-yaml@4700bafbc9cc91d14df1f6e1fdf1689714047151, which no issue or pull request describes, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "Loading a deeply nested document such as 100,000 opening brackets makes yaml.load() overflow the JavaScript stack and throw a RangeError, so a service that loads untrusted YAML cannot tell a malicious document from a bug. Add a maxDepth loader option, default 100, that limits how deeply collections (flow and block sequences and mappings) may nest. A document nested deeper than the limit must fail with a YAMLException whose message names maxDepth and the limit, for load() and loadAll() alike, instead of a stack overflow. Documents within the limit load exactly as before, each document of a stream is measured on its own, and a caller can pass a lower or higher maxDepth. Add tests."
+}

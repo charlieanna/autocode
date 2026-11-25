@@ -1,0 +1,6 @@
+{
+  "title": "Convert float strings such as \"10.9\" to integer types",
+  "html_url": "https://github.com/spf13/cast/pull/261",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR spf13/cast#261, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "cast converts the string \"10.0\" to the integer 10, but returns an error for a string with a nonzero fraction such as \"10.9\", \"-2.5\" or \"3.\", and for a json.Number such as \"7.9\". Support them: the integer conversions (ToInt, ToInt8 to ToInt64, ToUint, ToUint8 to ToUint64 and their E variants) must convert a decimal string or json.Number by dropping its fractional part, truncating toward zero (\"10.9\" is 10, \"-2.5\" is -2). Whole numbers, hexadecimal strings, the empty string and strings that are not numbers must convert exactly as before. ToTime and ToTimeE must keep their current behavior for a json.Number: a whole number such as \"1700000000.0\" is still a Unix time, and one with a fraction such as \"7.9\" is still an error. Add tests."
+}

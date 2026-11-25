@@ -1,0 +1,6 @@
+{
+  "title": "Compare versions by SemVer precedence, ignoring build metadata",
+  "html_url": "https://github.com/dtolnay/semver/pull/305",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR dtolnay/semver#305, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "semver::Version implements Ord as a total order that also compares build metadata, so 1.2.3+a sorts before 1.2.3+b. The SemVer specification's precedence ignores build metadata, and callers have no way to compare by it. Add a public method Version::cmp_precedence(&self, other: &Self) -> std::cmp::Ordering that compares major, minor, patch and pre-release exactly as Ord does but ignores build metadata, so versions that differ only in build metadata compare Equal. It must be usable as a sort_by comparator (versions.sort_by(Version::cmp_precedence)), which as a stable sort keeps such versions in their original order. Ord, PartialEq and every other comparison must not change. Document it with an example and add tests."
+}

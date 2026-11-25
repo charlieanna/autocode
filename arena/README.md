@@ -1,7 +1,9 @@
 # Arena project catalog
 
 The [catalog](catalog.json) contains eight original pinned open-source bug cases: three
-starter Python cases and five hard cases across Python, TypeScript and Go.
+starter Python cases and five hard cases across Python, TypeScript and Go. Ten
+`kinds` cases add one feature and one refactor in each of Python, JavaScript, Go,
+Rust and Java.
 It also declares a separate corrected TypeScript successor. Original case
 definitions and results remain independent of that successor.
 
@@ -18,6 +20,16 @@ definitions and results remain independent of that successor.
 - **pytest:** fixture cleanup and plugin error reporting after early stops; the fix crosses session state and the execution protocol.
 - **TypeScript:** correlated union tags and payloads after destructuring, with assignment and error-preservation boundaries.
 - **Go:** HTTP/2 canceled stream capacity, health acknowledgments, strict admission, healthy reuse and dead connection replacement.
+
+## Feature and refactor cases
+
+Each `kinds` case names its `kind` (`feature` or `refactor`) and `language` in the
+catalog. The [real-repo sweep](../docs/real-repo-sweep.md#what-is-pinned) lists them.
+A feature's oracle checks the new behavior; a refactor's oracle checks that
+results pinned from the base commit are unchanged and that the duplication its
+request names is gone. Three come from upstream commits that had no pull request
+or issue; their `issue_ref` is `owner/repo@COMMIT` and their brief names only the
+repository, not the commit.
 
 Difficulty describes the interacting behaviors in these selected issues. These
 cases are public historical exercises; their fixes are discoverable. They do not
