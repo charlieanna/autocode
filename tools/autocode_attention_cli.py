@@ -29,7 +29,8 @@ def cli(argv):
         if prior.get("state") == "acknowledged":
             print(json.dumps({"version": 1, "acknowledged": True, "receipt": prior["receipt"], "reconciled": True}))
             return 0
-        run = TaskRun(Path(args.workspace), Path(args.run_dir), timeout=5)
+        # A local status read that launches no model; the caller bounds the whole command.
+        run = TaskRun(Path(args.workspace), Path(args.run_dir))
         view = run.status()
         current = view.get("attention") or {}
         item = current.get("item") or {}

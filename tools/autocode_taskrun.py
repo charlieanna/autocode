@@ -446,7 +446,7 @@ class TaskRun:
                 [*self.command, *action.argv],
                 env={**os.environ, **(self.env or {})},
                 cwd=self.cwd,
-                timeout=self.timeout or 5,
+                timeout=self.timeout,  # like every other read: it holds a full status read (attention ack)
                 advancing=False,
             )
             result = json.loads(proc.stdout)
