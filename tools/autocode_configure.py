@@ -1115,7 +1115,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
     if getattr(args, "conversation_handoff", None):
         planner_routes.configure_runner_profile(settings, args)
-    role_transport.configure(settings, args, state["workspace"])
+    _configure_transports(settings, args, state["workspace"])
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
     if adaptive.new_run_setting(
@@ -1204,6 +1204,15 @@ def _selected_effort(settings, role):
     """The level --auto-select chose, None when it left the model's default."""
     route = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
     return route.get("reasoning_effort") if route.get("origin") == role_route.AUTO_SELECTED else None
+
+
+def _configure_transports(settings, args, workspace):
+    """Bind the roles a new run runs on another tool, and keep the launch's second-vendor decision as evidence."""
+    role_transport.configure(settings, args, workspace)
+    moved = getattr(args, "_second_vendor", None)
+    if moved:
+        # Why the checks moved (autocode_second_vendor), as the run's settings show it to reviewers and the report.
+        settings["second_vendor"] = {key: moved[key] for key in ("provider", "roles", "kept", "reason")}
 
 
 def configure_joint(settings, args, *, fresh, planning, opencode=None):

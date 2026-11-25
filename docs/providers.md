@@ -662,12 +662,14 @@ second vendor checks the work ([checks by a second vendor](models.md#checks-by-a
 npm install -g @google/gemini-cli
 gemini                                 # once: choose Sign in with Google, then type /quit
 autocode doctor                        # engine:gemini says signed in, or what to fix
-autocode "Add a --json flag" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro
+autocode "Add a --json flag" --engine claude    # Gemini checks the work by itself
 autocode "Add a --json flag" --provider gemini
 ```
 
-`autocode setup` lists a signed-in Gemini CLI, and when new runs use Claude Code it prints the
-command above. A run that names no backend takes Gemini CLI only when OpenCode, Claude Code, Codex
+With Gemini CLI signed in, a new Claude Code run moves its Plan Reviewer, Tester and Completion
+Reviewer to Gemini 2.5 Pro by itself, and a new Gemini run moves them to Claude Code when it is
+signed in ([checks by a second vendor](models.md#checks-by-a-second-vendor)); `autocode setup` says
+so. `--role-transport tester=gemini --tester-model gemini-2.5-pro` moves only the stages you name. A run that names no backend takes Gemini CLI only when OpenCode, Claude Code, Codex
 and Kilo are all absent or signed out ([default engine](#default-provider)).
 
 Default routes: Gemini 3.5 Flash (`gemini-3.5-flash`) writes requirements, plans and builds; Gemini

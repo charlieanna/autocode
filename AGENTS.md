@@ -274,7 +274,10 @@ CLI, on a Google sign-in (a Gemini subscription), mainly as a second vendor that
 run's work: `--role-transport tester=gemini` puts the Tester on it, and `--provider gemini` runs every
 stage on it (`tools/providers/gemini.py`). Setup, doctor and connections detect it, including a Google
 Workspace account that needs `GOOGLE_CLOUD_PROJECT`. It takes only Sign in with Google, never an API
-key or Vertex. It is taken for a run that names no backend only after the other four.
+key or Vertex. It is taken for a run that names no backend only after the other four. A new run on Claude Code with
+Gemini CLI also signed in, or on Gemini CLI with Claude Code signed in, runs its Plan Reviewer, Tester and
+Completion Reviewer on the other tool by itself (`tools/autocode_second_vendor.py`), unless the person chose
+those stages' models; the decision is the run's evidence, never a question.
 
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
