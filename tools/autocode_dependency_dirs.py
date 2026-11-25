@@ -56,7 +56,7 @@ def expose(original, target, view, *, live=(), tree=None) -> dict:
     Without ``live`` a virtualenv is linked whole, as before.
     """
     original, target, view = Path(original), Path(target), Path(view)
-    record = {"relinked": [], "rewritten": []}
+    record: dict[str, list] = {"relinked": [], "rewritten": []}
     if original.name != "node_modules":
         if not live or tree is None:
             target.symlink_to(original, target_is_directory=True)
@@ -84,7 +84,7 @@ def _forms(path) -> list[str]:
 def _pairs(live, tree, extra=()) -> list[tuple[str, str]]:
     """(live prefix, copy prefix) pairs, longest first: ``extra`` (a virtualenv and the copy's link to it),
     then each live root, which maps to ``tree``."""
-    pairs = {}
+    pairs: dict[str, str] = {}
     for source, copy in (*extra, *((root, tree) for root in live)):
         for form in _forms(source):
             pairs.setdefault(form, os.path.normpath(Path(copy).absolute()))
