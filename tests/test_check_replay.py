@@ -881,8 +881,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual("PASS", replay["verdict"])
         self.assertEqual(state["validation"]["source_revision"], replay["source_revision"])
         self.assertEqual([0], [row["exit_code"] for row in replay["checks"]])
-        self.assertIn("unittest", replay["checks"][0]["command"])
-        self.assertIn("test_greeting", replay["checks"][0]["command"])
+        self.assertIn("greet.py", replay["checks"][0]["command"])
 
     def test_a_tester_whose_check_does_not_reproduce_runs_again_and_the_run_completes(self):
         # A live Tester cited `cd ../web && npm test`, which passed only from where its last command had left
@@ -906,8 +905,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(view["done"])
         replay = view["evidence"]["check_replay"]
         self.assertEqual(("PASS", [0]), (replay["verdict"], [row["exit_code"] for row in replay["checks"]]))
-        self.assertIn("unittest", replay["checks"][0]["command"])
-        self.assertIn("test_greeting", replay["checks"][0]["command"])
+        self.assertIn("greet.py", replay["checks"][0]["command"])
 
     def test_a_check_that_passes_only_in_the_validators_session_never_completes(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="1")

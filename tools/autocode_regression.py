@@ -1296,7 +1296,7 @@ def _listed_tests(looking, changes, roles, framework, workspace, base, out, depe
         finally:
             verify.remove_tree(workspace, tree)
         finished = verify.command_receipt.completed(receipt) and not receipt.get("timed_out")
-        if not verify.source_binding.established(receipt):
+        if verify.source_binding.reasons({"guard": receipt}):
             return None
         return receipt.get("exit_code") if finished else None
 

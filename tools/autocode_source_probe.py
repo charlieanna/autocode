@@ -256,7 +256,7 @@ def _go(request):
     if directories or code != 0:
         if module and module != "/dev/null":
             observations.append({"kind": "go_module", "path": module, "role": "root"})
-        if gowork:
+        if gowork and gowork != "off":  # GOWORK=off is Go's switch for "no workspace", not a path
             observations.append({"kind": "go_module", "path": gowork, "role": "root"})
     sources = []
     for value in directories:

@@ -73,16 +73,19 @@ class NodeProtectedReplayTests(unittest.TestCase):
     def replay(self, root):
         return guard.replay(self.state, root, self.run_dir / "replays", verify.scratch_run, timeout=60)
 
-    def test_an_opaque_build_step_cannot_supply_source_resolution_for_protected_replay(self):
+    def test_original_replay_builds_the_same_package_before_running_selected_tests(self):
+        # The build step is a blind spot for the source observer: it is recorded, and the replay keeps its result
+        # (owner decision 2026-11-25, "hold only observed escapes").
         root = self.prepare(fixture.JS_ORIGINAL, build=True)
-        with self.assertRaises(guard.commands.OriginalGateUndetermined) as stopped:
-            self.replay(root)
-        self.assertIn("could not establish a result", str(stopped.exception))
-        receipt = stopped.exception.receipt
-        self.assertEqual("NOT_VERIFIED", receipt["verdict"])
+        result = self.replay(root)
+        self.assertEqual("PASS", result["verdict"])
+        self.assertEqual(
+            ["tests/shipping.test.js::a small order pays the fee"], result["original"]["results"]["passed"]
+        )
         for half in ("candidate", "original"):
-            self.assertEqual("unverified", receipt[half]["source_binding"]["status"], receipt[half])
-            self.assertIn("literal test invocation", receipt[half]["source_binding"]["reason"])
+            binding = result[half]["source_binding"]
+            self.assertEqual("unobserved", binding["status"], result[half])
+            self.assertIn("literal test invocation", binding["reason"])
 
     def test_node_checks_ignore_the_parent_test_context(self):
         root = self.prepare(fixture.JS_ORIGINAL)

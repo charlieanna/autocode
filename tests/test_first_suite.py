@@ -202,9 +202,9 @@ class FirstPythonSuiteTests(unittest.TestCase):
         result = self.prove(
             {"README.md": "A new project.\n", "inventory/__init__.py": "", "tests/conftest.py": conftest}
         )
-        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-        self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
-        self.assertFalse(any("no executable source" in note for note in result["notes"]), result["notes"])
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertFalse(result["unverified"], result)
+        self.assertTrue(any("no executable source" in note for note in result["notes"]), result["notes"])
 
     def test_a_conftest_beside_existing_code_or_tests_still_requires_preservation(self):
         conftest = "import sys\n"

@@ -1860,15 +1860,9 @@ class VerifyCase(unittest.TestCase):
                 result = project.verify(new_behavior=True)
                 self.assertEqual("npm test --silent", result["commands"]["suite"], result)
                 self.assertEqual(["test/feature.test.js::mul"], result["fail_to_pass"], result)
-                if tail:
-                    self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-                    self.assertEqual([], result["failures"], result)
-                    self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
-                    self.assertNotIn("suite_base_definition_on_candidate", result["checks"], result)
-                else:
-                    self.assertEqual(verify.FAIL, result["verdict"], result)
-                    self.assertEqual(failures, result["failures"], result)
-                    self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertEqual(failures, result["failures"], result)
+                self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_the_same_break_without_narrowing_the_script_still_fails(self):
@@ -1882,13 +1876,8 @@ class VerifyCase(unittest.TestCase):
                 project = self.project(seed)
                 project.write(candidate)
                 result = project.verify(new_behavior=True)
-                if tail:
-                    self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-                    self.assertEqual([], result["failures"], result)
-                    self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
-                else:
-                    self.assertEqual(verify.FAIL, result["verdict"], result)
-                    self.assertTrue(any(failure in reason for reason in result["failures"]), result)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertTrue(any(failure in reason for reason in result["failures"]), result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_a_package_json_change_that_leaves_scripts_alone_still_passes(self):
@@ -2058,10 +2047,9 @@ class VerifyCase(unittest.TestCase):
                 self.assertEqual(0, base_suite["receipt"]["exit_code"], base_suite)
                 self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
                 self.assertEqual(1, old_on_candidate.returncode, old_on_candidate.stdout + old_on_candidate.stderr)
-                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-                self.assertEqual([], result["failures"], result)
-                self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
-                self.assertNotIn("suite_base_definition_on_candidate", result["checks"], result)
+                self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
+                self.assertEqual(verify.FAIL, result["verdict"], result)
+                self.assertTrue(any("base suite definition" in reason for reason in result["failures"]), result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_cd_prefixed_shell_runner_cannot_hide_a_break(self):
@@ -2093,7 +2081,7 @@ class VerifyCase(unittest.TestCase):
                     "lib/test/feature.test.js": feature_test,
                 }
                 project, base_suite, result = self.node_verify(seed, candidate, suite_command=command)
-                self.assert_opaque_base_definition_is_unverified(base_suite, result)
+                self.assert_base_definition_fails(base_suite, result)
 
     def node_verify(self, seed, candidate, *, suite_command="npm test --silent"):
         """Baseline then verify over a Node fixture; returns (project, base_suite, result)."""
@@ -2115,14 +2103,17 @@ class VerifyCase(unittest.TestCase):
         )
         return project, base_suite, result
 
-    def assert_opaque_base_definition_is_unverified(self, base_suite, result):
-        """An opaque base definition can neither prove nor disprove the narrowed suite."""
-        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-        self.assertEqual([], result["failures"], result)
-        self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
+    def assert_base_definition_fails(self, base_suite, result):
+        """A passing base and candidate suite whose base definition fails on candidate code.
+
+        The verdict is asserted before the base-definition receipt: without the fix the
+        verdict itself is wrong (the bug), which fails the test before any key the fix
+        records is consulted."""
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertTrue(any("base suite definition" in reason for reason in result["failures"]), result)
         self.assertEqual(0, base_suite["receipt"]["exit_code"], base_suite)
         self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
-        self.assertNotIn("suite_base_definition_on_candidate", result["checks"], result)
+        self.assertEqual(1, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
 
     def test_js_scan_masks_line_and_block_comments(self):
         # #652 G6: comment masking never fired — both slices were one character long, so
@@ -2157,7 +2148,7 @@ class VerifyCase(unittest.TestCase):
         # run used to start only when the base was green, so this case passed; a red base
         # cannot anchor preservation, and missing evidence is UNVERIFIED, never PASS.
         for tail, reason in (
-            (self.UNNAMED, "source resolution"),
+            (self.UNNAMED, "base suite is not green"),
             ("", "The base suite provided no complete passing-test evidence"),
         ):
             with self.subTest(tail=tail):
@@ -2346,7 +2337,7 @@ class VerifyCase(unittest.TestCase):
     def test_t1_edited_runner_file_cannot_hide_a_break_from_the_suite(self):
         seed, candidate = self._runner_suite_fixture()
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t2_narrowed_transitive_script_cannot_hide_a_break(self):
@@ -2365,7 +2356,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t3_workspace_script_narrowing_cannot_hide_a_break(self):
@@ -2381,7 +2372,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate, suite_command="npm test --workspaces --silent")
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t4_package_field_narrowing_cannot_hide_a_break(self):
@@ -2398,7 +2389,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t5_npmrc_script_shell_cannot_hide_a_break(self):
@@ -2413,7 +2404,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t6_unrecognized_command_shape_cannot_hide_a_break(self):
@@ -2428,7 +2419,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate, suite_command="CI=1 npm test")
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t7_broadened_suite_definition_still_verifies(self):
@@ -2466,12 +2457,6 @@ class VerifyCase(unittest.TestCase):
                 }
                 project, base_suite, result = self.node_verify(seed, candidate)
                 self.assertEqual(0, base_suite["receipt"]["exit_code"])
-                if tail:
-                    self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-                    self.assertEqual([], result["failures"])
-                    self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
-                    self.assertNotIn("suite_base_definition_on_candidate", result["checks"], result)
-                    continue
                 self.assertEqual(1, result["checks"]["suite_on_candidate"]["exit_code"], result)
                 self.assertEqual(verify.FAIL, result["verdict"], result)
                 self.assertTrue(any(failure in reason for reason in result["failures"]), result)
@@ -2492,11 +2477,11 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t10_unrecognized_command_shapes_all_run_the_base_definition(self):
-        commands = ["sh -c 'npm test'", "node --run test", "cd web && npm test"]
+        commands = ["sh -c 'npm test'", "node --run test", "npm --prefix . test", "cd web && npm test"]
         if shutil.which("timeout"):
             commands = ["timeout 120 npm test"] + commands
         for suite_command in commands:
@@ -2513,20 +2498,7 @@ class VerifyCase(unittest.TestCase):
                     prefix + "test/feature.test.js": self.MUL_TEST,
                 }
                 project, base_suite, result = self.node_verify(seed, candidate, suite_command=suite_command)
-                self.assert_opaque_base_definition_is_unverified(base_suite, result)
-        seed = {
-            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
-            "calc.js": self.ADD_ONLY,
-            "test/calc.test.js": self.ADD_TEST,
-        }
-        candidate = {
-            "calc.js": self.ADD_BROKEN,
-            "package.json": json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
-            "test/feature.test.js": self.MUL_TEST,
-        }
-        _project, base_suite, result = self.node_verify(seed, candidate, suite_command="npm --prefix . test")
-        self.assertEqual(verify.FAIL, result["verdict"], result)
-        self.assertTrue(any("base suite definition" in reason for reason in result["failures"]), result)
+                self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t11_transitive_script_variants_cannot_hide_a_break(self):
@@ -2563,7 +2535,7 @@ class VerifyCase(unittest.TestCase):
                 project, base_suite, result = self.node_verify(
                     seed, {"calc.js": self.ADD_BROKEN, "test/feature.test.js": self.MUL_TEST, **package_change}
                 )
-                self.assert_opaque_base_definition_is_unverified(base_suite, result)
+                self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(
         shutil.which("node") and shutil.which("npm") and shutil.which("pnpm"), "Node, npm and pnpm are required"
@@ -2581,7 +2553,7 @@ class VerifyCase(unittest.TestCase):
             "web/test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate, suite_command="pnpm -r test")
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     def base_definition_fault(self, receipt):
         """Inject a base-definition fault through an otherwise source-observable suite."""
@@ -2694,7 +2666,7 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertEqual([], result["failures"], result)
-        self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
+        self.assertTrue(any("base suite definition" in reason for reason in result["unverified"]), result)
         self.assertNotIn("suite_base_definition_on_candidate", result["checks"], result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
@@ -2717,7 +2689,7 @@ class VerifyCase(unittest.TestCase):
             ),
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node"), "Node is required")
     def test_t17_shell_runner_command_runs_the_base_definition(self):
@@ -2733,7 +2705,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate, suite_command="sh test/run.sh")
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     def test_selector_paths_follow_literals_and_dirname_joins(self):
         text = (
@@ -2769,7 +2741,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_data_file_selector_cannot_hide_a_break(self):
@@ -2793,7 +2765,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_runner_config_selector_cannot_hide_a_break(self):
@@ -2817,7 +2789,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t18_pretest_deleting_the_old_test_cannot_hide_a_break(self):
@@ -2832,7 +2804,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t19_npm_package_config_narrowing_cannot_hide_a_break(self):
@@ -2857,7 +2829,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t20_files_field_narrowing_cannot_hide_a_break(self):
@@ -2874,7 +2846,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MUL_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t21_npmrc_node_options_name_pattern_cannot_hide_a_break(self):
@@ -2889,7 +2861,7 @@ class VerifyCase(unittest.TestCase):
             "test/feature.test.js": self.MULTIPLICATION_TEST,
         }
         project, base_suite, result = self.node_verify(seed, candidate)
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t22_harmless_suite_broadenings_still_verify(self):
@@ -2919,13 +2891,10 @@ class VerifyCase(unittest.TestCase):
         for form, candidate in forms.items():
             with self.subTest(form=form):
                 project, base_suite, result = self.node_verify(seed, candidate)
-                if form == "A":
-                    self.assertEqual(verify.PASS, result["verdict"], result)
-                    self.assertEqual(0, base_suite["receipt"]["exit_code"])
-                    self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
-                    self.assertEqual(0, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
-                else:
-                    self.assert_opaque_base_definition_is_unverified(base_suite, result)
+                self.assertEqual(verify.PASS, result["verdict"], result)
+                self.assertEqual(0, base_suite["receipt"]["exit_code"])
+                self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"], result)
+                self.assertEqual(0, result["checks"]["suite_base_definition_on_candidate"]["exit_code"], result)
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
     def test_t23_patched_base_selector_edit_cannot_hide_a_break(self):
@@ -2979,7 +2948,7 @@ class VerifyCase(unittest.TestCase):
             new_behavior=True,
             base_patch=patch,
         )
-        self.assert_opaque_base_definition_is_unverified(base_suite, result)
+        self.assert_base_definition_fails(base_suite, result)
 
     def test_a_test_file_the_detected_suite_cannot_run_names_that_suite(self):
         # #2609: the refusal must show the binding, so a wrong suite does not read as bad tests.
@@ -3301,11 +3270,11 @@ class VerifyCase(unittest.TestCase):
         project.write({"tools/status.py": candidate, "tests/test_status.py": header + old_test + new_test})
         with mock.patch.dict(os.environ, {"PYTHONPATH": str(site)}):
             result = project.verify()
-            self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-            self.assertTrue(any("source resolution" in reason for reason in result["unverified"]), result)
+            self.assertEqual(verify.PASS, result["verdict"], result)
+            self.assertEqual(["tests.test_status.Status.test_running"], result["fail_to_pass"])
             project.write({"tools/status.py": candidate.replace("'RUNNING'", "'BROKEN'")})
             broken = project.verify()
-            self.assertEqual(verify.UNVERIFIED, broken["verdict"], broken)
+            self.assertEqual(verify.FAIL, broken["verdict"])
             self.assertIn("'BROKEN'", broken["checks"]["regression_on_candidate"]["tail"])
 
     def test_pth_fallthrough_cannot_supply_base_or_candidate_proof(self):
@@ -3342,9 +3311,15 @@ class VerifyCase(unittest.TestCase):
             result = project.verify()
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertTrue(any("Runner source resolution is not established" in reason for reason in result["unverified"]))
-        self.assertEqual("unverified", result["checks"]["regression_on_candidate"]["source_binding"]["status"])
-        self.assertIn("sitecustomize", result["checks"]["regression_on_candidate"]["source_binding"]["reason"])
-        self.assertNotIn("regression_on_base", result["checks"])
+        # The candidate copy holds `leaked`, so the observer sees nothing escape there: the unseen startup hook is
+        # recorded and does not hold. On the original code the same hook loads `leaked` from the live workspace,
+        # an observed escape, so the base run supplies no proof (owner decision 2026-11-25).
+        candidate = result["checks"]["regression_on_candidate"]["source_binding"]
+        self.assertEqual(("unobserved", True), (candidate["status"], "sitecustomize" in candidate["reason"]))
+        base = result["checks"]["regression_on_base"]["source_binding"]
+        self.assertEqual("unverified", base["status"], base)
+        self.assertIn("resolved into the live workspace", base["reason"])
+        self.assertEqual([], result["failures"], result)
 
     def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
         with tempfile.TemporaryDirectory() as temp:

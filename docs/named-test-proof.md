@@ -508,12 +508,12 @@ mutations active at that statement, and that context follows into imported modul
 Path changes in `conftest.py` or imported source, cross-module path changes,
 reassignment of the bootstrap names, aliased or computed access to import
 machinery, `from sys import path`, and mutations of `meta_path`,
-`path_hooks`, built-in imports or dynamic loaders stay `UNVERIFIED`. Ordinary
+`path_hooks`, built-in imports or dynamic loaders are blind spots (below). Ordinary
 `env NAME=value` prefixes remain part of the Python observation environment.
 The owned component/repository collector is modeled as its separate root, family
 and isolated member interpreter contexts. Markerless member namespaces retain
-that context, and a parent `load_tests` hook or an unobserved mutation holds the
-family. Multiple files in one interpreter may share identical deterministic path
+that context, and a parent `load_tests` hook or an unobserved mutation is a blind
+spot for the family. Multiple files in one interpreter may share identical deterministic path
 bootstraps; different mutations, or a mixture of mutating and non-mutating files,
 remain order-uncertain.
 
@@ -524,7 +524,7 @@ preload is supported only for `--require`/`-r` files inside the owning root whos
 top-level assignments set JSON values on explicit globals. Other options, scripts
 before `--test`, conditions, loaders, custom reporters, global setup, dynamic
 loaders, resolver monkey-patching, aliased `require`, `module.paths`,
-`require.cache`, `NODE_PATH` changes and child-process execution stay `UNVERIFIED`.
+`require.cache`, `NODE_PATH` changes and child-process execution are blind spots.
 Explicit tests under `node_modules` cannot be mistaken for owned source.
 
 Go observes its module and transitive package directories, distinguishing
@@ -532,12 +532,12 @@ toolchain/module-cache dependencies from local source and replacements.
 `GOFLAGS` is classified (safe build-version-control, parallelism and trim-path
 flags are neutral), as are `GOWORK`, `-modfile` roots and dynamic plugins;
 configured workspace/modfile roots outside the copy, other configured flags and
-unobserved plugin loading stay `UNVERIFIED`.
+unobserved plugin loading are blind spots.
 
 A plain literal npm test is observed through the direct Node command it rewrites
 to; `package.json` is hash-bound across that classification. Opaque scripts,
 build/lifecycle steps, non-root package-prefix invocations, package-local npm
-configuration and workspace fan-out stay `UNVERIFIED`. A first empty Node project can establish
+configuration and workspace fan-out are blind spots. A first empty Node project can establish
 its own root through a plain package-less npm test. An explicit test selector that
 is absent on the original code is neutral source evidence, not a named test pass.
 Expected missing Python/Node
@@ -556,6 +556,13 @@ against its own receipt. Raw commands and runners outside Python, Node and Go ma
 carry a recorded `UNVERIFIED` binding for disclosure, but this phase does not use
 it to change their existing proof admission. A later integrity check
 recomputes the boundary answer from those bytes.
+
+A blind spot is what the observer could not see: an opaque npm script, `NODE_OPTIONS`,
+a dynamic loader, an aliased import machinery call, source that does not parse, an absent
+pytest. The binding records it as `unobserved` with its reason, and the proof keeps its
+existing admission (`autocode_source_binding.holds`). A blind spot is not evidence that
+source came from outside the copy, and holding it paused ordinary Jest, Vitest, pytest and
+syntax-repair runs for the person, so only what the observer saw holds a proof.
 
 A required test, root or source origin outside the owning copy makes the proof
 `UNVERIFIED`, before timeout, ownership, merged-suite, failed-name or exit-code

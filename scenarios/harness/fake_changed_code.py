@@ -83,10 +83,7 @@ def _review_data(data):
 
 
 STOCK_SOURCE = "ab756c8dc262940703efb13321038874624b89f55bb946bd403897e22da7b9d0"
-STOCK_TESTS = {
-    "f16ce9d71d25577c9df3b74ba30b680fba7ec85a46204f09f405a8a161aa1e30",
-    "7bf7b5895d2fb32e17e20cd79ac8fb7233c8a8dbceace3d0ec5e8713e2c9912e",
-}
+STOCK_TESTS = "f16ce9d71d25577c9df3b74ba30b680fba7ec85a46204f09f405a8a161aa1e30"
 STOCK_DOCUMENTATION = b"\n# Transfers retain the existing validation rules.\n"
 STOCK_REASONS = {
     70: "The on-hand lookup has no supported mutation. The move/remove tests assert exact remaining quantities and refuse overdraw without changing stored bytes; omitting or replacing this lookup breaks those CLI results.",
@@ -134,7 +131,7 @@ def _stock(data, root):
             and hashlib.sha256(source[: -len(STOCK_DOCUMENTATION)]).hexdigest() == STOCK_SOURCE
         ):
             return []
-        if hashlib.sha256((root / "tests/test_stock.py").read_bytes()).hexdigest() not in STOCK_TESTS:
+        if hashlib.sha256((root / "tests/test_stock.py").read_bytes()).hexdigest() != STOCK_TESTS:
             return []
     except OSError:
         return []
@@ -224,7 +221,6 @@ TODO_TESTS = {
     "4e7e88535f8ba0fe9fd8da156b765a5e73c05ce089f2a57724ad197670a6a41f",
     "6bfa929115834bdcfea62c390a2430d59f95a92f24abb7dc5df43bc64cea8cd9",
     "4ed0d9a54534253b1682f9a034b244ab082a24fdad19d26f802dcf703fe80b9b",
-    "5905d19a420d22f893c4c84f5e03aca3028f497d56513d9384839422b5979948",
 }
 _TODO_IMPORT = (
     "No supported import mutation. Every command test runs a fresh todo.py entry point; without this import the "

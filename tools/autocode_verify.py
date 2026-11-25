@@ -1632,14 +1632,12 @@ def scratch_run(
                 ):
                     return receipt
             else:
-                receipt = suite(
-                    None,
-                    command,
-                    tree,
-                    run_dir,
-                    "scratch-command",
-                    timeout=timeout,
-                    native_execution=native_execution,
+                # A native check runs exactly the command it planned; any other is observed like a suite.
+                log = run_dir / "scratch-command.log"
+                receipt = (
+                    suite(None, command, tree, run_dir, "scratch-command", timeout=timeout)
+                    if native_execution is None
+                    else run_command(command, tree, log, timeout=timeout, native_execution=native_execution)
                 )
                 receipt["results"] = None
                 try:

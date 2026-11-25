@@ -215,8 +215,22 @@ class SourceBindingTests(unittest.TestCase):
         safe = self.probe("go", "go test ./...", env={"GOFLAGS": "-buildvcs=false -p=4"})
         self.assertEqual("established", safe["status"], safe)
         unsafe = self.probe("go", "go test ./...", env={"GOFLAGS": "-overlay=/tmp/overlay"})
-        self.assertEqual("unverified", unsafe["status"], unsafe)
+        self.assertEqual(source_binding.UNOBSERVED, unsafe["status"], unsafe)
         self.assertIn("GOFLAGS", unsafe["reason"])
+
+    @unittest.skipUnless(shutil.which("go"), "Go is not installed")
+    def test_gowork_off_names_no_workspace_root(self):
+        self.write(
+            self.tree,
+            {
+                "go.mod": "module example.test/fixture\n\ngo 1.21\n",
+                "app.go": "package fixture\n",
+                "app_test.go": "package fixture\n",
+            },
+        )
+        result = self.probe("go", "go test ./...", env={"GOWORK": "off"})
+        self.assertEqual("established", result["status"], result)
+        self.assertFalse(any(str(row.get("path")).endswith("/off") for row in result["observations"]), result)
 
     @unittest.skipUnless(shutil.which("go"), "Go is not installed")
     def test_go_local_replacement_outside_the_copy_is_unverified(self):
@@ -316,7 +330,7 @@ class SourceBindingTests(unittest.TestCase):
                     {"src/app.py": "VALUE = 1\n", "tests/test_app.py": source},
                 )
                 result = self.probe("unittest", f"{sys.executable} -m unittest tests/test_app.py -v")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertIn("import-path mutation", result["reason"])
 
     def test_python_bootstrap_into_the_live_workspace_is_unverified(self):
@@ -386,7 +400,7 @@ class SourceBindingTests(unittest.TestCase):
         for command in ("node --conditions=custom --test app.test.js", "node --test node_modules/pkg/index.js"):
             with self.subTest(command=command):
                 result = self.probe("node", command)
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertTrue(result["reason"])
 
     def test_pytest_configuration_origin_and_pythonpath_are_observed(self):
@@ -411,7 +425,7 @@ class SourceBindingTests(unittest.TestCase):
             },
         )
         result = self.probe("pytest", f"{sys.executable} -m pytest -q -p no:cacheprovider test_app.py")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("source_plugin", result["reason"])
         self.assertNotIn("no:cacheprovider", result["reason"])
 
@@ -437,7 +451,7 @@ class SourceBindingTests(unittest.TestCase):
             source_workspace=self.workspace,
         )
         self.assertEqual(0, receipt["exit_code"], receipt["tail"])
-        self.assertEqual("unverified", receipt["source_binding"]["status"], receipt["source_binding"])
+        self.assertEqual(source_binding.UNOBSERVED, receipt["source_binding"]["status"], receipt["source_binding"])
         self.assertIn("literal test invocation", receipt["source_binding"]["reason"])
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
@@ -470,7 +484,7 @@ class SourceBindingTests(unittest.TestCase):
     def test_node_script_cannot_masquerade_as_the_test_runner(self):
         self.write(self.tree, {"run.js": "require('node:test');\n"})
         result = self.probe("node", "node run.js --test")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("executes a script", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
@@ -494,7 +508,7 @@ class SourceBindingTests(unittest.TestCase):
             with self.subTest(preload=preload):
                 (self.tree / "setup.cjs").write_text(preload)
                 result = self.probe("node", "node -r ./setup.cjs --test app.test.cjs")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
 
     def test_python_bootstrap_context_reaches_imported_modules(self):
         self.write(self.workspace, {"leaked.py": "VALUE = 1\n"})
@@ -529,7 +543,7 @@ class SourceBindingTests(unittest.TestCase):
             },
         )
         result = self.probe("unittest", f"{sys.executable} -m unittest test_app -v")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("cross-module", result["reason"])
 
     def collector_command(self):
@@ -608,7 +622,7 @@ class SourceBindingTests(unittest.TestCase):
             },
         )
         result = self.probe("unittest", self.collector_command())
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("cross-module", result["reason"])
 
     def test_python_indirect_import_machinery_mutation_is_held(self):
@@ -623,7 +637,7 @@ class SourceBindingTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.write(self.tree, {"test_app.py": source})
                 result = self.probe("unittest", f"{sys.executable} -m unittest test_app -v")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertIn("import", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
@@ -709,14 +723,14 @@ class SourceBindingTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.write(self.tree, {"app.test.cjs": source})
                 result = self.probe("node", "node --test app.test.cjs")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertIn("dynamic source resolution", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
     def test_node_invalid_short_require_equals_is_held(self):
         self.write(self.tree, {"setup.cjs": "globalThis.ready=true;\n", "app.test.cjs": ""})
         result = self.probe("node", "node -r=./setup.cjs --test app.test.cjs")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("short require equals", result["reason"])
 
     def test_pth_fallthrough_to_live_source_is_unverified(self):
@@ -812,7 +826,7 @@ class SourceBindingTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.write(self.tree, {"app.py": "VALUE = 1\n", "tests/test_app.py": source})
                 result = self.probe("unittest", f"{sys.executable} -m unittest tests/test_app.py -v")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertIn("not observed", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
@@ -829,7 +843,7 @@ class SourceBindingTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.write(self.tree, {"app.test.js": source})
                 result = self.probe("node", "node --test app.test.js")
-                self.assertEqual("unverified", result["status"], result)
+                self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
                 self.assertIn("dynamic source resolution", result["reason"])
 
     @unittest.skipUnless(shutil.which("go"), "Go is not installed")
@@ -1208,7 +1222,7 @@ class SourceBindingTests(unittest.TestCase):
             {"test_app.py": "import importlib\n\ndef test_value():\n    importlib.import_module('app')\n"},
         )
         result = self.probe("unittest", f"{sys.executable} -m unittest test_app -v")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("dynamic source resolution", result["reason"])
 
     def test_runpy_dynamic_loading_is_not_silently_established(self):
@@ -1220,14 +1234,14 @@ class SourceBindingTests(unittest.TestCase):
             },
         )
         result = self.probe("unittest", f"{sys.executable} -m unittest test_app -v")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("dynamic source resolution", result["reason"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is not installed")
     def test_computed_node_imports_are_not_silently_established(self):
         self.write(self.tree, {"app.test.js": "const name = './app.js';\nrequire(name);\n"})
         result = self.probe("node", "node --test app.test.js")
-        self.assertEqual("unverified", result["status"], result)
+        self.assertEqual(source_binding.UNOBSERVED, result["status"], result)
         self.assertIn("dynamic source resolution", result["reason"])
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
@@ -1253,7 +1267,7 @@ class SourceBindingTests(unittest.TestCase):
             source_workspace=self.workspace,
         )
         self.assertEqual(0, receipt["exit_code"], receipt["tail"])
-        self.assertEqual("unverified", receipt["source_binding"]["status"], receipt["source_binding"])
+        self.assertEqual(source_binding.UNOBSERVED, receipt["source_binding"]["status"], receipt["source_binding"])
         self.assertIn("literal test invocation", receipt["source_binding"]["reason"])
 
 
@@ -1356,6 +1370,64 @@ class SourceHoldTests(unittest.TestCase):
         follow_up_proof.apply(proof, {"cases": [{"id": "keep", "test": "test_value"}]}, receipt, {})
         self.assertEqual([], proof["case_tests"]["keep"])
         self.assertTrue(any("live workspace source" in reason for reason in proof["unverified"]), proof)
+
+
+class BlindSpotTests(unittest.TestCase):
+    """Only what the observer saw holds a proof; what it could not see is disclosed and keeps admission."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.tree = Path(temporary.name) / "copy"
+        self.workspace = Path(temporary.name) / "workspace"
+        self.tree.mkdir()
+        self.workspace.mkdir()
+
+    def judged(self, errors, observations=()):
+        rows = [{"kind": "python_root", "role": "root", "path": str(self.tree)}, *observations]
+        return source_binding.assess({"observations": rows, "errors": list(errors)}, self.tree, self.workspace)
+
+    def held(self, binding):
+        return source_binding.reasons({"candidate": {"source_binding": binding, "source_binding_required": True}})
+
+    def test_a_blind_spot_is_disclosed_but_does_not_hold_the_proof(self):
+        for error in (
+            "the Node command is not a literal test invocation",
+            "NODE_OPTIONS source resolution is not observed",
+            "Python source could not be parsed: app.py: invalid syntax",
+            "pytest rootdir could not be observed: No module named '_pytest'",
+        ):
+            with self.subTest(error=error):
+                binding = {**self.judged([error]), "framework": "node"}
+                self.assertEqual(source_binding.UNOBSERVED, binding["status"])
+                self.assertIn(error, binding["reason"])
+                self.assertFalse(source_binding.applicable(binding))
+                self.assertEqual([], self.held(binding))
+
+    def test_source_seen_outside_the_copy_still_holds_the_proof(self):
+        outside = {"kind": "python_source", "role": "source", "path": str(self.workspace / "app.py")}
+        cases = {
+            "observed origin": self.judged(["NODE_OPTIONS source resolution is not observed"], [outside]),
+            "reported escape": self.judged([f"Python source names the live workspace directly: {self.workspace}"]),
+            "changed input": self.judged(["package.json changed after the test command was classified"]),
+            "incomplete probe": self.judged([source_binding.INCOMPLETE]),
+        }
+        for case, binding in cases.items():
+            with self.subTest(case=case):
+                binding = {**binding, "framework": "node"}
+                self.assertEqual("unverified", binding["status"], binding)
+                self.assertTrue(source_binding.applicable(binding))
+                self.assertTrue(self.held(binding))
+
+    def test_a_merged_run_holds_only_when_one_of_its_suites_is_held(self):
+        def suite(status):
+            binding = {"status": status, "framework": "unittest", "reason": status}
+            return {"command": "x", "execution_root": str(self.tree), "source_binding": binding}
+
+        blind = source_binding.merged([suite(source_binding.UNOBSERVED), suite(source_binding.UNOBSERVED)])
+        self.assertEqual(source_binding.UNOBSERVED, blind["status"])
+        mixed = source_binding.merged([suite(source_binding.UNOBSERVED), suite("unverified")])
+        self.assertEqual("unverified", mixed["status"])
 
 
 if __name__ == "__main__":

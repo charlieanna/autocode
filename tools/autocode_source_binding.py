@@ -39,6 +39,22 @@ PROBE_FILES = (
 )
 
 
+# A binding whose observer could not see where the runner resolved source, while it saw nothing
+# resolve outside the owning copy (owner decision 2026-11-25, "hold only observed escapes"). It is
+# disclosed in the receipt and keeps the proof's existing admission: only an observed escape, an
+# incomplete probe, or a missing, malformed or changed observation holds a proof.
+UNOBSERVED = "unobserved"
+INCOMPLETE = "the source-resolution probe did not complete normally"
+# What the observer reports when it saw source resolve outside the owning copy, or saw an input it
+# classified change before or while it observed it. Every other observer error says what it could not see.
+HOLDS = ("live workspace", "outside its owning copy", "outside its family", "changed after", "changed during")
+
+
+def holds(error):
+    """Whether one observation error reports an observed escape or a changed input, not a blind spot."""
+    return error == INCOMPLETE or any(marker in error for marker in HOLDS)
+
+
 def selected(label):
     return label.startswith(
         (
@@ -71,6 +87,8 @@ def applicable(binding):
     """Whether a binding belongs to a runner this phase is authorized to judge."""
     if not isinstance(binding, dict):
         return True
+    if binding.get("status") == UNOBSERVED:
+        return False
     children = binding.get("children")
     if isinstance(children, list):
         return any(applicable(child) for child in children)
@@ -218,16 +236,18 @@ def merged(receipts):
     failed = next((run for run in receipts if run.get("exit_code") or run.get("timed_out")), receipts[0])
     children = [receipt.get("source_binding") for receipt in receipts]
     first = failed.get("source_binding") or {}
+    unsettled = [index for index in range(1, len(receipts) + 1) if not established(receipts[index - 1])]
     reasons = [
-        f"suite {index}: " + (child.get("reason") if isinstance(child, dict) else "source binding is missing")
-        for index, child in enumerate(children, 1)
-        if not established(receipts[index - 1])
+        f"suite {index}: "
+        + (children[index - 1].get("reason") if isinstance(children[index - 1], dict) else "source binding is missing")
+        for index in unsettled
     ]
+    held = any(applicable(children[index - 1]) for index in unsettled)
     return {
         "version": VERSION,
         "framework": "merged",
         "command": " ; ".join(receipt.get("command") or "" for receipt in receipts),
-        "status": "unverified" if reasons else "established",
+        "status": ("unverified" if held else UNOBSERVED) if reasons else "established",
         "reason": "; ".join(reasons),
         "tree": failed.get("execution_root") or first.get("tree"),
         "workspace": first.get("workspace") if isinstance(first, dict) else None,
@@ -245,13 +265,14 @@ def assess(result, tree, workspace):
     """One pure answer shared by observation, judgment and receipt authentication."""
     tree = Path(tree).resolve()
     workspace = Path(workspace).resolve() if workspace else None
-    errors = []
+    errors, unseen, roots = [], [], []
     if not isinstance(result, dict):
         result = {}
         errors.append("source-resolution capture is malformed")
     raw_errors = result.get("errors")
     if isinstance(raw_errors, list):
-        errors.extend(str(error) for error in raw_errors)
+        for error in map(str, raw_errors):
+            (errors if holds(error) else unseen).append(error)
     else:
         errors.append("source-resolution errors are malformed")
     raw_observations = result.get("observations")
@@ -259,8 +280,8 @@ def assess(result, tree, workspace):
     if not isinstance(raw_observations, list) or any(not isinstance(row, dict) for row in observations):
         errors.append("source-resolution observations are malformed")
         observations = [row for row in observations if isinstance(row, dict)]
-    if not observations and not errors:
-        errors.append("the runner resolved no observable source")
+    if not observations and not errors and not unseen:
+        unseen.append("the runner resolved no observable source")
     allowed_roles = {
         "go_root": {"root"},
         "go_module": {"root"},
@@ -292,7 +313,7 @@ def assess(result, tree, workspace):
         value = row.get("path")
         if value is None:
             if kind not in {"python_module", "node_self", "node_import"} or role != "source":
-                errors.append(f"{kind} resolved without an observable origin")
+                unseen.append(f"{kind} resolved without an observable origin")
             continue
         if value in ("built-in", "frozen") and kind == "python_module" and role == "dependency":
             continue
@@ -301,18 +322,23 @@ def assess(result, tree, workspace):
         try:
             path = Path(value).resolve()
         except (OSError, TypeError, ValueError):
-            errors.append(f"{kind} path could not be resolved: {value}")
+            unseen.append(f"{kind} path could not be resolved: {value}")
             continue
         if _inside(path, tree):
             continue
         if workspace is not None and _inside(path, workspace):
-            errors.append(f"{kind} resolved into the live workspace: {path}")
+            (errors if role != "root" else roots).append(f"{kind} resolved into the live workspace: {path}")
         elif role != "dependency":
-            errors.append(f"{kind} resolved outside its owning copy: {path}")
+            (errors if role != "root" else roots).append(f"{kind} resolved outside its owning copy: {path}")
+    # A root outside the copy is an escape once the runner loaded a test or source under it. When it
+    # loaded none (Go's "matched no packages" under an ancestor module), no outside code ran, and the
+    # root is disclosed beside what the observer could not see.
+    loaded = any(row.get("role") in ("source", "test") and row.get("path") is not None for row in observations)
+    (errors if loaded else unseen).extend(roots)
     return {
         "version": VERSION,
-        "status": "unverified" if errors else "established",
-        "reason": "; ".join(dict.fromkeys(errors)),
+        "status": "unverified" if errors else UNOBSERVED if unseen else "established",
+        "reason": "; ".join(dict.fromkeys([*errors, *unseen])),
         "tree": str(tree),
         "workspace": str(workspace) if workspace else None,
         "observations": observations,
@@ -622,10 +648,12 @@ def observe(framework, command, tree, root, evidence_dir, label, *, workspace, e
             raise ValueError("retained source-resolution observer changed during observation")
         result, digest = _capture(capture)
         if not command_receipt.completed(receipt) or receipt.get("timed_out") or receipt.get("exit_code") != 0:
-            result["errors"] = [*result.get("errors", []), "the source-resolution probe did not complete normally"]
+            result["errors"] = [*result.get("errors", []), INCOMPLETE]
         assessment = assess(result, tree, workspace)
     except (OSError, ValueError, TypeError) as error:
         result = {"observations": [], "errors": [str(error)]}
+        if not command_receipt.completed(receipt) or receipt.get("timed_out") or receipt.get("exit_code") != 0:
+            result["errors"].append(INCOMPLETE)
         digest = None
         assessment = assess(result, tree, workspace)
     return {

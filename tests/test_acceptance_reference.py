@@ -4,10 +4,8 @@ import dataclasses
 import difflib
 import hashlib
 import importlib.util
-import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -521,14 +519,13 @@ class AcceptanceReferenceTests(unittest.TestCase):
         self.assertNotIn(str(self.workspace / ".venv"), result["receipt"]["command"])
 
     @unittest.skipUnless(importlib.util.find_spec("pytest"), "the suite's interpreter needs pytest to compare")
-    def test_an_original_reference_runner_that_cannot_observe_source_is_held(self):
+    def test_an_original_reference_runner_that_never_started_is_named_so(self):
         empty = self.root / "empty-venv"
         subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(empty)], check=True)
         command = f"{empty / 'bin' / 'python'} -m pytest -q tests/test_feature.py"
         result = self.collect(command=command, selected={"AC1": ["tests.test_feature.Feature::test_ac1_answer"]})
-        self.assertIn("source resolution is not established", result["error"])
-        self.assertIn("No module named '_pytest'", result["error"])
-        self.assertNotIn("verdicts", result)
+        self.assertIn("could not start its test runner", result["error"])
+        self.assertIn("No module named pytest", result["runner_not_started"]["tail"])
 
     def test_missing_or_unsafe_reference_inputs_hold_before_execution(self):
         with patch.object(reference.run_base, "base_commit", return_value=None):
@@ -620,29 +617,7 @@ class AcceptanceReferenceCliTests(unittest.TestCase):
                 fake_criteria={"C1": "test: test_c1_move_transfers_units"},
             )
             project = without_maintenance(materialize(scenario.seed, root / "project"))
-            reference = root / "reference"
-            shutil.copytree(scenario.dir / "reference", reference)
-            # Exercise retained-candidate acceptance through a static import, not an unobserved runpy loader.
-            (reference / "tests/test_stock.py").write_text(
-                "import contextlib\nimport io\nimport json\nimport os\nimport tempfile\nimport unittest\n"
-                "from pathlib import Path\n\nimport stock\n\n\nclass StockCase(unittest.TestCase):\n"
-                "    def test_c1_move_transfers_units(self):\n"
-                "        with tempfile.TemporaryDirectory() as directory:\n"
-                "            previous = Path.cwd()\n"
-                "            try:\n"
-                "                os.chdir(directory)\n"
-                "                Path('stock.json').write_text(json.dumps({'A1': {'bolt': 5}}))\n"
-                "                stdout, stderr = io.StringIO(), io.StringIO()\n"
-                "                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):\n"
-                "                    result = stock.main(['move', 'bolt', '2', 'A1', 'B2'])\n"
-                "                    shown = stock.main(['show'])\n"
-                "                self.assertEqual(0, result, stderr.getvalue())\n"
-                "                self.assertEqual(0, shown, stderr.getvalue())\n"
-                "                self.assertEqual('A1 bolt 3\\nB2 bolt 2\\n', stdout.getvalue())\n"
-                "            finally:\n"
-                "                os.chdir(previous)\n"
-            )
-            flags, environment = fake_setup(scenario, root, reference)
+            flags, environment = fake_setup(scenario, root, scenario.dir / "reference")
             paths = environment["PATH"].split(os.pathsep)
             environment.update(
                 AUTOCODE_HOME=str(root / "registry"),
@@ -681,17 +656,8 @@ class AcceptanceReferenceCliTests(unittest.TestCase):
             self.assertEqual("PAUSED_REQUESTED", view["status"], view)
             self.assertEqual("builder", view["next_stage"], view)
             self.assertEqual(token, view["approved_contract"]["token"])
-            self.assertEqual(
-                "passes candidate; fails original reference",
-                view["acceptance_tests"]["results"]["C1"],
-                json.loads((run.run_dir / "state.json").read_text())["acceptance_tests"],
-            )
+            self.assertEqual("passes candidate; fails original reference", view["acceptance_tests"]["results"]["C1"])
             logs = list(Path(run.run_dir).glob("iterations/*/acceptance-tests*.jsonl"))
             self.assertEqual(1, len(logs), "no format-repair call or duplicate acceptance run")
-            logs = [
-                path
-                for path in Path(run.run_dir).glob("iterations/*/acceptance-proof/scratch-*.log")
-                if ".source-" not in path.name
-            ]
-            self.assertEqual(1, len(logs), logs)
+            self.assertEqual(1, len(list(Path(run.run_dir).glob("iterations/*/acceptance-proof/scratch-*.log"))))
             self.assertFalse(list(Path(run.run_dir).glob("iterations/*/builder-*.jsonl")))
