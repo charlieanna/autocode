@@ -635,6 +635,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="1. You confirm the requirements before any plan exists">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-requirements-would-do-it-4171" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Requirements would do it (#4171)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1906,6 +1923,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="1. You confirm the requirements before any plan exists">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-requirements-would-do-it-4171" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Requirements would do it (#4171)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1990,6 +2024,24 @@ starts the Planner, comes after that answer and is only an offer: reply instead 
 on, and nothing is planned until you approve. A follow-up turn gives Requirements the conversation
 before it as well (<code>follow_up.earlier_turns</code>, bounded), so "go with your first option" names an answer
 from several turns back.</p>
+<h3 id="how-requirements-would-do-it-4171">How Requirements would do it (#4171)<a class="headerlink" href="#how-requirements-would-do-it-4171" title="Permanent link">&para;</a></h3>
+<p>Beside what it understood, Requirements sketches how it would do the job (<code>approach</code>): the mechanism
+end to end in a sentence or two, the two to five pieces it would build or change, the size, the real
+alternatives with a one-line tradeoff each, and what the task leaves out. It is not a plan: no
+milestones, steps or file lists. The confirmation shows it under "How I would do it", so a wrong
+direction (the wrong trigger, the wrong place for a service to run) is corrected in one reply instead
+of a rejected plan.</p>
+<ul>
+<li><code>plan</code> takes the sketched approach; replying with an alternative's name takes that one instead, and
+  neither runs Requirements again. Anything else is a correction, as above.</li>
+<li>The confirmed approach is saved on the handoff (<code>confirmed_approach</code>). The Planner plans it, and a
+  plan that departs from it is a blocking Plan Reviewer concern.</li>
+</ul>
+<p>This one stop also happens without <code>--spec-first</code>, on every flow, when it is worth it: when the handoff
+was written after you answered Requirements' questions, or when the sketch offers alternatives, a
+choice only you make. A clear request with one way to do it goes straight to the Planner with the
+sketch, and <code>--skip-requirements</code> never stops for it (its confirmation is recorded as
+<code>skip_requirements</code>).</p>
 <p>Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.</p>
 <p>Without the setting, a complete handoff goes straight to the job Requirements named: planning for a
