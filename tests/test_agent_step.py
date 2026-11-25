@@ -545,6 +545,17 @@ class SkillFileTests(unittest.TestCase):
             self.assertIn(variable, text)
         self.assertIn("autocode_cli.autocode_agent_step", text)
 
+    def test_the_plugin_marketplace_installs_this_skill(self):
+        # `/plugin install autocode --marketplace charlieanna/autocode` reads the repository's marketplace,
+        # whose one plugin is the directory that holds this skill.
+        marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        [plugin] = marketplace["plugins"]
+        self.assertEqual(("autocode", "autocode"), (marketplace["name"], plugin["name"]))
+        source = (ROOT / plugin["source"]).resolve()
+        manifest = json.loads((source / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual("autocode", manifest["name"])
+        self.assertEqual(SKILL.resolve(), source / "skills" / "autocode" / "SKILL.md")
+
 
 if __name__ == "__main__":
     unittest.main()
