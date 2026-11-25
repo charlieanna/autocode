@@ -169,10 +169,15 @@ def ingest(args, store: Store):
     # A change no issue or pull request describes is cited by its upstream commit, with its request written
     # up in --issue-file (there is nothing to fetch); its brief names only the repository.
     commit_ref = github.parse_commit_ref(args.issue)
-    if commit_ref and not args.issue_file:
-        raise ArenaError("a case sourced from a commit needs --issue-file with its written-up request")
-    ref = commit_ref or github.parse_ref(args.issue)
-    issue = read_json(args.issue_file) if args.issue_file else github.Client().issue(ref)
+    if commit_ref is not None:
+        if not args.issue_file:
+            raise ArenaError("a case sourced from a commit needs --issue-file with its written-up request")
+        issue = read_json(args.issue_file)
+        cited, task = str(commit_ref), linked_issues.brief(commit_ref, issue, args.note, kind="change")
+    else:
+        ref = github.parse_ref(args.issue)
+        issue = read_json(args.issue_file) if args.issue_file else github.Client().issue(ref)
+        cited, task = str(ref), brief(ref, issue, args.note)
     # Historical issues must be supplied as snapshots; newest comments can leak the fix.
     directory = store.root / "cases" / args.id
     if directory.exists():
@@ -186,16 +191,14 @@ def ingest(args, store: Store):
         "repository": str(repo),
         "base_commit": commit,
         "base_tree": git(repo, "rev-parse", f"{commit}^{{tree}}"),
-        "issue_ref": str(ref),
+        "issue_ref": cited,
         "issue_path": str(issue_path),
         "issue_sha256": digest(issue_path.read_bytes()),
         "oracle_path": str(oracle_path),
         "oracle_sha256": digest(oracle_path.read_bytes()),
         "split": args.split,
         "required_checks": args.check,
-        "task": linked_issues.brief(ref, issue, args.note, kind="change")
-        if commit_ref
-        else brief(ref, issue, args.note),
+        "task": task,
         "reference_sha256": snapshot(args.reference.resolve()),
     }
     if len(set(args.check)) != len(args.check):
