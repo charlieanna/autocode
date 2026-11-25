@@ -9,11 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-## [0.11.1] - 2026-11-25
-
 ### Added
 
 - **Gemini CLI as a backend, and as the second vendor that checks a Claude Code run** ([Gemini CLI provider](docs/providers.md#gemini-cli-provider)): with Gemini CLI signed in with Google, `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro` has Gemini test what Claude Code built, and `--provider gemini` runs every stage on Gemini. Before, a person with Claude Code got checks by a second vendor only through an OpenCode or Kilo account with API keys. `autocode setup` and `autocode doctor` find a signed-in Gemini CLI and print that command; a Google Workspace account whose sign-in fails for want of a Google Cloud project is told the `export GOOGLE_CLOUD_PROJECT="your-project-id"` line that fixes it, and an API key, Vertex or an expired sign-in is named too. Gemini CLI reports no command exit codes, so its stages cite checks by their capture receipts.
+
+## [0.11.1] - 2026-11-25
+
+### Added
 
 - **A Claude Code plugin, `autocode mcp` and `autocode agent-step`** ([AutoCode inside your coding agent](docs/agent-step.md)): drive AutoCode from Claude Code or Codex instead of VS Code or the terminal chat. In Claude Code, `/plugin install autocode --marketplace charlieanna/autocode` adds the AutoCode skill; for Codex, `codex mcp add autocode -- autocode mcp` adds the MCP server. The skill and the example `.mcp.json` used to run `python3 -m autocode_cli...`, which fails with "No module named autocode_cli" after a pipx or Homebrew install, where only `autocode` is on `PATH`; both are now `autocode` commands, and the skill adds no engine flags, so a run uses the account and models `autocode setup` saved.
 
