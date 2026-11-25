@@ -13,7 +13,9 @@ fixed when the server starts:
 Engine, model and budget flags come from the server's own command line, which
 the person configures, never from the agent's tool arguments:
 
-    python -m autocode_cli.autocode_mcp --workspace /path/to/project -- --engine claude
+    autocode mcp --workspace /path/to/project -- --engine claude
+
+(``python -m autocode_cli.autocode_mcp`` runs the same server.)
 
 No tool call waits for the work, which can take as long as the work does (#3984): the
 run works in a background process and a call returns at once, or after the
@@ -103,16 +105,22 @@ TOOLS: tuple[dict[str, Any], ...] = (
         "name": "autocode_respond",
         "description": "Pass on the person's decision; the run then works in the background to its next stop. "
         "approve_plan: only after "
-        "the person approved the plan they were shown; token is needs.token. answer: the person's answer to "
-        "one question; token is needs.resolver_token. continue: only when needs.kind is continue. Every other "
-        "stop is refused with the command the person runs.",
+        "the person approved the plan they were shown; token is needs.token. revise_plan: the changes the "
+        "person asked for to that plan, as text; a revised plan comes back for approval. answer: the person's "
+        "answer to one question; token is needs.resolver_token. continue: only when needs.kind is continue. "
+        "follow_up: the person's next request to a finished run, as text; it is planned on the same branch. "
+        "Every other stop is refused with the command the person runs.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": list(agent_step.ACTIONS)},
                 "token": {"type": "string", "description": "From the view the person decided on."},
                 "question_id": {"type": "string", "description": "answer: the question's id."},
-                "text": {"type": "string", "description": "answer: the person's answer."},
+                "text": {
+                    "type": "string",
+                    "description": "answer: the person's answer. revise_plan: the changes they asked for. "
+                    "follow_up: their next request.",
+                },
                 "run_dir": _RUN_DIR,
                 "wait_seconds": _WAIT,
             },
@@ -306,25 +314,33 @@ def _version() -> str:
         return "source"
 
 
+def parser() -> argparse.ArgumentParser:
+    command = argparse.ArgumentParser(
+        prog="autocode mcp",
+        description="Serve AutoCode's task runs to an MCP client (Claude Code, Codex, Claude Desktop) over "
+        "stdio. Engine, model and budget flags for new runs follow -- (docs/agent-step.md).",
+        allow_abbrev=False,
+    )
+    command.add_argument("--workspace", default=".", help="the repository runs work in (default: here)")
+    return command
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     options: list[str] = []
     if "--" in argv:
         at = argv.index("--")
         argv, options = argv[:at], argv[at + 1 :]
-    parser = argparse.ArgumentParser(
-        prog="python -m autocode_cli.autocode_mcp",
-        description="Serve AutoCode's task runs to an MCP client over stdio. "
-        "Engine, model and budget flags for new runs follow -- (docs/agent-step.md).",
-        allow_abbrev=False,
-    )
-    parser.add_argument("--workspace", default=".", help="the repository runs work in (default: here)")
-    arguments = parser.parse_args(argv)
+    arguments = parser().parse_args(argv)
     step = agent_step.AgentStep(Path(arguments.workspace), tuple(options), caller="mcp")
     protocol = sys.stdout
     sys.stdout = sys.stderr  # stdout carries only protocol messages
     serve(Server(step, _version()), sys.stdin, protocol)
     return 0
+
+
+# `autocode mcp` (autocode_subcommands) runs main with the arguments after the command word.
+cli = main
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 """`autocode setup`: connect the backends AutoCode runs on, once, right after installing it (#2049).
 
-AutoCode offers four backends (owner decision 2026-10-30): Claude Code (a Claude subscription) and
-Codex (a ChatGPT login) as engines, and OpenCode and Kilo for every other account and API key.
+AutoCode offers five backends (owner decisions 2026-10-30 and 2026-11-25): Claude Code (a Claude
+subscription), Codex (a ChatGPT login) and Gemini CLI (a Google sign-in) as engines, and OpenCode and
+Kilo for every other account and API key.
 ``setup`` checks each one with its own login listing, the check ``autocode connections check``
 runs. In a terminal, when neither OpenCode nor Kilo is installed, it asks which of the two to install
 with npm (OpenCode, the pinned containment-qualified release, is the first choice), or neither: the
@@ -33,6 +34,7 @@ try:
     from . import autocode_connected_engine as connected_engine
     from . import autocode_connections as connections
     from . import autocode_providers as providers
+    from . import autocode_second_vendor as second_vendors
     from . import autocode_stage_choices as stage_choices
     from . import autocode_stages_cli as stages_cli
     from . import autocode_tool_containment as containment
@@ -41,22 +43,26 @@ except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_connections as connections
     import autocode_providers as providers
+    import autocode_second_vendor as second_vendors
     import autocode_stage_choices as stage_choices
     import autocode_stages_cli as stages_cli
     import autocode_tool_containment as containment
 
 # The Kilo release setup installs: the first one qualified for this host's sandbox (Linux's where none is).
 KILO = (containment.kilo_versions() or containment.KILO_VERSIONS[containment.BUBBLEWRAP])[0]
-# The four backends, in the order setup shows them, with the install command for a missing one.
+# The backends, in the order setup shows them, with the install command for a missing one.
 BACKENDS = (
     ("claude", "npm install -g @anthropic-ai/claude-code"),
     ("codex", "npm install -g @openai/codex"),
     ("opencode", "npm install -g opencode-ai@1.18.33"),
     ("kilocode", f"npm install -g @kilocode/cli@{KILO}"),
+    ("gemini", "npm install -g @google/gemini-cli"),
 )
 INSTALL = dict(BACKENDS)
 # The hubs a person connects every other account and API key in; setup installs one when neither is present.
 HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": f"Kilo {KILO}"}
+# The backends that run tasks with no hub: a person signed in to one can start without OpenCode or Kilo.
+ENGINES = ("claude", "codex", "gemini")
 # The command a hub installs; npm puts it in its own global bin, which may not be on PATH.
 EXECUTABLES = {"opencode": "opencode", "kilocode": "kilo"}
 NODE = "https://nodejs.org"
@@ -131,8 +137,15 @@ def new_runs_use(found, *, choose=None) -> dict | None:
     return {"id": chosen["id"], "label": chosen["label"], "reason": f"{chosen['label']} is connected"}
 
 
+# Said when new runs use an engine that reaches one vendor's models: what checks the work, and the stronger option.
+SAME_VENDOR_CHECKS = (
+    "{label}'s own models check each other's work (a model never checks itself). For checks by a second "
+    "vendor, see docs/models.md#checks-by-a-second-vendor."
+)
+
+
 def text(found, use) -> str:
-    lines = ["AutoCode runs on Claude Code, Codex, OpenCode or Kilo. What this machine has:"]
+    lines = ["AutoCode runs on Claude Code, Codex, Gemini CLI, OpenCode or Kilo. What this machine has:"]
     for row in found:
         state = str(row.get("connection_status") or "unknown")
         if row.get("install_command"):
@@ -140,6 +153,9 @@ def text(found, use) -> str:
             continue
         words = {"credentials_present": "signed in", "sign_in_required": "installed, not signed in"}
         lines.append(f"{MARKS.get(state, '✘')} {row['label']}: {words.get(state, state.replace('_', ' '))}")
+        if state not in CONNECTED and row["id"] in SAY_WHY and row.get("detail"):
+            # Gemini CLI's reason is the fix itself (an expired sign-in, a Workspace account's project).
+            lines.append(f"    {row['detail']}")
         if state not in CONNECTED:
             for action in row.get("actions") or []:
                 if action.get("id") == "login":
@@ -154,7 +170,29 @@ def text(found, use) -> str:
         lines += ["", f"New runs cannot start: {use['reason']}."]
     else:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
+        if use["id"] in ENGINES:
+            lines.append(second_vendor(found, use["id"]) or SAME_VENDOR_CHECKS.format(label=use["label"]))
     return "\n".join(lines)
+
+
+# The backends whose row says why it is not ready, not only how to sign in.
+SAY_WHY = frozenset({"gemini"})
+
+
+# A signed-in one-vendor backend that can check another's work, with the stage flags that move the Tester there.
+def second_vendor(found, engine) -> str | None:
+    """What a signed-in second vendor does for new runs on ``engine``, or None (autocode_second_vendor)."""
+    connected = {row["id"]: row for row in found if row.get("connection_status") in CONNECTED}
+    for name, _executable in second_vendors.SECOND_VENDORS.get(engine, ()):
+        if name in connected:
+            own = next((row["label"] for row in found if row["id"] == engine), engine)
+            label = connected[name]["label"]
+            stages = ", ".join(second_vendors.LABELS[role] for role in second_vendors.CHECKERS)
+            return (
+                f"{label} is signed in too, so it checks the work of new runs on {own} ({stages}); "
+                "a stage you choose a model for keeps it"
+            )
+    return None
 
 
 # A hub's sign-in connects one of many accounts, in the hub's own picker; the offer says which, so
@@ -163,6 +201,10 @@ HUB_ACCOUNTS = {
     "opencode": "ChatGPT, Z.ai, MiMo or an API key",
     "kilocode": "ChatGPT, Z.ai, an API key or Kilo Gateway",
 }
+
+
+# What to do in a backend's own sign-in when it is the tool's ordinary start rather than a login command.
+SIGN_IN_HINTS = {"gemini": " (choose Sign in with Google, then type /quit)"}
 
 
 def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool:
@@ -181,7 +223,7 @@ def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool
         offer = (
             f"Connect an account in {row['label']} now ({HUB_ACCOUNTS[row['id']]})?"
             if row["id"] in HUB_ACCOUNTS
-            else f"Sign in to {row['label']} now?"
+            else f"Sign in to {row['label']} now{SIGN_IN_HINTS.get(row['id'], '')}?"
         )
         answer = ask(f"{offer} {'[Y/n]' if fresh else '[y/N]'} ").strip().lower()
         if answer not in (("", "y", "yes") if fresh else ("y", "yes")):
@@ -216,7 +258,10 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
                 f"OpenCode and Kilo install with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
             )
             return None
-        name = _choose_hub(ask, out)
+        engine = next(
+            (row["label"] for row in found if row["id"] in ENGINES and row.get("connection_status") in CONNECTED), None
+        )
+        name = _choose_hub(ask, out, engine=engine)
         if name is None:
             return None
     if not which("npm"):
@@ -247,23 +292,35 @@ HUB_CHOICES = (
 )
 
 
-def _choose_hub(ask, out=print) -> str | None:
+def _choose_hub(ask, out=print, *, engine: str | None = None) -> str | None:
     """Which hub to install, as the person answers: its id, or None for neither.
 
-    The answer is the option's number, or its name ("opencode", "kilo"); Enter takes OpenCode, as
-    the single yes/no offer did; "3", "n" or "no" installs nothing. Anything else installs nothing
-    and says so, so a typo never installs a hub the person did not pick.
+    The answer is the option's number, or its name ("opencode", "kilo"); "3", "n" or "no" installs
+    nothing. Enter takes OpenCode when nothing is connected yet. When ``engine`` (Claude Code or
+    Codex) is already signed in, tasks can start without a hub, so a hub is offered as the optional
+    second vendor for checks and Enter installs nothing: pressing Enter through setup must not install
+    OpenCode and open its sign-in for a person who only needs the account they have. Anything else
+    installs nothing and says so, so a typo never installs a hub the person did not pick.
     """
-    lines = [
-        "Neither OpenCode nor Kilo is installed. Either one connects your other accounts "
-        "(ChatGPT, GLM, MiMo or an API key):"
-    ]
+    if engine:
+        lines = [
+            f"{engine} is signed in, so you can start a task now. Optionally, OpenCode or Kilo connects other "
+            "accounts (ChatGPT, GLM, MiMo or an API key), so another vendor's models can check the work:"
+        ]
+    else:
+        lines = [
+            "Neither OpenCode nor Kilo is installed. Either one connects your other accounts "
+            "(ChatGPT, GLM, MiMo or an API key):"
+        ]
     for number, (hub, note) in enumerate(HUB_CHOICES, 1):
         lines.append(f"  {number}. {HUBS[hub]}: {note} ({INSTALL[hub]})")
-    lines.append(f"  {len(HUB_CHOICES) + 1}. Neither: I will use Claude Code or Codex")
+    neither = len(HUB_CHOICES) + 1
+    lines.append(f"  {neither}. Neither: " + (f"use {engine} only" if engine else "I will use Claude Code or Codex"))
     out("\n".join(lines))
-    answer = ask(f"Install which? [1-{len(HUB_CHOICES) + 1}, Enter for 1] ").strip().lower()
+    answer = ask(f"Install which? [1-{neither}, Enter for {neither if engine else 1}] ").strip().lower()
     names = {"opencode": "opencode", "kilo": "kilocode", "kilocode": "kilocode"}
+    if answer == "" and engine:
+        return None
     if answer in ("", "y", "yes"):
         return HUB_CHOICES[0][0]
     try:
@@ -274,7 +331,7 @@ def _choose_hub(ask, out=print) -> str | None:
         return HUB_CHOICES[number - 1][0]
     if answer in names:
         return names[answer]
-    if answer not in (str(len(HUB_CHOICES) + 1), "n", "no", "neither"):
+    if answer not in (str(neither), "n", "no", "neither"):
         out(f"{answer!r} is not one of the choices; nothing was installed. Run `autocode setup` again to choose.")
     return None
 

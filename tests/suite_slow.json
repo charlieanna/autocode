@@ -90,5 +90,6 @@
   "tests.test_plain_output_tool_idle_cli": "Public CLI configured report_file tool prints plain progress past the startup grace under a one-second idle limit (#3354); 16 s on macOS, 2026-11-13. Runs when the module itself changes.",
   "tests.test_requirements_overlap": "The chat's no-assumption cases (#3233) drive the real `autocode --chat` flow on the scripted provider; 15 s for 9 cases on Linux, 2026-11-19.",
   "tests.test_saved_names_cli": "A fake-provider chat saved under the old code names continues from its approved plan and takes a follow-up; about 85 s on supported Linux, 2026-11-17. Mapped to autocode_saved_names in ci_test_selection.",
-  "tests.test_send_now_cli": "Real CLI and fake Codex through Requirements, plan approval, a held Builder and Send now, twice; 51 s on a Linux cloud host, 2026-11-18. Runs when the module itself changes and on master."
+  "tests.test_send_now_cli": "Real CLI and fake Codex through Requirements, plan approval, a held Builder and Send now, twice; 51 s on a Linux cloud host, 2026-11-18. Runs when the module itself changes and on master.",
+  "tests.test_gemini_provider_cli": "Five real CLI runs through the built-in gemini provider and its offline fixture, two of them whole tasks (98 s locally, Linux cloud container, one module at a time), 2026-11-25"
 }

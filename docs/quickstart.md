@@ -27,7 +27,7 @@ Or `brew install charlieanna/tap/autocode`. Details and other hosts:
 autocode setup
 ```
 
-Setup finds Claude Code, Codex, OpenCode and Kilo, offers to install OpenCode or Kilo when
+Setup finds Claude Code, Codex, Gemini CLI, OpenCode and Kilo, offers to install OpenCode or Kilo when
 you have neither, signs in what is not signed in yet, and asks which model and reasoning
 level each stage runs. Every task uses that choice; change it later with
 `autocode stages choose`. If Claude Code or Codex is already signed in, setup reuses it.
@@ -45,7 +45,24 @@ autocode doctor          # ends with "ready for a first task"
 
 Each ✖ line names its fix.
 
-## 4. Install the VS Code extension
+## 4. Pick where you talk to AutoCode
+
+Use whichever you already work in. Each one shows you AutoCode's questions and plan, and
+nothing is built before you approve the plan.
+
+- **Terminal:** `autocode "your request"` opens a chat in the terminal.
+- **Claude Code** (terminal or desktop app): add the plugin once with
+  `/plugin install autocode --marketplace charlieanna/autocode`, then ask
+  *"Use AutoCode to …"*. Claude shows you each question and the plan and passes on only
+  your answers, plan changes and approval. From Claude Code or Codex the change is left
+  in your folder as uncommitted edits, as the agent's own edits would be.
+- **Codex:** add the MCP server once with `codex mcp add autocode -- autocode mcp`, then
+  ask Codex to use the autocode tools.
+- **VS Code:** the extension below.
+
+More: [AutoCode inside your coding agent](agent-step.md).
+
+### VS Code extension
 
 Install **AutoCode Task Chat** from the Marketplace, or from a terminal:
 

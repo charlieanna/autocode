@@ -20,6 +20,7 @@ try:
     from . import autocode_native_launch as native_launch
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_run_destination as run_destination
+    from . import autocode_second_vendor as second_vendor
     from . import autocode_source_host as source_host
     from . import autocode_stage_choices as stage_choices
     from . import autocode_visual_profile as native_profile
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_native_launch as native_launch
     import autocode_native_stage_recovery as stage_recovery
     import autocode_run_destination as run_destination
+    import autocode_second_vendor as second_vendor
     import autocode_source_host as source_host
     import autocode_stage_choices as stage_choices
     import autocode_visual_profile as native_profile
@@ -231,7 +233,15 @@ def select_provider(base, args, parser, state: "RunState", workspace):
             base.opencode = base.autocode_providers.resolve(selected)
             if not (state.get("settings") or state.get("sessions") or state.get("history")):
                 # A new run takes the stages the person chose for this backend (owner decision 2026-10-30).
-                stage_choices.apply(args, "codex" if args.engine == "codex" else selected, say=_notice)
+                taken = stage_choices.apply(args, "codex" if args.engine == "codex" else selected, say=_notice)
+                # A second signed-in vendor checks a one-vendor run's work (autocode_second_vendor).
+                second_vendor.apply(
+                    args,
+                    None if args.engine == "codex" else selected,
+                    stage_choices_taken=taken,
+                    workspace=workspace,
+                    say=_notice,
+                )
         if not args.run_dir:
             args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:

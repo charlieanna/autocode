@@ -14,6 +14,7 @@ from unittest import mock
 
 import autocode_agent_step as agent_step
 import autocode_mcp as mcp
+import autocode_subcommands as subcommands
 
 from tests.test_agent_step import callers, fixture_workspace, hold_the_provider
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
@@ -104,9 +105,12 @@ class ProtocolTests(unittest.TestCase):
 
     def test_the_example_configuration_launches_this_server_with_the_persons_flags(self):
         example = json.loads((ROOT / "examples" / "agent-step" / "mcp.json").read_text(encoding="utf-8"))
-        args = example["mcpServers"]["autocode"]["args"]
-        self.assertEqual(["-m", "autocode_cli.autocode_mcp", "--workspace", ".", "--"], args[:5])
-        self.assertIn(json.dumps(args), (ROOT / "docs" / "agent-step.md").read_text(encoding="utf-8"))
+        server = example["mcpServers"]["autocode"]
+        # `autocode mcp`, not `python3 -m autocode_cli.autocode_mcp`: after pipx or Homebrew the
+        # system python3 cannot import AutoCode, and only `autocode` is on PATH.
+        self.assertEqual(("autocode", ["mcp", "--workspace", "."]), (server["command"], server["args"]))
+        self.assertEqual("autocode_mcp", subcommands.SUBCOMMANDS[server["args"][0]])
+        self.assertIn(json.dumps(server["args"]), (ROOT / "docs" / "agent-step.md").read_text(encoding="utf-8"))
 
     def test_a_waiting_call_sends_progress_only_to_a_client_that_asked_for_it(self):
         def waits(step, *_, **__):

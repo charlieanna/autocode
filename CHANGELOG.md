@@ -11,6 +11,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **A second vendor checks a one-vendor run by itself** ([checks by a second vendor](docs/models.md#checks-by-a-second-vendor)): a new run on Claude Code with Gemini CLI also signed in, or on Gemini CLI with Claude Code signed in, runs its Plan Reviewer, Tester and Completion Reviewer on the other tool, says so in one line when it starts and keeps the decision in its settings. Before, a person had to know `--role-transport` and type a model for each stage. A stage the person chose a model for keeps it; a second tool that is installed but cannot sign in is named with the reason, and the run keeps its own vendor.
+
+- **Gemini CLI as a backend, and as the second vendor that checks a Claude Code run** ([Gemini CLI provider](docs/providers.md#gemini-cli-provider)): with Gemini CLI signed in with Google, `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro` has Gemini test what Claude Code built, and `--provider gemini` runs every stage on Gemini. Before, a person with Claude Code got checks by a second vendor only through an OpenCode or Kilo account with API keys. `autocode setup` and `autocode doctor` find a signed-in Gemini CLI and print that command; a Google Workspace account whose sign-in fails for want of a Google Cloud project is told the `export GOOGLE_CLOUD_PROJECT="your-project-id"` line that fixes it, and an API key, Vertex or an expired sign-in is named too. Gemini CLI reports no command exit codes, so its stages cite checks by their capture receipts.
+
+## [0.11.1] - 2026-11-25
+
+### Added
+
+- **A Claude Code plugin, `autocode mcp` and `autocode agent-step`** ([AutoCode inside your coding agent](docs/agent-step.md)): drive AutoCode from Claude Code or Codex instead of VS Code or the terminal chat. In Claude Code, `/plugin install autocode --marketplace charlieanna/autocode` adds the AutoCode skill; for Codex, `codex mcp add autocode -- autocode mcp` adds the MCP server. The skill and the example `.mcp.json` used to run `python3 -m autocode_cli...`, which fails with "No module named autocode_cli" after a pipx or Homebrew install, where only `autocode` is on `PATH`; both are now `autocode` commands, and the skill adds no engine flags, so a run uses the account and models `autocode setup` saved.
+
+- **Plan changes and follow-ups from your coding agent**: the agent could approve a plan or answer a question but not ask for changes, so a person who wanted a different plan had to type `autocode --feedback` in a terminal. `autocode agent-step revise` (MCP `revise_plan`) sends their words to the plan waiting for approval and a revised plan comes back for approval; `follow-up` (MCP `follow_up`) asks a finished run for the next change on the same branch.
+
 - **Feature and refactor cases in the real-repo sweep**: a new monthly `kinds` set has one feature and one refactor from a real project in each of Python, JavaScript, Go, Rust and Java, each pinned at its upstream commit with an independent oracle checked against the base and the upstream result ([real-repo sweep](docs/real-repo-sweep.md#what-is-pinned)). The weekly and monthly sets were bug fixes only. Arena can now declare a case from an upstream commit that had no pull request or issue (`--issue owner/repo@COMMIT`).
 
 - **A nightly setup sweep over real repositories** ([setup sweep](docs/setup-sweep.md)): with no model, it checks AutoCode's own setup steps on 62 real repositories pinned across ten languages: which test runner it detects, whether the base suite runs on a clean copy, whether it can narrow the suite to named tests, and whether coverage and the mutation check are available. Language support had been proven only on small fixtures, and a new language often broke AutoCode's setup the first time a real project met it. Each repository records what each step should show, a difference fails the night, and the issue "Nightly setup sweep is red" tracks it. Gaps it found that are not fixed yet are marked "Open:" in the repository list.
@@ -23,11 +35,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- **Setup no longer installs OpenCode for a person who has Claude Code or Codex**: pressing Enter at setup's hub question installed OpenCode and opened its credential picker, though the signed-in Claude Code or Codex account was enough to start. With either signed in, setup now offers OpenCode or Kilo as an optional second vendor and Enter installs nothing. When new runs use Claude Code or Codex, setup also says that its own models check each other's work and where checks by a second vendor are explained ([checks by a second vendor](docs/models.md#checks-by-a-second-vendor)).
+
 - **A vague request gets proposals, not a blank question**: Requirements used to answer "build me an adaptive engine" with "what do you want this to do?" and then two more rounds of abstract questions. It now says what it understood, offers the readings it sees as options written as short scenarios (recommending the likeliest), sketches how it would build that reading, and asks the choices it leaves open in the same round. Each option shows what you would see on one concrete input ("an order delivered at 23:00 on March 1 is refused from 23:00 on March 31"), and questions keep the behavior you asked for among their options. You can always answer in your own words.
 
 - **Plans no longer guess the shape of other systems' data**: asked to build a service that reads Kibana alerts and Elasticsearch logs in an empty repository, the Planner invented the log field names and the alert body and checked every criterion against mocks of its own guess. When a change reads or receives data whose shape another system defines and nobody gave it, Requirements now asks for it (or a pasted sample), a plan that still needs it asks you with the likely shape recommended, and the Plan Reviewer blocks a plan whose criteria rest on a guessed shape or that leaves a decision for you as a note in its technical approach.
 
 ### Fixed
+
+- **Marking a finished run as read no longer fails on a busy machine**: `autocode attention ack` gave its own status read 5 seconds, and a finished run's status takes about 2.3 seconds on an idle machine, so on a loaded one the VS Code client, the terminal chat's F8 and the channel bridge got "Acknowledgement could not be confirmed" for a completed run. The read launches no model; the client's own limit now bounds the whole command.
 
 - **Real suites that AutoCode found broken on their own base now run**: on real repositories (the [setup sweep](docs/setup-sweep.md)) three things made a passing suite look broken before any change. Two tests of one name in one file (RSpec one-liners described by their matcher, a `test.each` table printing two rows alike) made every per-test reader refuse the whole report; they are now one test, failed when any of them failed, in the RSpec, Minitest, Mocha, Vitest, Node and Jest readers alike. A project on Vitest 3 had AutoCode's Vitest 4 reporter end its run with an error; such a suite is now read by its exit code. A Python project whose unittest modules are all named `*_test.py` ran no test at all; discovery now collects them.
 
@@ -4747,6 +4763,7 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/charlieanna/autocode/compare/v0.11.0...v0.11.1
 [0.9.0]: https://github.com/charlieanna/autocode/compare/v0.8.2...v0.9.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1

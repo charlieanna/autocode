@@ -22,6 +22,7 @@ from unittest import mock
 
 import autocode_agent_background as background
 import autocode_agent_step as agent_step
+import autocode_subcommands as subcommands_table
 import autocode_taskrun as taskrun
 import autocode_workflows as workflows
 from harness import catalog, driver
@@ -351,10 +352,75 @@ class AgentStepTests(unittest.TestCase):
 
     def test_a_finished_run_takes_no_decision(self):
         view = {"status": "TASK_COMPLETE", "done": True, "needs": None}
-        for action in agent_step.ACTIONS:
+        for action in set(agent_step.ACTIONS) - {"follow_up"}:
             with self.subTest(action=action), mock.patch.object(taskrun.TaskRun, "status", return_value=view):
                 with self.assertRaisesRegex(agent_step.StepError, r"finished \(TASK_COMPLETE\); read its evidence"):
                     self.step.respond(action, token="t", question_id="q", text="yes")
+
+    def test_plan_changes_go_to_a_plan_waiting_for_approval_and_a_revised_plan_follows(self):
+        # The agent could approve a plan but not change it: a person who wanted changes was told to run
+        # `autocode --feedback` in a terminal. Now their words go to the plan, and the run drafts a revision.
+        waiting = {"status": "AWAITING_PLAN_APPROVAL", "done": False, "needs": {"kind": "approve_plan", "token": "t"}}
+        with (
+            mock.patch.object(taskrun.TaskRun, "status", return_value=waiting),
+            mock.patch.object(taskrun.TaskRun, "feedback", return_value=waiting) as feedback,
+            mock.patch.object(taskrun.TaskRun, "advance_until_input", return_value=waiting) as advance,
+            mock.patch.object(taskrun.TaskRun, "show_goal", return_value="the revised plan"),
+        ):
+            summary = self.step.respond("revise_plan", text="Keep the old output as the default")
+            with self.assertRaisesRegex(agent_step.StepError, "revise_plan needs text: the changes the person"):
+                self.step.respond("revise_plan", text="  ")
+        feedback.assert_called_once_with("Keep the old output as the default")
+        advance.assert_called_once()
+        self.assertEqual("the revised plan", summary["plan"])
+        asking = {**waiting, "status": "AWAITING_INPUT", "needs": {"kind": "answer", "questions": [{"id": "q"}]}}
+        with (
+            mock.patch.object(taskrun.TaskRun, "status", return_value=asking),
+            mock.patch.object(taskrun.TaskRun, "feedback") as feedback,
+        ):
+            with self.assertRaisesRegex(agent_step.StepError, "person's to decide"):
+                self.step.respond("revise_plan", text="change it")
+        feedback.assert_not_called()
+
+    def test_a_follow_up_goes_to_a_finished_run_only(self):
+        # After a run finished, the person's next request to the same work could only start a new run.
+        done = {"status": "TASK_COMPLETE", "done": True, "needs": None}
+        with (
+            mock.patch.object(taskrun.TaskRun, "status", return_value=done),
+            mock.patch.object(taskrun.TaskRun, "follow_up", return_value=done) as follow_up,
+            mock.patch.object(taskrun.TaskRun, "advance_until_input", return_value=done) as advance,
+        ):
+            self.step.respond("follow_up", text="Also document the flag")
+            with self.assertRaisesRegex(agent_step.StepError, "follow_up needs text: the person's next request"):
+                self.step.respond("follow_up")
+        follow_up.assert_called_once_with("Also document the flag")
+        advance.assert_called_once()
+        working = {"status": "AWAITING_PLAN_APPROVAL", "done": False, "needs": {"kind": "approve_plan", "token": "t"}}
+        with (
+            mock.patch.object(taskrun.TaskRun, "status", return_value=working),
+            mock.patch.object(taskrun.TaskRun, "follow_up") as follow_up,
+        ):
+            with self.assertRaisesRegex(agent_step.StepError, "follow_up is for a finished run"):
+                self.step.respond("follow_up", text="more")
+        follow_up.assert_not_called()
+
+    def test_the_steps_are_autocode_commands_so_only_autocode_needs_to_be_on_path(self):
+        # After `pipx install` or Homebrew the system python3 cannot import AutoCode, so the skill's
+        # `python3 -m autocode_cli.autocode_agent_step` and the example .mcp.json failed with
+        # "No module named autocode_cli". Both are now commands of the `autocode` on PATH.
+        self.assertEqual("autocode_agent_step", subcommands_table.SUBCOMMANDS["agent-step"])
+        self.assertEqual("autocode_mcp", subcommands_table.SUBCOMMANDS["mcp"])
+        self.assertEqual("autocode agent-step", agent_step.parser().prog)
+        for name in ("agent-step", "mcp"):
+            with self.subTest(command=name):
+                process = subprocess.run(
+                    [sys.executable, str(ROOT / "tools" / "autocode.py"), name, "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self.assertEqual(0, process.returncode, process.stderr)
+                self.assertTrue(process.stdout.startswith(f"usage: autocode {name} "), process.stdout)
 
     def test_a_decision_needs_the_token_the_person_saw(self):
         asking = {"status": "AWAITING_INPUT", "done": False, "needs": {"kind": "answer", "questions": [{"id": "q"}]}}
@@ -473,10 +539,22 @@ class SkillFileTests(unittest.TestCase):
         fields = dict(line.split(": ", 1) for line in front.group(1).splitlines())
         self.assertEqual("autocode", fields["name"])
         self.assertGreater(len(fields["description"]), 40)
-        self.assertEqual(subcommands(agent_step.parser()), set(re.findall(r"\$STEP (\w+)", text)))
+        self.assertEqual(subcommands(agent_step.parser()), set(re.findall(r"\$STEP ([\w-]+)", text)))
+        self.assertIn('STEP="autocode agent-step"', text)
         for variable in (agent_step.APPROVE_TOKEN_VARIABLE, agent_step.RESOLVER_TOKEN_VARIABLE):
             self.assertIn(variable, text)
         self.assertIn("autocode_cli.autocode_agent_step", text)
+
+    def test_the_plugin_marketplace_installs_this_skill(self):
+        # `/plugin install autocode --marketplace charlieanna/autocode` reads the repository's marketplace,
+        # whose one plugin is the directory that holds this skill.
+        marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+        [plugin] = marketplace["plugins"]
+        self.assertEqual(("autocode", "autocode"), (marketplace["name"], plugin["name"]))
+        source = (ROOT / plugin["source"]).resolve()
+        manifest = json.loads((source / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual("autocode", manifest["name"])
+        self.assertEqual(SKILL.resolve(), source / "skills" / "autocode" / "SKILL.md")
 
 
 if __name__ == "__main__":

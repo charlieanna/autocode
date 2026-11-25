@@ -800,6 +800,12 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    # The gemini provider's tests copy these files or read them by path; none is imported.
+    ("tools/fake_gemini.py", ("tests.test_gemini_provider_cli",)),
+    ("tools/fake_claude.py", ("tests.test_claude_provider_cli", "tests.test_gemini_provider_cli")),
+    ("tools/providers/gemini_stream.py", ("tests.test_gemini_stream", "tests.test_gemini_provider_cli")),
+    ("tools/prompts/fragments/provider-gemini/", ("tests.test_gemini_provider_cli",)),
+    ("tests/fixtures/gemini/", ("tests.test_gemini_stream",)),
     # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
     ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),
     (
