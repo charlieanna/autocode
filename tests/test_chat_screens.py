@@ -72,7 +72,7 @@ with ChatTUI() as ui:
             what="narrow current status with navigation and pause guidance",
         )
         screen.type("/")
-        menu = screen.wait_for("/plan", what="the run command menu at narrow width")
+        menu = screen.wait_for_all("/plan", "/ commands")
         self.assertIn("/ commands", menu)
         screen.keys("Escape")
         screen.type("x")
@@ -731,12 +731,14 @@ class ChatScreenTests(unittest.TestCase):
         self.assertIn("1 earlier chat here. Type /runs to see them.", screen.text())
         screen.type("/runs ")  # the space closes the menu: Enter runs the command typed
         screen.keys("Enter")
-        listed = screen.wait_for("Type /open N to open one")
+        listed = screen.wait_for_all(
+            "Type /open N to open one", "1. Build a deterministic greeting CLI named greet.py", "complete"
+        )
         self.assertIn("1. Build a deterministic greeting CLI named greet.py", listed)
         self.assertIn("complete", listed)
         screen.type("/open 1")
         screen.keys("Enter")
-        opened = screen.wait_for("Anything else?", RUN_SECONDS)
+        opened = screen.wait_for_all("Anything else?", "The requested task is complete.", timeout=RUN_SECONDS)
         self.assertIn("The requested task is complete.", opened, "the finished chat's conversation")
         first = chat_heading(opened)
 

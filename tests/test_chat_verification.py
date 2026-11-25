@@ -371,7 +371,7 @@ with ChatTUI() as ui:
                 update(current_view(), unavailable=True)
                 screen.wait_for("Status unavailable; showing the previous read")
                 update(current_view(delivered=True))
-                shown = screen.wait_for("Complete; current delivery verified")
+                shown = screen.wait_for_all("Complete; current delivery verified", "Fixture ready", "read 0s ago")
                 self.assertIn("Fixture ready", shown)
                 self.assertIn("read 0s ago", shown)
                 screen.type("/details ")

@@ -100,7 +100,7 @@ finally:
                     tmux=tmux,
                 ) as screen,
             ):
-                shown = screen.wait_for("Continue? [y/N]")
+                shown = screen.wait_for_all("Continue? [y/N]", "explicitly accepts the changed connection")
                 self.assertIn("explicitly accepts the changed connection", shown)
                 # The person reads the plain-words effect; the chat never shows the internal flag it takes.
                 self.assertNotIn("--accept-transport-change", shown)

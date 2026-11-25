@@ -378,7 +378,7 @@ class CostTerminalTests(unittest.TestCase):
                 screen.wait_for("Saved routes for future attempts")
                 for _ in range(20):
                     screen.keys("PPage")
-                shown = screen.wait_for("Accounted subtotal: $1.25")
+                shown = screen.wait_for_all("Accounted subtotal: $1.25", "Dated-table estimate: $1.25")
                 self.assertIn("Dated-table estimate: $1.25", shown)
                 self.assertTrue(all(len(line) <= cols for line in shown.splitlines()))
                 screen.keys("Enter")
