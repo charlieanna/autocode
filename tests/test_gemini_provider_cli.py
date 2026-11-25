@@ -54,6 +54,7 @@ class GeminiProviderCliTests(unittest.TestCase):
             }
         )
         self.env.pop("AUTOCODE_PASS_ENV", None)
+        self.env["AUTOCODE_SECOND_VENDOR"] = "on"  # these tests check the second vendor itself
 
     def start(self, options, *extra):
         return taskrun.TaskRun.start(

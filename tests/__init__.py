@@ -24,6 +24,10 @@ for _p in (str(ROOT), str(TOOLS), str(SCENARIOS)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# A fixture run's checks never go to a real Claude Code, Codex or Gemini CLI signed in on this machine
+# (autocode_second_vendor.OFF_SWITCH); every child process inherits it. A test of the second vendor clears it.
+os.environ["AUTOCODE_SECOND_VENDOR"] = "off"
+
 # Every `git commit` (also merge, fetch, a push's receive-pack) starts
 # `git maintenance run --auto --detach`, which outlives the command. On CI's Git
 # 2.55 it repacks once two loose objects share the objects/17 shard, writing

@@ -15,6 +15,8 @@ from pathlib import Path
 
 ADAPTER = "codex_artifacts"
 TOKEN = "{sandbox_args}"
+# The report a standalone call writes in its own call directory (provider_conformance_transport.execute).
+STANDALONE_REPORT = "events.json"
 _PROTECTED_KEYS = {
     "sandbox_mode",
     "sandbox_workspace_write",
@@ -180,12 +182,15 @@ def arguments(sandbox, workspace, run_dir, report):
     if report is None:
         raise ValueError("codex_artifacts requires the assigned report path")
     report = Path(report).absolute()
-    # Only stage reports qualify. Never authorize state.json or the run root.
+    # Only stage reports qualify. Never authorize state.json or the run root. A standalone call (the model access
+    # preflight, a conformance check: provider_conformance_transport.execute) passes its own fresh call directory
+    # as the run directory, which holds no run state, and its report is that directory's events.json.
     try:
         relative = report.relative_to(run_dir)
     except ValueError:
         raise ValueError("Assigned report must be inside the run directory") from None
-    if len(relative.parts) < 3 or relative.parts[0] != "iterations" or report.suffix != ".json":
+    standalone = relative.parts == (STANDALONE_REPORT,) and not (run_dir / "state.json").exists()
+    if not standalone and (len(relative.parts) < 3 or relative.parts[0] != "iterations" or report.suffix != ".json"):
         raise ValueError("Assigned report must be a stage JSON file under run/iterations")
     if run_dir.is_relative_to(workspace):
         _descendant(workspace, report)

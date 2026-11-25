@@ -187,9 +187,13 @@ alone the GPT models do. Checks are stronger when a second vendor makes them, an
 are three ways to get that:
 
 - **Sign in to a second vendor's tool; AutoCode uses it by itself.** A new run on Claude
-  Code with Gemini CLI also signed in with Google, or a new run on Gemini CLI with Claude
-  Code also signed in, runs its Plan Reviewer, Tester and Completion Reviewer on the other
-  tool, with that tool's default model for each (`gemini-2.5-pro`; Opus). The run says so
+  Code, Codex or Gemini CLI with another of the three also signed in runs its Plan
+  Reviewer, Tester and Completion Reviewer on the other tool, with that tool's default
+  model for each (Opus and Sonnet on Claude Code; `gpt-6-astra` and `gpt-5.6-sol` on Codex;
+  `gemini-2.5-pro` on Gemini CLI). A Claude Code run takes Gemini CLI, then Codex; a Gemini
+  CLI run takes Claude Code, then Codex; a Codex run takes Claude Code, then Gemini CLI. Codex
+  checks through its bundled [provider config](providers.md#codex-for-one-role), so it needs
+  a ChatGPT login and Codex CLI 0.160.0 or newer. The run says so
   in one line when it starts (`Checks by a second vendor: Gemini CLI runs the Plan Reviewer
   (gemini-2.5-pro), …`) and keeps the decision in its settings (`second_vendor`: the tool,
   the stages it took and why). A stage you chose a model for (a `--ROLE-model` or
@@ -197,22 +201,24 @@ are three ways to get that:
   and `--role-transport`, `--single-model` or a replay keeps every stage where it was. When
   the second tool is installed but cannot sign in (an expired sign-in, a Workspace account
   without `GOOGLE_CLOUD_PROJECT`), the run says why and keeps its own vendor. `autocode setup`
-  says which tool will check new runs. A run on Codex gets none yet.
+  says which tool will check new runs. `AUTOCODE_SECOND_VENDOR=off` in the environment keeps
+  every run on its own tool on that machine (AutoCode's test suites set it).
 
 - **OpenCode or Kilo with two vendors' accounts**, for example a ChatGPT login and a Z.ai
   or Anthropic key. Each checker then runs on another family than what it checks, as in
   the defaults above. A signed-in OpenCode comes first when a run names no backend.
-- **Claude Code with chosen stages on Gemini CLI**, signed in with Google:
+- **Claude Code with chosen stages on Gemini CLI or Codex**:
   `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro`
-  ([Gemini CLI provider](providers.md#gemini-cli-provider)).
+  ([Gemini CLI provider](providers.md#gemini-cli-provider)), or
+  `--role-transport tester=codex --tester-model gpt-5.6-sol`
+  ([Codex for one role](providers.md#codex-for-one-role)).
 - **Claude Code with one stage on a Kilo account**:
   `autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL`,
   with `MODEL` from `autocode models --provider kilocode`
   ([a different tool for one role](providers.md#a-different-tool-for-one-role)).
 
-With both Claude Code and Codex signed in, a run uses one of them for every stage;
-they are not yet combined in one run. `autocode setup` says this when new runs use
-Claude Code or Codex.
+With both Claude Code and Codex signed in, a run on either one has its checks made by
+the other, as above. `autocode setup` says which tool checks new runs.
 
 ## Choosing each stage's model
 

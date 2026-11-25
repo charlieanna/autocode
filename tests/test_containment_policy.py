@@ -46,6 +46,15 @@ class ContainmentPolicyTests(unittest.TestCase):
         self.assertFalse(policy.applies(OPENCODE, configured_tool=True))
         self.assertFalse(policy.applies(None))
 
+    def test_a_codex_run_role_bound_to_another_tool_is_not_a_builtin_opencode_stage(self):
+        # A second vendor's checks on a Codex run (--role-transport tester=claude) run under that tool's own checks.
+        bound = copy.deepcopy(CODEX)
+        bound["roles"]["tester"] = {"engine": "opencode", "provider": "claude", "model": "claude-sonnet-5-5"}
+        self.assertFalse(policy.applies(bound))
+        builtin = copy.deepcopy(CODEX)
+        builtin["roles"]["tester"] = {"engine": "opencode", "provider": None, "model": "openai/gpt-6-sol"}
+        self.assertTrue(policy.applies(builtin))
+
     def test_unavailable_boundary_refuses_with_reason_and_flag_and_changes_nothing(self):
         for reason in (
             "strict tool containment requires macOS sandbox-exec; this machine is linux",

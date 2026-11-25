@@ -245,11 +245,11 @@ def configure(settings, args, workspace):
     requested = getattr(args, "role_transport", None) or ()
     if not requested:
         return
-    if settings.get("engine") != "opencode":
-        raise ValueError(
-            "--role-transport binds roles on the OpenCode facade engine; --engine codex keeps Codex's own transport"
-        )
-    base = settings.get("provider") or "opencode"
+    if settings.get("engine") not in ("opencode", "codex"):
+        raise ValueError("--role-transport binds roles of an OpenCode-engine or Codex-engine run")
+    # A Codex-engine run's own tool is Codex: its other roles keep Codex's native transport, and a bound role
+    # runs on the facade engine through its own tool, as in an OpenCode-engine run.
+    base = "codex" if settings.get("engine") == "codex" else settings.get("provider") or "opencode"
     if settings.get("replay_recording") or getattr(args, "single_model", None):
         raise ValueError("--role-transport cannot combine with replay or --single-model")
     parsed = {}

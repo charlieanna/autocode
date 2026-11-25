@@ -171,7 +171,7 @@ def text(found, use) -> str:
     else:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
         if use["id"] in ENGINES:
-            lines.append(second_vendor(found, use["id"]) or SAME_VENDOR_CHECKS.format(label=use["label"]))
+            lines.append(second_vendor(found, use["id"], use["label"]) or SAME_VENDOR_CHECKS.format(label=use["label"]))
     return "\n".join(lines)
 
 
@@ -180,14 +180,17 @@ SAY_WHY = frozenset({"gemini"})
 
 
 # A signed-in one-vendor backend that can check another's work, with the stage flags that move the Tester there.
-def second_vendor(found, engine) -> str | None:
-    """What a signed-in second vendor does for new runs on ``engine``, or None (autocode_second_vendor)."""
+def second_vendor(found, engine, own=None) -> str | None:
+    """What a signed-in second vendor does for new runs on ``engine`` (shown as ``own``), or None
+    (autocode_second_vendor). A Codex run plans jointly only when asked, so by default it has no Plan Reviewer
+    to move."""
     connected = {row["id"]: row for row in found if row.get("connection_status") in CONNECTED}
     for name, _executable in second_vendors.SECOND_VENDORS.get(engine, ()):
         if name in connected:
-            own = next((row["label"] for row in found if row["id"] == engine), engine)
+            own = own or next((row["label"] for row in found if row["id"] == engine), engine)
             label = connected[name]["label"]
-            stages = ", ".join(second_vendors.LABELS[role] for role in second_vendors.CHECKERS)
+            roles = [role for role in second_vendors.CHECKERS if engine != "codex" or role != "plan_reviewer"]
+            stages = ", ".join(second_vendors.LABELS[role] for role in roles)
             return (
                 f"{label} is signed in too, so it checks the work of new runs on {own} ({stages}); "
                 "a stage you choose a model for keeps it"

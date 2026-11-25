@@ -16,6 +16,8 @@ from pathlib import Path
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
 BUILT_IN = ("opencode", "claude", "gemini", "autocode")
+ENGINE_ONLY = "codex"
+CODEX_ENGINE = "codex is an engine, not a provider config: run with --engine codex and no --provider"
 
 
 def resolve(name: str):
@@ -137,4 +139,8 @@ def select(requested: str | None, saved: Mapping[str, object] | None, *, default
     selected = requested or saved_name or default or default_name()
     if not isinstance(selected, str) or not _PROVIDER_NAME.fullmatch(selected):
         raise ValueError("provider names use lowercase letters, digits, and underscores")
+    if selected == ENGINE_ONLY:
+        # The bundled codex.toml runs single stages of another tool's run (--role-transport tester=codex); a whole
+        # run on Codex is the Codex engine, so AUTOCODE_PROVIDER=codex is refused as --provider codex is.
+        raise ValueError(CODEX_ENGINE)
     return selected

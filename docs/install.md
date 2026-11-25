@@ -390,7 +390,7 @@ kilo auth list
 
 A saved run keeps the provider it started with, and `--engine codex` runs still
 use Codex. `autocode doctor` then checks the default provider instead of OpenCode.
-`AUTOCODE_PROVIDER=codex` does not select the Codex engine: it names a provider config
-`codex.toml`, and doctor reports it missing. Use `--engine codex` for Codex.
+`AUTOCODE_PROVIDER=codex` does not select the Codex engine: a run refuses it, and doctor
+reports it. Use `--engine codex` for Codex.
 
 See also: [CLI](cli.md) · [Providers](providers.md) · [Models](models.md)
