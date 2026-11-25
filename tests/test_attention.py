@@ -153,3 +153,34 @@ class AttentionIdentity(unittest.TestCase):
             self.assertEqual(2, code)
             self.assertFalse(json.loads(output.getvalue())["acknowledged"])
             write.assert_not_called()
+
+    def test_a_slow_status_read_still_acknowledges_through_the_cli_and_taskrun(self):
+        """A completed run's status read can take seconds on a busy host; no fixed limit refuses the ack."""
+        import contextlib
+        import io
+        import json
+        import subprocess
+
+        item = offered()["item"]
+        receipt = {"item_id": item["id"], "workspace": item["workspace"], "run_dir": item["run_dir"]}
+
+        def slow(argv, *, timeout=None, **_):  # a read that finishes only after 30 seconds of a fake clock
+            if timeout is not None and timeout < 30:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            if "attention" in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps({"acknowledged": True, "receipt": receipt}), "")
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"view": {"attention": offered()}}), "")
+
+        argv = ["ack", "--workspace", str(WORKSPACE), "--run-dir", str(RUN), "--item-id", item["id"]]
+        with (
+            patch.object(taskrun, "run_process", side_effect=slow),
+            patch.object(cli.store, "inspect", return_value={"state": "unread"}),
+            patch.object(cli.store, "acknowledge", return_value=receipt) as write,
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(0, cli.cli(argv), output.getvalue())
+            self.assertTrue(json.loads(output.getvalue())["acknowledged"])
+            write.assert_called_once_with(item["id"], item["workspace"], item["run_dir"])
+            self.assertTrue(
+                taskrun.TaskRun(WORKSPACE, RUN).acknowledge_attention({"attention": offered()})["acknowledged"]
+            )
