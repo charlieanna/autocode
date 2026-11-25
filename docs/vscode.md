@@ -469,8 +469,8 @@ pick again either way. An AutoCode without per-chat models shows no chip.
 
 ### Backends and API keys
 
-Connections lists AutoCode's four backends: **Claude Code** and **Codex** as
-engines, and **OpenCode** and **Kilo** for other accounts and API keys
+Connections lists AutoCode's five backends: **Claude Code** and **Codex** as
+engines, **Gemini CLI** on a Google sign-in, and **OpenCode** and **Kilo** for other accounts and API keys
 (`opencode auth login`, `kilo auth login`). When a backend's CLI is not on
 `PATH`, its card remains listed as unavailable until it is installed in the
 AutoCode CLI environment (`autocode setup` can install OpenCode or Kilo).

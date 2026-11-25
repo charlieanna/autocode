@@ -22,12 +22,16 @@ class CatalogTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(0, prepare.main(["--list"]))
         cases = json.loads(output.getvalue())
-        self.assertEqual(
+        self.assertLessEqual(
             {"Boltons", "Humanize", "More Itertools", "SymPy", "Django", "pytest", "TypeScript", "Go x/net/http2"},
             {c["project"] for c in cases},
         )
         self.assertEqual({"development", "regression", "holdout"}, {c["split"] for c in cases})
-        self.assertEqual({"starter", "hard"}, {c["tier"] for c in cases})
+        self.assertEqual({"starter", "hard", "kinds"}, {c["tier"] for c in cases})
+        # The "kinds" tier is one feature and one refactor in each major language (docs/real-repo-sweep.md).
+        kinds = sorted((c["language"], c["kind"]) for c in cases if c["tier"] == "kinds")
+        languages = ("go", "java", "javascript", "python", "rust")
+        self.assertEqual([(language, kind) for language in languages for kind in ("feature", "refactor")], kinds)
         self.assertEqual(
             ["typescript-dependent-destructuring-baselines-v2"],
             [case["id"] for case in cases if "preparation_note" in case],
@@ -251,6 +255,51 @@ class CatalogTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 prepare.prepare(root / "invalid", [{**case, "reference_commit": base}], catalog_root=root)
             self.assertEqual([], json.loads((root / "invalid/catalog.json").read_text())["cases"])
+
+    def test_a_case_from_a_commit_cites_it_and_briefs_only_its_repository(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "upstream"
+            repo.mkdir()
+
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+            git("init", "-q")
+            (repo / "answer.py").write_text('print("old")\n')
+            git("add", ".")
+            git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "baseline")
+            base = git("rev-parse", "HEAD")
+            (repo / "answer.py").write_text('print("new")\n')
+            git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qam", "change")
+            changed = git("rev-parse", "HEAD")
+            fixture = root / "cases/demo"
+            fixture.mkdir(parents=True)
+            (fixture / "issue.json").write_text(json.dumps({"title": "Print new", "body": "It should print new."}))
+            (fixture / "oracle.py").write_text(
+                "import json, subprocess, sys\nfrom pathlib import Path\n"
+                'result = subprocess.run([sys.executable, "-B", str(Path(sys.argv[1]) / "answer.py")], '
+                "capture_output=True, text=True, timeout=5)\n"
+                'print(json.dumps({"checks": [{"name": "output", "ok": result.stdout == "new\\n"}]}))\n'
+            )
+            case = dict(
+                id="demo",
+                repository=str(repo),
+                base_commit=base,
+                reference_commit=changed,
+                issue_ref=f"example/demo@{changed}",
+                split="development",
+                checks=["output"],
+            )
+            destination = root / "arena"
+            prepare.prepare(destination, [case], catalog_root=root, oracle_timeout=5)
+            (row,) = json.loads((destination / "catalog.json").read_text())["cases"]
+            self.assertEqual(f"example/demo@{changed}", row["issue_ref"])
+            self.assertTrue(row["task"].startswith("Make this change to GitHub repository example/demo: Print new\n"))
+            self.assertIn("> It should print new.", row["task"])
+            self.assertIn("URL: https://github.com/example/demo\n", row["task"])
+            self.assertNotIn(changed, row["task"])
+            self.assertNotIn(changed[:7], row["task"])
 
     def test_overlay_refuses_runtime_paths_and_symlinks_before_changing_sources(self):
         with tempfile.TemporaryDirectory() as temporary:

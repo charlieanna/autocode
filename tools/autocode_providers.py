@@ -1,7 +1,7 @@
 """Provider discovery and run-boundary selection.
 
-The workflow engine calls one provider facade. OpenCode, Claude Code and AutoCode's direct runtime are
-built in. Every other name loads a TOML config; there is no Python plug-in path.
+The workflow engine calls one provider facade. OpenCode, Claude Code, Gemini CLI and AutoCode's direct
+runtime are built in. Every other name loads a TOML config; there is no Python plug-in path.
 A user config named after a built-in is never read. A TOML whose command runs ``kilo`` is a
 Kilo connection, whatever its name, and gets the Kilo launch (#2010).
 """
@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
-BUILT_IN = ("opencode", "claude", "autocode")
+BUILT_IN = ("opencode", "claude", "gemini", "autocode")
 
 
 def resolve(name: str):
@@ -40,6 +40,12 @@ def resolve(name: str):
         except ImportError:  # Script-style execution from tools/.
             from providers import claude
         return claude
+    if name == "gemini":
+        try:
+            from .providers import gemini
+        except ImportError:  # Script-style execution from tools/.
+            from providers import gemini
+        return gemini
     try:
         from .providers import command, kilocode
     except ImportError:

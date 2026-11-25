@@ -1,0 +1,6 @@
+{
+  "title": "Remove the duplicated letter branches in chunk size parsing",
+  "html_url": "https://github.com/seanmonstar/httparse/pull/219",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR seanmonstar/httparse#219, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "httparse::parse_chunk_size handles the hexadecimal letters of a chunk size in two match arms, one for a to f and one for A to F, that repeat the same digit counting, the sixteen-digit limit and the overflow check and differ only in the letter they subtract. Merge them into a single arm that handles both cases, so that logic is written once. This is a refactor: parse_chunk_size must return exactly what it returns now for every input (lowercase, uppercase and mixed-case sizes, sizes of sixteen digits and longer, chunk extensions, partial and invalid input), and the existing tests must keep passing."
+}

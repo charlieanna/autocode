@@ -1,0 +1,8 @@
+{
+  "name": "arena-js-yaml-test-dependencies",
+  "private": true,
+  "description": "The one test dependency js-yaml's node:test suite loads at the pinned commit, installed outside the candidate (NODE_PATH).",
+  "dependencies": {
+    "fast-check": "4.8.0"
+  }
+}

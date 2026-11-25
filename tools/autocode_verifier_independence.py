@@ -40,6 +40,11 @@ PAIRS = (
 )
 
 
+# The built-in providers that reach one vendor's models, and the families those engines' models belong to.
+VENDOR_PROVIDERS = ("claude", "gemini")
+VENDOR_FAMILIES = ("claude", "openai", "gemini")
+
+
 def verifiers(producer):
     """The roles that check the given producer role's work."""
     return tuple(verifier for role, verifier, _label in PAIRS if role == producer)
@@ -53,7 +58,7 @@ def shares(producer_model, verifier_model, *, vendor_engine=False):
     """
     if not model_identity.shared_family(producer_model, verifier_model):
         return False
-    if vendor_engine and model_identity.family(producer_model) in ("claude", "openai"):
+    if vendor_engine and model_identity.family(producer_model) in VENDOR_FAMILIES:
         return model_identity.identity(producer_model) == model_identity.identity(verifier_model)
     return True
 
@@ -84,9 +89,10 @@ def clash(producer_model, verifier_model, *, vendor_engine=False):
 
 
 def same_vendor_engine(settings):
-    """Whether the run's engine can reach only one vendor's models: the built-in Claude Code provider or Codex."""
+    """Whether the run's engine can reach only one vendor's models: the built-in Claude Code or Gemini CLI
+    provider, or Codex."""
     settings = settings or {}
-    return settings.get("provider") == "claude" or settings.get("engine") == "codex"
+    return settings.get("provider") in VENDOR_PROVIDERS or settings.get("engine") == "codex"
 
 
 def clashes(settings):

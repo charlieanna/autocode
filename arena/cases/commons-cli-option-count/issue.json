@@ -1,0 +1,6 @@
+{
+  "title": "Count how many times an option appears on the command line",
+  "html_url": "https://github.com/apache/commons-cli/pull/396",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR apache/commons-cli#396 (CLI-350), retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "A CommandLine can tell whether an option was given (hasOption) and read its values, but not how many times it was given, which programs need for repeatable flags such as -v -v -v for more verbosity. Add getOptionCount to CommandLine, returning an int, in three overloads like the existing query methods: getOptionCount(Option), getOptionCount(String) taking a short or long option name, and getOptionCount(char) taking a short name. Each returns how many times that option appears among the parsed options: -vvv counts three times, -v --verbose counts two, an option that takes a value counts once per occurrence, and an option that was not given, or a name that is not an option, counts zero. Existing CommandLine queries must behave as before. Add tests."
+}

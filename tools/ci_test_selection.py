@@ -753,7 +753,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("docs/", ("tests.test_doc_examples",)),
     ("examples/", ("tests.test_doc_examples",)),
     ("examples/claude-provider/real_repo_sweep.py", ("tests.test_real_repo_sweep",)),
-    ("arena/catalog.json", ("tests.test_real_repo_sweep",)),
+    ("arena/", ("tests.test_real_repo_sweep", "tests.test_arena_catalog")),
     ("tools/setup_sweep_repos.json", ("tests.test_setup_sweep",)),
     (".github/workflows/setup-sweep.yml", ("tests.test_setup_sweep",)),
     ("README.md", ("tests.test_doc_examples",)),
@@ -806,6 +806,12 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    # The gemini provider's tests copy these files or read them by path; none is imported.
+    ("tools/fake_gemini.py", ("tests.test_gemini_provider_cli",)),
+    ("tools/fake_claude.py", ("tests.test_claude_provider_cli", "tests.test_gemini_provider_cli")),
+    ("tools/providers/gemini_stream.py", ("tests.test_gemini_stream", "tests.test_gemini_provider_cli")),
+    ("tools/prompts/fragments/provider-gemini/", ("tests.test_gemini_provider_cli",)),
+    ("tests/fixtures/gemini/", ("tests.test_gemini_stream",)),
     # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
     ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),
     (

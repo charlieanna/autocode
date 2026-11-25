@@ -1,0 +1,6 @@
+{
+  "title": "Extract CommandLine's repeated 'first value or null' logic into one helper",
+  "html_url": "https://github.com/apache/commons-cli",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream commit apache/commons-cli@bbc7001dee87e921847dc2bc89ca9c601411134a, which no issue or pull request describes, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "In org.apache.commons.cli.CommandLine, getOptionValue(Option) and getOptionValue(OptionGroup) each fetch the option's values and repeat the same expression to return the first one, or null when there are none. Refactor: extract that expression into a single private helper method, String first(String[] values), which returns null for a null array and otherwise its first element, and have both getOptionValue overloads use it, so the logic is written once. This is a refactor: every public method of CommandLine, including the overloads with default values, must behave exactly as before, and the existing tests must keep passing."
+}

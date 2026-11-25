@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from unittest import mock
 
@@ -37,6 +38,30 @@ class Sets(unittest.TestCase):
                     else:
                         self.assertIn(case, arena)
                         self.assertTrue(spec["test"])
+
+    def test_the_kinds_set_runs_every_feature_and_refactor_case(self):
+        catalog = json.loads(CATALOG.read_text())["cases"]
+        self.assertEqual({c["id"] for c in catalog if c.get("tier") == "kinds"}, set(sweep.SETS["kinds"]))
+
+    def test_npm_support_is_installed_once_outside_the_case_and_reaches_it_by_node_path(self):
+        installs = []
+
+        def install(command, cwd, check):
+            installs.append((command, Path(cwd)))
+            (Path(cwd) / "node_modules").mkdir()
+
+        spec = sweep.SETS["kinds"]["js-yaml-max-depth"]
+        with tempfile.TemporaryDirectory() as folder, unittest.mock.patch.object(sweep.subprocess, "run", install):
+            out = Path(folder)
+            first, second = sweep.case_env(out, spec), sweep.case_env(out, spec)
+            self.assertEqual(first, second)
+            self.assertEqual(str(out / "support/js-yaml/node_modules"), first["NODE_PATH"])
+            self.assertEqual(
+                [(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], out / "support/js-yaml")], installs
+            )
+            lock = (sweep.REPO / "arena/support/js-yaml/package-lock.json").read_bytes()
+            self.assertEqual(lock, (out / "support/js-yaml/package-lock.json").read_bytes())
+        self.assertEqual({}, sweep.case_env(Path("/nowhere"), sweep.SETS["kinds"]["commander-strip-vt-control"]))
 
     def test_route_matches_the_claude_tiers_profile_and_never_fable(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scenarios"))

@@ -20,6 +20,12 @@ import unittest
 from pathlib import Path
 
 POLL_SECONDS = 0.1
+# How long a wait gives the screen by default. A wait returns as soon as its condition holds, so
+# this bound costs time only when a test fails. A full-screen chat test waits through several CLI
+# processes and fixture stages at once (about 20 s idle from a reply to "Approve this plan?"), and a
+# CI shard that runs four modules at a time can take twice as long as usual: 60 s failed there
+# three times in a row on PR #4167 while the same wait took 18-25 s on an idle host.
+WAIT_SECONDS = 180.0
 # Runs the program as the terminal's foreground job, records its exit status and keeps
 # the terminal open. A pane whose program has exited is no good to read: tmux (3.6a)
 # drops the first line the program printed, which is where a closing message lands.
@@ -84,7 +90,7 @@ class TerminalScreen:
         shown = self._run("capture-pane", "-p", "-t", "t").stdout
         return "\n".join(line.rstrip() for line in shown.splitlines())
 
-    def wait_for(self, condition, timeout=60.0, what=None) -> str:
+    def wait_for(self, condition, timeout=WAIT_SECONDS, what=None) -> str:
         """The screen once ``condition`` (text, or a function of the screen) holds; fails with it otherwise."""
         check = condition if callable(condition) else (lambda screen: condition in screen)
         deadline = time.monotonic() + timeout
@@ -96,7 +102,7 @@ class TerminalScreen:
                 raise AssertionError(f"timed out waiting for {what or condition!r}; the screen:\n{screen}")
             time.sleep(POLL_SECONDS)
 
-    def exit_status(self, timeout=60.0) -> int:
+    def exit_status(self, timeout=WAIT_SECONDS) -> int:
         """The program's exit status once it has exited."""
         deadline = time.monotonic() + timeout
         while True:

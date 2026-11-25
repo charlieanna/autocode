@@ -1,4 +1,4 @@
-"""`autocode setup` (#2049): check the four backends, offer their own sign-in, say what new runs use."""
+"""`autocode setup` (#2049): check the five backends, offer their own sign-in, say what new runs use."""
 
 import contextlib
 import io
@@ -31,6 +31,7 @@ CLAUDE_IN = row("claude", "Claude Code", "credentials_present")
 CODEX_OUT = row("codex", "Codex", "sign_in_required")
 OPENCODE_MISSING = row("opencode", "OpenCode", "", missing=True)
 KILO_MISSING = row("kilocode", "Kilo", "", missing=True)
+GEMINI_MISSING = row("gemini", "Gemini CLI", "", missing=True)
 CLAUDE_CHOSEN = {"id": "claude", "engine": "opencode", "provider": "claude", "label": "Claude Code", "reason": "x"}
 
 
@@ -45,7 +46,13 @@ class SetupTests(unittest.TestCase):
         os.environ.pop("AUTOCODE_PROVIDER", None)
 
     def test_each_backend_is_checked_and_a_missing_one_gets_its_install_command(self):
-        views = {"claude": CLAUDE_IN, "codex": CODEX_OUT, "opencode": OPENCODE_MISSING, "kilocode": KILO_MISSING}
+        views = {
+            "claude": CLAUDE_IN,
+            "codex": CODEX_OUT,
+            "gemini": GEMINI_MISSING,
+            "opencode": OPENCODE_MISSING,
+            "kilocode": KILO_MISSING,
+        }
         calls = []
 
         def view(name, *, check):
@@ -57,6 +64,7 @@ class SetupTests(unittest.TestCase):
         install = {item["id"]: item.get("install_command") for item in found}
         self.assertEqual("npm install -g opencode-ai@1.18.33", install["opencode"])
         self.assertEqual("npm install -g @kilocode/cli@7.8.3", install["kilocode"])
+        self.assertEqual("npm install -g @google/gemini-cli", install["gemini"])
         self.assertIsNone(install["claude"])
         self.assertIsNone(install["codex"])
 
@@ -275,8 +283,8 @@ class SetupTests(unittest.TestCase):
 
     def test_with_no_hub_installed_setup_asks_which_hub_and_installs_the_one_chosen(self):
         """It offered only OpenCode ("Install OpenCode now? [Y/n]"), so a person who uses Kilo
-        could only say no and install Kilo by hand."""
-        found = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
+        could only say no and install Kilo by hand. With no engine signed in, Enter takes OpenCode."""
+        found = [row("claude", "Claude Code", "sign_in_required"), CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
         found = [
             {**item, "install_command": setup.INSTALL[item["id"]]}
             if item.get("detail", "").startswith("Backend executable")
@@ -334,6 +342,53 @@ class SetupTests(unittest.TestCase):
         ran = []
         self.assertFalse(setup._install(found, which=lambda _name: "/bin/npm", run=lambda argv: ran.append(argv) or 0))
         self.assertEqual([], ran)
+
+    def test_with_claude_or_codex_signed_in_enter_installs_no_hub(self):
+        """A Claude Code user pressing Enter through setup had OpenCode installed and its credential
+        picker opened, though the account they had was enough to start. Now the hub is offered as the
+        optional second vendor, Enter installs nothing, and a number still installs the hub chosen."""
+        codex_in = row("codex", "Codex", "credentials_present")
+        for engine, label in ((CLAUDE_IN, "Claude Code"), (codex_in, "Codex")):
+            found = [
+                engine,
+                {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
+                {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
+            ]
+            for answer, hub in (("", None), ("3", None), ("1", "opencode"), ("2", "kilocode")):
+                with self.subTest(engine=label, answer=answer):
+                    asked, ran, said = [], [], []
+                    installed = setup._install(
+                        found,
+                        ask=lambda prompt, asked=asked, answer=answer: asked.append(prompt) or answer,
+                        which=lambda name, ran=ran: "/bin/npm" if name == "npm" else ("/bin/x" if ran else None),
+                        run=lambda argv, ran=ran: ran.append(argv) or 0,
+                        out=said.append,
+                    )
+                    self.assertEqual(hub, installed)
+                    self.assertEqual(["Install which? [1-3, Enter for 3] "], asked)
+                    self.assertIn(f"{label} is signed in, so you can start a task now", said[0])
+                    self.assertIn(f"3. Neither: use {label} only", said[0])
+                    self.assertEqual([] if hub is None else [setup.INSTALL[hub].split()], ran)
+
+    def test_new_runs_on_one_vendor_say_who_checks_and_where_a_second_vendor_is_explained(self):
+        """Setup said only "New runs use Claude Code", so a person could not tell that its checks stay with
+        one vendor's models or how to have a second vendor check the work."""
+        for engine, label in (("claude", "Claude Code"), ("codex", "Codex")):
+            with self.subTest(engine=engine):
+                shown = setup.text([CLAUDE_IN], {"id": engine, "label": label, "reason": f"{label} is connected"})
+                self.assertIn(f"{label}'s own models check each other's work (a model never checks itself)", shown)
+                self.assertIn("docs/models.md#checks-by-a-second-vendor", shown)
+        on_a_hub = setup.text([CLAUDE_IN], {"id": "opencode", "label": "OpenCode", "reason": "signed in"})
+        self.assertNotIn("check each other's work", on_a_hub)
+        models = (Path(__file__).resolve().parents[1] / "docs" / "models.md").read_text(encoding="utf-8")
+        self.assertIn("\n### Checks by a second vendor\n", models)
+        # With Gemini CLI signed in, a Claude Code run's checks move there (autocode_second_vendor), and setup says so.
+        gemini_in = row("gemini", "Gemini CLI", "credentials_present")
+        shown = setup.text([CLAUDE_IN, gemini_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
+        self.assertIn("Gemini CLI is signed in too, so it checks the work of new runs on Claude Code", shown)
+        self.assertNotIn("own models check each other's work", shown)
+        codex = setup.text([gemini_in], {"id": "codex", "label": "Codex", "reason": "connected"})
+        self.assertIn("Codex's own models check each other's work", codex)
 
     def test_invalid_numeric_hub_choices_return_without_installing(self):
         found = [

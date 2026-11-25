@@ -1,0 +1,6 @@
+{
+  "title": "Use node:util's stripVTControlCharacters instead of Commander's own colour stripping",
+  "html_url": "https://github.com/tj/commander.js/pull/2486",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR tj/commander.js#2486, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "Commander removes ANSI colour (SGR) escape sequences with its own regular expression, the stripColor helper exported from lib/help.js, so that help text with coloured words still lines up (Help.displayWidth) and so that the default output configuration can strip colour when the terminal has none. Node's own node:util module provides stripVTControlCharacters for exactly this. Refactor Commander to use stripVTControlCharacters from node:util in every place that uses stripColor, and delete the now unused stripColor helper together with the tests that exercised it directly. This is a refactor: help layout, displayWidth and the configured stripColor output must not change for coloured or plain text, and the remaining tests must keep passing."
+}

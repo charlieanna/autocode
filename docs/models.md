@@ -179,6 +179,41 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > aliases. Neither is a model choice: `--builder-model zai-coding-plan/glm-5.3` selects the
 > model used for the Builder role.
 
+### Checks by a second vendor
+
+One account is enough. A model never checks its own work: on Claude Code alone the
+Claude models check each other (for example Opus reviews Sonnet's build), and on Codex
+alone the GPT models do. Checks are stronger when a second vendor makes them, and there
+are three ways to get that:
+
+- **Sign in to a second vendor's tool; AutoCode uses it by itself.** A new run on Claude
+  Code with Gemini CLI also signed in with Google, or a new run on Gemini CLI with Claude
+  Code also signed in, runs its Plan Reviewer, Tester and Completion Reviewer on the other
+  tool, with that tool's default model for each (`gemini-2.5-pro`; Opus). The run says so
+  in one line when it starts (`Checks by a second vendor: Gemini CLI runs the Plan Reviewer
+  (gemini-2.5-pro), …`) and keeps the decision in its settings (`second_vendor`: the tool,
+  the stages it took and why). A stage you chose a model for (a `--ROLE-model` or
+  `--ROLE-provider` flag, or a saved [stage choice](#choosing-each-stages-model)) keeps it,
+  and `--role-transport`, `--single-model` or a replay keeps every stage where it was. When
+  the second tool is installed but cannot sign in (an expired sign-in, a Workspace account
+  without `GOOGLE_CLOUD_PROJECT`), the run says why and keeps its own vendor. `autocode setup`
+  says which tool will check new runs. A run on Codex gets none yet.
+
+- **OpenCode or Kilo with two vendors' accounts**, for example a ChatGPT login and a Z.ai
+  or Anthropic key. Each checker then runs on another family than what it checks, as in
+  the defaults above. A signed-in OpenCode comes first when a run names no backend.
+- **Claude Code with chosen stages on Gemini CLI**, signed in with Google:
+  `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro`
+  ([Gemini CLI provider](providers.md#gemini-cli-provider)).
+- **Claude Code with one stage on a Kilo account**:
+  `autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL`,
+  with `MODEL` from `autocode models --provider kilocode`
+  ([a different tool for one role](providers.md#a-different-tool-for-one-role)).
+
+With both Claude Code and Codex signed in, a run uses one of them for every stage;
+they are not yet combined in one run. `autocode setup` says this when new runs use
+Claude Code or Codex.
+
 ## Choosing each stage's model
 
 You choose the model and reasoning level of each stage once, and every new task uses them

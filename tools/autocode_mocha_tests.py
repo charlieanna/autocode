@@ -22,8 +22,10 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_repeated_tests as repeated_tests
 except ImportError:
     import autocode_npm_scripts as npm_scripts
+    import autocode_repeated_tests as repeated_tests
 
 RUNTIME = "[mocha runtime error]"
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
@@ -180,10 +182,11 @@ def results(path, tree=None, output_path=None) -> dict | None:
         full_title = item["fullTitle"]
         identity = f"{rel}::{label}"
         key = (rel, full_title)
-        if identity in seen_ids or key in key_to_id:
+        # Tests of one title in one file are one identity (autocode_repeated_tests); one title that names
+        # two identities is ambiguous.
+        if key_to_id.setdefault(key, identity) != identity:
             return None
         seen_ids.add(identity)
-        key_to_id[key] = identity
 
     passed: set[str] = set()
     failed: set[str] = set()
@@ -219,10 +222,14 @@ def results(path, tree=None, output_path=None) -> dict | None:
             failed.add(hook_id)
             collection.add(hook_id)
 
+    states: dict[str, set[str]] = {}
+    for state, identities in (("passed", passed), ("failed", failed), ("skipped", skipped)):
+        for identity in identities:
+            states.setdefault(identity, set()).add(state)
+    settled = repeated_tests.settle(states)
+    passed, failed, skipped = settled["passed"], settled["failed"], settled["skipped"]
     accounted = passed | (failed - collection) | skipped
-    if len(accounted) != len(tests) and not collection:
-        return None
-    if passed & (failed | skipped) or (failed & skipped):
+    if accounted != seen_ids and not collection:
         return None
     return {
         "passed": sorted(passed),
@@ -230,6 +237,6 @@ def results(path, tree=None, output_path=None) -> dict | None:
         "skipped": sorted(skipped),
         "collection_errors": sorted(collection),
         "uncollected": [],
-        "total": len(tests) + len(collection),
+        "total": len(seen_ids) + len(collection),
         "complete": True,
     }
