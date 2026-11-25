@@ -48,10 +48,12 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_approach_sketch as approach_sketch
     from . import autocode_contract_identity as identity
     from . import autocode_scope_question as scope_question
     from . import autocode_util as util
 except ImportError:
+    import autocode_approach_sketch as approach_sketch
     import autocode_contract_identity as identity
     import autocode_scope_question as scope_question
     import autocode_util as util
@@ -270,6 +272,22 @@ def delegate_assumptions(state: RunState) -> None:
     them; a run with nobody watching does not wait for a confirmation nobody will give."""
     if (state.get("settings") or {}).get(CONFIRMED_BY_SKIP) and unconfirmed_assumptions(state):
         confirm_assumptions(state, source=CONFIRMED_BY_SKIP)
+    handoff, report = current_turn_handoff(state), _report(state)
+    skipped = (state.get("settings") or {}).get(CONFIRMED_BY_SKIP)
+    if skipped and handoff and not approach_sketch.confirmation(handoff, report):
+        approach_sketch.confirm(handoff, report, choice=None, source=CONFIRMED_BY_SKIP)
+
+
+def approach_asks(state: RunState) -> bool:
+    """Whether the current handoff's approach sketch waits for the person (autocode_approach_sketch.asks)."""
+    skipped = bool((state.get("settings") or {}).get(CONFIRMED_BY_SKIP))
+    return approach_sketch.asks(state, current_turn_handoff(state), _report(state), skipped=skipped)
+
+
+def approves(state: RunState, answer) -> bool:
+    """Whether an answer to the review question confirms it: ``plan``, or the label of a sketched alternative."""
+    text = str((answer or {}).get("text", "") if isinstance(answer, dict) else answer or "").strip().lower()
+    return text == APPROVE or approach_sketch.chosen(_report(state), text) is not None
 
 
 def awaits_confirmation(state: RunState) -> bool:
@@ -451,6 +469,7 @@ def review_question(state: RunState) -> dict:
             *_lines("Other source statements", statements),
             *(["", f"Notes: {notes}"] if notes else []),
             *_lines("Assumptions", assumptions, limit=None),
+            *approach_sketch.lines(report, APPROVE),
             "",
             CONFIRMATION.get(
                 kind or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
@@ -467,6 +486,8 @@ def review_question(state: RunState) -> dict:
             + ("is planned" if builds_code(job(state)) else "starts")
             + " until you confirm what Requirements understood."
             if enabled(state)
+            else "Nothing is planned until you confirm what Requirements understood and how it would do it."
+            if approach_asks(state) and not awaits_confirmation(state)
             else "Requirements made assumptions you have not confirmed: nothing "
             + ("is planned" if builds_code(job(state)) else "starts")
             + " until you confirm them or say what to change."
@@ -515,7 +536,7 @@ def questions(state: RunState) -> list[dict]:
         answer = answered.get(review["id"])
         if not answer:
             return [review]
-        if answer.get("text", "").strip().lower() != APPROVE:
+        if not approves(state, answer):
             return []  # after_answers sends the correction back to Requirements
     # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
     scope = scope_question.question(state)
@@ -532,8 +553,8 @@ def questions(state: RunState) -> list[dict]:
     review = review_question(state)
     if review["id"] in answered:
         return []
-    if enabled(state) or awaits_confirmation(state):
-        # One confirmation of the whole understanding, listing every assumption; never a second one.
+    if enabled(state) or awaits_confirmation(state) or approach_asks(state):
+        # One confirmation of the whole understanding and its approach, listing every assumption; never a second one.
         return [review]
     return []
 
@@ -595,10 +616,18 @@ def after_answers(state: RunState, *, queue=None) -> None:
         return
     review = review_question(state)
     answer = (state.get("answers") or {}).get(review["id"])
-    if answer and answer.get("text", "").strip().lower() == APPROVE and not answer.get("delegated"):
+    if answer and approves(state, answer) and not answer.get("delegated"):
         confirm_assumptions(state, source=CONFIRMED_BY_REVIEW, question_id=review["id"])
+    if answer and approves(state, answer):
+        approach_sketch.confirm(
+            handoff,
+            _report(state),
+            choice=approach_sketch.chosen(_report(state), answer.get("text")),
+            source="delegated" if answer.get("delegated") else CONFIRMED_BY_REVIEW,
+            question_id=review["id"],
+        )
     if answer:
-        needs_refresh = answer.get("text", "").strip().lower() != APPROVE
+        needs_refresh = not approves(state, answer)
     else:
         needs_refresh = bool(answered_since_handoff(state))
     if needs_refresh and state.get("next_stage") == NEXT:

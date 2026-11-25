@@ -143,7 +143,19 @@ required_behaviors. Retain explicit preservation requirements and flag a genuine
 conflict with the requested correction.
 When requested behavior spans a transition, choose acceptance examples on both sides within its stated domain,
 using supported expected outcomes and retaining the general rule; do not invent new requirements.
-Do not create a technical approach, milestone, dependency graph, or implementation plan.
+APPROACH. Once the outcome is named, say in approach how the work would be achieved, sized to the
+request, so the person can correct the direction before any planning call (#4171): summary is the
+mechanism end to end in one or two plain sentences ("Kibana Watcher -> webhook -> stateless analysis
+service -> Slack webhook"; for a one-line bug fix, one sentence naming the fix); pieces are the two to
+five things built or changed, at component level; band is the size and blast radius (how many pieces,
+which repositories and layers it touches, roughly how large), as an honest rough band; alternatives
+are the other ways only where the architecture has a real choice (Watcher or ElastAlert2; model-based
+or rules-based analysis), each with its label and a one-line tradeoff, never padding, and [] when
+there is no real choice; out_of_scope is what this task deliberately does not do. Write it after the
+person's answers, never on answers they have not given. While Tier 1 is still asking which reading the
+user means, leave summary "" and the lists empty. AutoCode shows the approach beside your understanding,
+and one reply confirms both or picks an alternative. It is a sketch, not a plan: no milestones,
+dependency graph, task list, file list or implementation steps.
 Do not treat a proposed default as a user answer. Do not implement.
 In a spec_first run, when the conversation so far asks for nothing and asks nothing about
 the workspace (only a greeting, small talk, or a question unrelated to it such as your name

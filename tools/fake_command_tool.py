@@ -162,6 +162,9 @@ def _conform_ledger(payload, schema_obj, default_ref, *, has_events: bool):
             props = branches[1].get("properties", {})
     if "ambiguity_audit" in props and "ambiguity_audit" not in payload:
         payload["ambiguity_audit"] = _default_ambiguity_audit(payload)
+    if "approach" in props and "approach" not in payload:
+        # #4171: no sketch, so Requirements asks nothing more about the approach.
+        payload["approach"] = {"summary": "", "pieces": [], "band": "", "alternatives": [], "out_of_scope": []}
     q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
     if "convention_ref" in q_props:
         for q in payload.get("open_questions") or []:

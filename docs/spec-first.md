@@ -32,6 +32,26 @@ on, and nothing is planned until you approve. A follow-up turn gives Requirement
 before it as well (`follow_up.earlier_turns`, bounded), so "go with your first option" names an answer
 from several turns back.
 
+### How Requirements would do it (#4171)
+
+Beside what it understood, Requirements sketches how it would do the job (`approach`): the mechanism
+end to end in a sentence or two, the two to five pieces it would build or change, the size, the real
+alternatives with a one-line tradeoff each, and what the task leaves out. It is not a plan: no
+milestones, steps or file lists. The confirmation shows it under "How I would do it", so a wrong
+direction (the wrong trigger, the wrong place for a service to run) is corrected in one reply instead
+of a rejected plan.
+
+- `plan` takes the sketched approach; replying with an alternative's name takes that one instead, and
+  neither runs Requirements again. Anything else is a correction, as above.
+- The confirmed approach is saved on the handoff (`confirmed_approach`). The Planner plans it, and a
+  plan that departs from it is a blocking Plan Reviewer concern.
+
+This one stop also happens without `--spec-first`, on every flow, when it is worth it: when the handoff
+was written after you answered Requirements' questions, or when the sketch offers alternatives, a
+choice only you make. A clear request with one way to do it goes straight to the Planner with the
+sketch, and `--skip-requirements` never stops for it (its confirmation is recorded as
+`skip_requirements`).
+
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.
 

@@ -145,7 +145,7 @@ def start_after_approval(state: RunState):
     ):
         return False
     answer = (state.get("answers") or {}).get(review_id) or {}
-    if str(answer.get("text", "")).strip().lower() != requirements_review.APPROVE:
+    if not requirements_review.approves(state, answer):
         return False
     kind = state["workflow"].get("kind")
     if kind is None:

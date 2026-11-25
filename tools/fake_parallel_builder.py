@@ -229,6 +229,10 @@ def write_report(result):
                     "state_and_side_effects": dict(rest),
                 },
             )
+        if "approach" in props:
+            result.setdefault(
+                "approach", {"summary": "", "pieces": [], "band": "", "alternatives": [], "out_of_scope": []}
+            )
         if "counterexample" in props:
             result.setdefault("counterexample", {"file": "", "find": "", "replace": ""})
         if "project_notes" in props:

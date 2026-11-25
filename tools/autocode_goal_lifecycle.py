@@ -388,7 +388,7 @@ def _confirmed_handoff_texts(state: RunState) -> frozenset[str]:
     confirmed_fn = getattr(requirements_review, "confirmed_assumption_ids", None)
     confirmed = set(confirmed_fn(state)) if callable(confirmed_fn) else set()
     review_answer = (state.get("answers") or {}).get(requirements_review.review_question(state)["id"]) or {}
-    review_confirmed = str(review_answer.get("text", "")).strip().lower() == requirements_review.APPROVE
+    review_confirmed = requirements_review.approves(state, review_answer)
     rejected = {row.get("assumption_id") for row in state.get("deferred_obligations") or [] if isinstance(row, dict)}
     texts = set()
     for raw in report.get("proposed_assumptions") or []:

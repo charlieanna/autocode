@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 try:
     from .. import autocode_acceptance_policy as acceptance_policy
     from .. import autocode_adaptive_planning as adaptive
+    from .. import autocode_approach_sketch as approach_sketch
     from .. import autocode_brief_acceptance as brief_acceptance
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
@@ -89,6 +90,7 @@ try:
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_adaptive_planning as adaptive
+    import autocode_approach_sketch as approach_sketch
     import autocode_brief_acceptance as brief_acceptance
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
@@ -761,6 +763,9 @@ SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scop
 # Where each dimension of the change's behavior comes from (autocode_ambiguity_audit): optional for
 # saved reports, required on the wire, checked against its refs on acceptance.
 SCHEMAS["requirements_gather"]["properties"][ambiguity_audit.FIELD] = ambiguity_audit.SCHEMA
+# How the work would be achieved, confirmed with the understanding (autocode_approach_sketch, #4171): optional
+# for saved reports, required on the wire.
+SCHEMAS["requirements_gather"]["properties"][approach_sketch.FIELD] = approach_sketch.SCHEMA
 for _stage in planning_scope.STAGES:
     SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
