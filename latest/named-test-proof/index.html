@@ -1176,6 +1176,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#source-resolution-belongs-to-the-proof-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source resolution belongs to the proof copy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1965,6 +1976,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#source-resolution-belongs-to-the-proof-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source resolution belongs to the proof copy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2517,6 +2539,104 @@ six other files are looked at, files that are no code first, each run for at mos
 minutes; a proof that fails for another reason, or whose runner names its tests, costs
 nothing. What was seen is in the proof (<code>listed_tests</code>: the command, the tests, the
 files and each exit code) and in its notes and review reasons.</p>
+<h2 id="source-resolution-belongs-to-the-proof-copy">Source resolution belongs to the proof copy<a class="headerlink" href="#source-resolution-belongs-to-the-proof-copy" title="Permanent link">&para;</a></h2>
+<p>Moving a proof outside the workspace does not by itself isolate it. An editable
+install can add the live candidate through a <code>.pth</code> file, a test can import an
+absolute workspace path, and a package can resolve through a link into the live
+tree. A clean-looking test result from that source is neither a pass nor a
+failure of the original code.</p>
+<p>Before each selected Python, Node or Go proof command, AutoCode classifies the
+source-observation plan from the actual command, rather than a previously detected
+framework label, and retains the observer and its import closure. After the command
+it runs a bounded observation in the same owning copy
+(<code>tools/autocode_source_probe.py</code>), without rerunning the tests, and checks the
+retained bytes again. A command that cannot be classified as one of those literal
+runners records the reason in an explicit non-evidential binding and remains outside
+this phase's detector, keeping its existing admission.</p>
+<p>Python observes targeted modules, static imports (including names that can shadow
+the standard library), pytest root, effective <code>addopts</code>, <code>pythonpath</code> and ancestor
+<code>conftest.py</code> files. It also checks executable startup paths, <code>sitecustomize</code> and
+<code>usercustomize</code> (an interpreter-shipped empty or Ubuntu apport-only hook is
+neutral, as are Ubuntu's exact distutils-precedence and zope namespace <code>.pth</code>
+hooks when they install only their own dependency), pytest environment options
+and plugin autoload. Only a narrow
+virtualenv/editable-install bootstrap is recognized. A deterministic top-level
+prelude may use unaliased <code>sys</code>, <code>os.path</code>, <code>pathlib.Path</code> and <code>Path</code>, append or
+insert file-relative roots,
+and use those roots in following imports; each import is resolved with only the
+mutations active at that statement, and that context follows into imported modules.
+Path changes in <code>conftest.py</code> or imported source, cross-module path changes,
+reassignment of the bootstrap names, aliased or computed access to import
+machinery, <code>from sys import path</code>, and mutations of <code>meta_path</code>,
+<code>path_hooks</code>, built-in imports or dynamic loaders are blind spots (below). Ordinary
+<code>env NAME=value</code> prefixes remain part of the Python observation environment.
+The owned component/repository collector is modeled as its separate root, family
+and isolated member interpreter contexts. Markerless member namespaces retain
+that context, and a parent <code>load_tests</code> hook or an unobserved mutation is a blind
+spot for the family. Multiple files in one interpreter may share identical deterministic path
+bootstraps; different mutations, or a mixture of mutating and non-mutating files,
+remain order-uncertain.</p>
+<p>Node observes package self-resolution, selected or recursively default-discovered
+tests and local imports. CommonJS <code>require</code> and ESM <code>import</code> use their respective
+resolvers, so export conditions are observed distinctly. A bounded CommonJS
+preload is supported only for <code>--require</code>/<code>-r</code> files inside the owning root whose
+top-level assignments set JSON values on explicit globals. Other options, scripts
+before <code>--test</code>, conditions, loaders, custom reporters, global setup, dynamic
+loaders, resolver monkey-patching, aliased <code>require</code>, <code>module.paths</code>,
+<code>require.cache</code>, <code>NODE_PATH</code> changes and child-process execution are blind spots.
+Explicit tests under <code>node_modules</code> cannot be mistaken for owned source.</p>
+<p>Go observes its module and transitive package directories, distinguishing
+toolchain/module-cache dependencies from local source and replacements.
+<code>GOFLAGS</code> is classified (safe build-version-control, parallelism and trim-path
+flags are neutral), as are <code>GOWORK</code>, <code>-modfile</code> roots and dynamic plugins;
+configured workspace/modfile roots outside the copy, other configured flags and
+unobserved plugin loading are blind spots.</p>
+<p>A plain literal npm test is observed through the direct Node command it rewrites
+to; <code>package.json</code> is hash-bound across that classification. Opaque scripts,
+build/lifecycle steps, non-root package-prefix invocations, package-local npm
+configuration and workspace fan-out are blind spots. A first empty Node project can establish
+its own root through a plain package-less npm test. An explicit test selector that
+is absent on the original code is neutral source evidence, not a named test pass.
+Expected missing Python/Node
+modules on original code remain neutral, while every required positive source or
+root observation must belong to the copy. An empty first-project base therefore
+needs an explicit Python, Node or Go root observation. A first Go project with no
+module keeps its existing exception.</p>
+<p>Every new proof receipt requires a binding pinned to its exact execution root,
+command, output path and output hash. The request, JSON capture, probe output,
+supervised receipt and retained observer/import-closure bytes are authenticated
+together (<code>tools/autocode_source_binding.py</code>). The observer also authenticates its
+original tools directory for the narrow editable-install allowance. A binding
+cannot be moved to another receipt, and merged receipts authenticate every child
+against its own receipt. Raw commands and runners outside Python, Node and Go may
+carry a recorded <code>UNVERIFIED</code> binding for disclosure, but this phase does not use
+it to change their existing proof admission. A later integrity check
+recomputes the boundary answer from those bytes.</p>
+<p>A blind spot is what the observer could not see: an opaque npm script, <code>NODE_OPTIONS</code>,
+a dynamic loader, an aliased import machinery call, source that does not parse, an absent
+pytest. The binding records it as <code>unobserved</code> with its reason, and the proof keeps its
+existing admission (<code>autocode_source_binding.holds</code>). A blind spot is not evidence that
+source came from outside the copy, and holding it paused ordinary Jest, Vitest, pytest and
+syntax-repair runs for the person, so only what the observer saw holds a proof.</p>
+<p>A required test, root or source origin outside the owning copy makes the proof
+<code>UNVERIFIED</code>, before timeout, ownership, merged-suite, failed-name or exit-code
+judgment. The same hold applies to the original code, stability repeats,
+first-suite repair, independent check replay, protected replay, compatibility and acceptance evidence,
+companion suites, guards, the plan-time guard check, flake rechecks, follow-up
+baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
+failure either. External dependency origins remain allowed in this phase; an
+interpreter-controlled <code>._pth</code> runtime stays phase-2 dependency custody unless one
+of its roots enters the live workspace, which is held now. Linked dependency
+custody and a kernel read boundary are separate work. Legacy receipts
+without an observation remain readable and neutral; deleting a required binding,
+or retaining a malformed or changed one, fails closed.</p>
+<p>The saved-proof inventory found 180 retained verification receipts (168 unittest,
+5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are
+legacy compatibility evidence, not observations this detector made. The eligible
+denominator for its hold rate is therefore zero and the rate is undefined; no
+percentage is inferred from reconstructed fixtures. This is a receipt-admission
+check, not a completed-model report check, so <code>autocode report-check</code> does not
+apply.</p>
 <h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
 <p>With nothing typed, a Maven, Gradle or CMake project is proven by its build tool's
 own test command and that command's exit code, a Composer project with PHPUnit by
