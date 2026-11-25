@@ -10,23 +10,36 @@ from unittest.mock import patch
 from . import test_acceptance_tests as fixture
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
-# An actual provider bootstrap is the behavior under test, not a simulated PASS.
+# An actual provider bootstrap is the behavior under test, not a simulated PASS. The test runs AutoCode's
+# supervision as an installed tool, in its own process: importing it from the checkout's absolute path would
+# load source from outside the proof copy, which the source-resolution observation rightly holds (#4152).
 NESTED_TEST = r"""import sys, tempfile, subprocess, unittest
 from pathlib import Path
-sys.path.insert(0, TOOLS_PATH)
+LAUNCH = '''
+import sys, subprocess
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
 import autocode_supervision as supervision
+with supervision.launch(
+    [sys.executable, '-c', "print('nested-provider-executed')"],
+    receipt_path=Path(sys.argv[2]) / 'receipt.json', timeout=10,
+    start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+) as child:
+    out, err = child.communicate(timeout=10)
+sys.stderr.write(err)
+print(out.strip())
+sys.exit(child.returncode)
+'''
 class Nested(unittest.TestCase):
     def test_runner_provider(self):
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as root:
-            with supervision.launch(
-                [sys.executable, '-c', "print('nested-provider-executed')"],
-                receipt_path=Path(root) / 'receipt.json', timeout=10,
-                start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            ) as child:
-                out, err = child.communicate(timeout=10)
-                self.assertEqual(0, child.returncode, err)
-                self.assertEqual('nested-provider-executed', out.strip())
-                ASSERTION
+            done = subprocess.run(
+                [sys.executable, '-c', LAUNCH, TOOLS_PATH, root], capture_output=True, text=True, timeout=30
+            )
+            out = done.stdout
+            self.assertEqual(0, done.returncode, done.stderr)
+            self.assertEqual('nested-provider-executed', out.strip())
+            ASSERTION
 if __name__ == '__main__': unittest.main()
 """
 

@@ -23,12 +23,14 @@ from __future__ import annotations
 try:
     from . import autocode_companion_suites as companions
     from . import autocode_package_scope as package_scope
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_homes as test_homes
     from . import autocode_verification_commands as verification_commands
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
     import autocode_companion_suites as companions
     import autocode_package_scope as package_scope
+    import autocode_source_binding as source_binding
     import autocode_test_homes as test_homes
     import autocode_verification_commands as verification_commands
     import autocode_wrapped_runner as wrapped_runner
@@ -77,7 +79,7 @@ def merged(receipts):
         results = {name: sorted({test for found in every for test in found.get(name) or []}) for name in _RESULT_LISTS}
         results["total"] = sum(found.get("total") or 0 for found in every)
         results["complete"] = all(found.get("complete") is True for found in every)
-    return {
+    merged = {
         **failed,
         "command": " ; ".join(run.get("command") or "" for run in receipts),
         "timed_out": any(run.get("timed_out") for run in receipts),
@@ -85,6 +87,9 @@ def merged(receipts):
         "results_expected": any(run.get("results_expected") for run in receipts),
         "suites": receipts,
     }
+    if binding := source_binding.merged(receipts):
+        source_binding.attach(merged, binding)
+    return merged
 
 
 def run_selected(root, tests, selected, execute, *, acceptance_preflight=False):

@@ -150,6 +150,30 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual({"killed"}, {row[2] for row in self.outcomes(strong)})
         self.assertEqual(WINDOW, (self.tree / "app.py").read_text())
 
+    def test_source_uncertainty_stops_reference_and_cannot_kill_a_mutant(self):
+        dirty = {
+            "exit_code": 0,
+            "timed_out": False,
+            "results": {"complete": True, "passed": list(STRONG), "failed": []},
+            "source_binding": {"status": "unverified", "reason": "live workspace source"},
+        }
+        reference = FakeRun(self.tree, STRONG, outcome=lambda label: dirty if label == "unmutated" else None)
+        held = self.collect(reference)
+        self.assertEqual(["unmutated"], [call["label"] for call in reference.calls])
+        self.assertIn("source resolution", held["note"])
+        self.assertEqual([], [row for item in held["files"] for row in item["mutants"]])
+
+        run = FakeRun(
+            self.tree,
+            STRONG,
+            outcome=lambda label: dirty if label.startswith("mutant-") else None,
+        )
+        checked = self.collect(run)
+        mutants = [row for item in checked["files"] for row in item["mutants"]]
+        self.assertTrue(mutants)
+        self.assertEqual({"not_run"}, {row["outcome"] for row in mutants})
+        self.assertEqual([], [survived for row in mutants for survived in row["survived_tests"]])
+
     def test_only_the_proving_tests_run_in_the_proofs_own_environment(self):
         """#4062: no mutant command sets a cache of its own, so a test sees what it saw in the proof."""
         run = FakeRun(self.tree, WEAK)
@@ -730,7 +754,11 @@ class ProofTests(unittest.TestCase):
             self.assertTrue(all(Path(ref).is_file() for ref in row["evidence"]), row)
         self.assertFalse(regression.complete(self.state, proof["source_revision"], all_due=True))
         self.assertEqual(before, (self.root / "calc.py").read_bytes())
-        logs = sorted(path.name for path in Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log"))
+        logs = sorted(
+            path.name
+            for path in Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log")
+            if ".source-" not in path.name
+        )
         # The unmutated run and five mutants: `return n` (line 4) is unchanged from the base, so never mutated.
         self.assertEqual(6, len(logs), logs)
         self.assertEqual(5, len(proof["mutation_check"]["files"][0]["mutants"]))
@@ -890,7 +918,11 @@ class ProofTests(unittest.TestCase):
         self.assertEqual([report["reference_output"]], unused_mutants[0]["evidence"])
         self.assertEqual(len(unused_mutants), report["test_selection"]["unobserved_mutants"])
         # Only reference + calc.py mutants launched subprocesses; 0 for unused.py
-        logs = list(Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log"))
+        logs = [
+            path
+            for path in Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log")
+            if ".source-" not in path.name
+        ]
         self.assertEqual(1 + len(files["calc.py"]), len(logs), logs)
 
 

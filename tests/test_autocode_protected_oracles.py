@@ -461,6 +461,44 @@ class UndeterminedReplayTests(unittest.TestCase):
                 owned = folder / "supervision.json"
                 owned.write_bytes(Path(supervision["receipt"]).read_bytes())
                 result["supervision"] = {**supervision, "receipt": str(owned)}
+            if isinstance(result.get("source_binding"), dict) and result.get("source_binding_required"):
+                # A real execution owns its evidence: the probe runtime, request and capture live in its
+                # own folder and the binding is pinned to its command and output. The copy moves the
+                # files, rewrites the request's own capture reference and re-pins the same way.
+                binding = result["source_binding"]
+                if isinstance(binding.get("probe_files"), dict) and binding["probe_files"]:
+                    runtime = folder / "source-runtime"
+                    runtime.mkdir(parents=True, exist_ok=True)
+                    for name, row in binding["probe_files"].items():
+                        (runtime / name).write_bytes(Path(row["path"]).read_bytes())
+                        row["path"] = str(runtime / name)
+                    words = shlex.split(binding["probe"]["command"])
+                    words[-2] = binding["probe_files"]["autocode_source_probe.py"]["path"]
+                    binding["probe"]["command"] = shlex.join(words)
+                    (folder / "source.log").write_bytes(Path(binding["probe"]["output"]).read_bytes())
+                    binding["probe"]["output"] = str(folder / "source.log")
+                capture = binding.get("capture")
+                if isinstance(capture, dict) and capture.get("path"):
+                    target = folder / Path(capture["path"]).name
+                    target.write_bytes(Path(capture["path"]).read_bytes())
+                    capture["path"] = str(target)
+                request = binding.get("request")
+                if isinstance(request, dict) and request.get("path"):
+                    data = json.loads(Path(request["path"]).read_bytes())
+                    if isinstance(capture, dict):
+                        data["capture"] = capture["path"]
+                    target = folder / Path(request["path"]).name
+                    target.write_text(json.dumps(data))
+                    request.update(path=str(target), sha256=guard.util.file_hash(target))
+                    words = shlex.split(binding["probe"]["command"])
+                    words[-1] = str(target)
+                    binding["probe"]["command"] = shlex.join(words)
+                binding["owner"] = {
+                    "execution_root": str(Path(result["execution_root"]).resolve()),
+                    "command": result.get("command"),
+                    "output": str(Path(result["output"]).resolve()),
+                    "output_sha256": result.get("output_sha256"),
+                }
             return result
 
         return run

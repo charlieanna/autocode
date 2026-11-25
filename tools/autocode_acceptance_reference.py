@@ -23,6 +23,7 @@ try:
     from . import autocode_proof_stability as stability
     from . import autocode_run_base as run_base
     from . import autocode_scratch_location as scratch_location
+    from . import autocode_source_binding as source_binding
     from . import autocode_source_scope as source_scope
     from . import autocode_test_cases as test_cases
     from . import autocode_test_environment as test_environment
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_proof_stability as stability
     import autocode_run_base as run_base
     import autocode_scratch_location as scratch_location
+    import autocode_source_binding as source_binding
     import autocode_source_scope as source_scope
     import autocode_test_cases as test_cases
     import autocode_test_environment as test_environment
@@ -97,6 +99,8 @@ def passing(cases, rows, run, inherited):
 
 
 def candidate_problem(run):
+    if reasons := source_binding.reasons({"candidate": run}):
+        return "Original reference classification requires established runner source resolution — " + "; ".join(reasons)
     if run.get("error") or run.get("timed_out") or not schedule.complete_results(run):
         return "Original reference classification requires complete candidate test results"
     return ""
@@ -161,13 +165,23 @@ def collect(state: RunState, workspace, run_dir, out, selected, files, command=N
         joint_inputs.copy(workspace, tree)
         for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
             narrowed = narrowed.replace(root, str(tree))
-        receipt = verify.run_suite(framework, narrowed, tree, out, "original-reference", timeout=verify.DEFAULT_TIMEOUT)
+        receipt = verify.run_suite(
+            framework,
+            narrowed,
+            tree,
+            out,
+            "original-reference",
+            timeout=verify.DEFAULT_TIMEOUT,
+            source_workspace=workspace,
+        )
         after_inputs = launch_inputs.guard(state, workspace, run_dir)
         if before != source_scope.snapshot(workspace, state) or (inputs.identity if inputs else None) != (
             after_inputs.identity if after_inputs else None
         ):
             raise ValueError("source or launch inputs changed during original-reference check")
         results = receipt.get("results")
+        if reasons := source_binding.reasons({"original reference": receipt}):
+            raise ValueError("original-reference source resolution is not established — " + "; ".join(reasons))
         if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
             outcome = check_outcome.classify(receipt)
             if outcome["reason"] == check_outcome.RUNNER_NOT_STARTED:

@@ -19,6 +19,7 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_contract_identity as contracts
     from . import autocode_scratch_location as scratch_location
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
 except ImportError:
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_contract_identity as contracts
     import autocode_scratch_location as scratch_location
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
     import autocode_util as util
 
@@ -103,7 +105,9 @@ def collect(context, workspace, out, result, framework, *, verify, dependencies,
             dependencies_from=dependencies,
             ignored_inputs=inputs,
         )
-        return verify.run_suite(framework, command, tree, out, "follow-up-baseline", timeout=timeout)
+        return verify.run_suite(
+            framework, command, tree, out, "follow-up-baseline", timeout=timeout, source_workspace=workspace
+        )
     except command_receipt.OwnershipUncertain:
         ownership_uncertain = True
         raise
@@ -121,6 +125,7 @@ def apply(proof, context, receipt, result, *, refused=None):
     command_failure = receipt.get("exit_code") not in (0, 1) or (
         receipt.get("exit_code") == 1 and not results.get("failed")
     )
+    source_reasons = source_binding.reasons({"baseline": receipt})
     invalid = (
         not command_receipt.completed(receipt)
         or receipt.get("error")
@@ -128,6 +133,7 @@ def apply(proof, context, receipt, result, *, refused=None):
         or not results.get("complete")
         or results.get("collection_errors")
         or command_failure
+        or bool(source_reasons)
     )
     for case in context["cases"]:
         cid = case["id"]
@@ -148,7 +154,8 @@ def apply(proof, context, receipt, result, *, refused=None):
         proof["case_tests"][cid] = matches if not invalid and not broken and not before_failed and not missing else []
         if invalid:
             proof.setdefault("unverified", []).append(
-                f"Follow-up guard {cid} has no complete fresh baseline check: {receipt.get('error') or 'test execution incomplete'}"
+                f"Follow-up guard {cid} has no complete fresh baseline check: "
+                + ("; ".join(source_reasons) if source_reasons else receipt.get("error") or "test execution incomplete")
             )
         elif denied or not matches or broken or before_failed:
             proof.setdefault("failures", []).append(

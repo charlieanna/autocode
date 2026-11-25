@@ -1652,12 +1652,12 @@ class VerifyCase(unittest.TestCase):
                 "app.py": "VALUE = 1\n",
                 "pytest.ini": "[pytest]\nminversion = 999\n",
                 "tests/test_existing.py": "def test_existing():\n    assert 2 + 2 == 4\n",
+                "tests/conftest.py": "from bootstrap import bootstrapped\n",
+                "support/bootstrap.py": (
+                    "import os\nimport pytest\n@pytest.fixture\ndef bootstrapped():\n"
+                    "    return os.environ['PROOF_MODE']\n"
+                ),
             }
-        )
-        support = Path(project.temp.name) / "support with spaces"
-        support.mkdir()
-        (support / "bootstrap.py").write_text(
-            "import os\nimport pytest\n@pytest.fixture\ndef bootstrapped():\n    return os.environ['PROOF_MODE']\n"
         )
         project.write(
             {
@@ -1669,7 +1669,7 @@ class VerifyCase(unittest.TestCase):
         suite = shlex.join(
             [
                 "env",
-                f"PYTHONPATH={support}",
+                "PYTHONPATH=support",
                 "PROOF_MODE=ready",
                 "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
                 python,
@@ -1678,8 +1678,6 @@ class VerifyCase(unittest.TestCase):
                 "-q",
                 "-o",
                 "minversion=",
-                "-p",
-                "bootstrap",
                 "-p",
                 "no:cacheprovider",
                 "tests/",
@@ -1694,7 +1692,8 @@ class VerifyCase(unittest.TestCase):
         }
         identity = verify.execution_identity(project.root, command=suite)
         self.assertEqual(str(Path(python).resolve()), identity["interpreter"]["path"])
-        self.assertFalse(identity["reuse_supported"])
+        self.assertTrue(identity["cache_binding_complete"], identity)
+        self.assertTrue(identity["reuse_supported"], identity)
         changed_env = verify.execution_identity(
             project.root, command=suite.replace("PROOF_MODE=ready", "PROOF_MODE=other")
         )
@@ -1769,16 +1768,17 @@ class VerifyCase(unittest.TestCase):
                 # evidence and the full gate passes too.
                 self.assertTrue(regression.complete(state, proof["source_revision"], require_changed_code=False))
                 self.assertTrue(regression.complete(state, proof["source_revision"]))
-                self.assertEqual(["mutation_only"], proof["changed_code_evidence"]["fallback"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
     def test_node_named_case_flip_preserves_original_custom_suite(self):
         import autocode_regression as regression
 
         seed = {
-            "package.json": '{"scripts":{"test":"node tests/check.cjs"}}',
+            "package.json": '{"scripts":{"test":"node --test tests/check.cjs"}}',
             "app.cjs": "module.exports = n => n + 1;\n",
-            "tests/check.cjs": "require('node:assert/strict').equal(require('../app.cjs')(1),2);\n",
+            "tests/check.cjs": "const {test}=require('node:test');"
+            "const assert=require('node:assert/strict'); const app=require('../app.cjs');"
+            "test('test_original_one',()=>assert.equal(app(1),2));\n",
         }
         project = self.project(seed)
         project.write(
@@ -2567,19 +2567,29 @@ class VerifyCase(unittest.TestCase):
         self.assert_base_definition_fails(base_suite, result)
 
     def base_definition_fault(self, receipt):
-        """verify() over the T1 fixture with run_suite patched to return ``receipt`` for the
-        base-definition run alone (the seam every suite run already goes through)."""
-        seed, candidate = self._runner_suite_fixture()
+        """Inject a base-definition fault through an otherwise source-observable suite."""
+        seed = {
+            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            "calc.js": self.ADD_ONLY,
+            "test/calc.test.js": self.ADD_TEST,
+        }
+        candidate = {
+            "calc.js": self.ADD_AND_MUL,
+            "package.json": json.dumps({"scripts": {"test": "node --test test/calc.test.js test/feature.test.js"}}),
+            "test/feature.test.js": self.MUL_TEST,
+        }
         project = self.project(seed)
         project.write(candidate)
         real_run_suite = verify.run_suite
         definition_trees = []
 
-        def wrapped(framework, command, tree, evidence_dir, label, *, timeout):
+        def wrapped(framework, command, tree, evidence_dir, label, *, timeout, source_workspace=None):
             if Path(tree).name == "base-definition" and Path(tree).is_dir():
                 definition_trees.append(Path(tree))
                 return receipt
-            return real_run_suite(framework, command, tree, evidence_dir, label, timeout=timeout)
+            return real_run_suite(
+                framework, command, tree, evidence_dir, label, timeout=timeout, source_workspace=source_workspace
+            )
 
         framework = verify.detect_framework(project.root)
         base_suite = verify.baseline(
@@ -3170,7 +3180,8 @@ class VerifyCase(unittest.TestCase):
         """The regression test shares a file with an environment-dependent failure (common upstream)."""
         needs_env = (
             "\n    def test_needs_secret(self):\n"
-            "        self.assertTrue(__import__('os').environ.get('NO_SUCH_SECRET_XYZ'))\n"
+            "        import os\n"
+            "        self.assertTrue(os.environ.get('NO_SUCH_SECRET_XYZ'))\n"
         )
         seed = {
             **SEED,
@@ -3276,6 +3287,50 @@ class VerifyCase(unittest.TestCase):
             broken = project.verify()
             self.assertEqual(verify.FAIL, broken["verdict"])
             self.assertIn("'BROKEN'", broken["checks"]["regression_on_candidate"]["tail"])
+
+    def test_pth_fallthrough_cannot_supply_base_or_candidate_proof(self):
+        """#4152: relocation does not stop a linked .pth from importing the live candidate."""
+        project = self.project(
+            {
+                "tests/__init__.py": "",
+                "tests/test_leak.py": (
+                    "import unittest\n\nclass Leak(unittest.TestCase):\n"
+                    "    def test_candidate_value(self):\n"
+                    "        from leaked import VALUE\n        self.assertEqual(2, VALUE)\n"
+                ),
+            }
+        )
+        project.write(
+            {
+                "leaked/__init__.py": "VALUE = 2\n",
+                "tests/test_leak.py": (
+                    "import unittest\n\nclass Leak(unittest.TestCase):\n"
+                    "    def test_candidate_value(self):\n"
+                    "        from leaked import VALUE\n        self.assertEqual(2, VALUE)\n"
+                    "    def test_candidate_value_again(self):\n"
+                    "        from leaked import VALUE\n        self.assertEqual(2, VALUE)\n"
+                ),
+            }
+        )
+        site = Path(project.temp.name) / "site"
+        site.mkdir()
+        pth = Path(project.temp.name) / "pth"
+        pth.mkdir()
+        (pth / "editable.pth").write_text(str(project.root) + "\n")
+        (site / "sitecustomize.py").write_text(f"import site\nsite.addsitedir({str(pth)!r})\n")
+        with mock.patch.dict(os.environ, {"PYTHONPATH": str(site)}):
+            result = project.verify()
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("Runner source resolution is not established" in reason for reason in result["unverified"]))
+        # The candidate copy holds `leaked`, so the observer sees nothing escape there: the unseen startup hook is
+        # recorded and does not hold. On the original code the same hook loads `leaked` from the live workspace,
+        # an observed escape, so the base run supplies no proof (owner decision 2026-11-25).
+        candidate = result["checks"]["regression_on_candidate"]["source_binding"]
+        self.assertEqual(("unobserved", True), (candidate["status"], "sitecustomize" in candidate["reason"]))
+        base = result["checks"]["regression_on_base"]["source_binding"]
+        self.assertEqual("unverified", base["status"], base)
+        self.assertIn("resolved into the live workspace", base["reason"])
+        self.assertEqual([], result["failures"], result)
 
     def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
         with tempfile.TemporaryDirectory() as temp:

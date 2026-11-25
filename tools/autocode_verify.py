@@ -46,7 +46,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -84,6 +83,7 @@ try:
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_scratch_preparation as scratch_preparation
     from . import autocode_scratch_suites as scratch_suites
+    from . import autocode_source_binding as source_binding
     from . import autocode_suite_boundary as suite_boundary
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_scan as definition_scan
@@ -138,6 +138,7 @@ except ImportError:
     import autocode_scratch_overlay as scratch_overlay
     import autocode_scratch_preparation as scratch_preparation
     import autocode_scratch_suites as scratch_suites
+    import autocode_source_binding as source_binding
     import autocode_suite_boundary as suite_boundary
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_scan as definition_scan
@@ -1115,12 +1116,12 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
 # --- verification -----------------------------------------------------------
 
 
-def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_execution=None):
+def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_execution=None, source_workspace=None):
     if framework is not None and framework.name == "junit":
         if native_execution is not None:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native JUnit report capture is not admitted")
         Path(evidence_dir).mkdir(parents=True, exist_ok=True)
-        return junit_tests.run_suite(
+        receipt = junit_tests.run_suite(
             framework,
             command,
             tree,
@@ -1129,9 +1130,12 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             timeout=timeout,
             execute=run_command,
             is_tracked=lambda path: bool(_read_git(tree, "--literal-pathspecs", "ls-files", "-z", "--", path)),
+            source_workspace=source_workspace,
         )
+        return receipt
     package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
     root = Path(tree) / package if package else tree
+    workspace = source_workspace if source_workspace is not None else tree
     scripts = native_execution is None  # a native check runs exactly the command it planned
     extension = reporters.extension(command, root if scripts else None, root) or (
         "vitest.json" if vitest_tests.command_words(command, root) else "junit.xml"
@@ -1142,6 +1146,9 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         xml = native_execution.result_path(tree, xml)
     xml.unlink(missing_ok=True)  # never parse a previous run's results
+    source_plan = source_binding.plan(
+        framework, command, tree, root, label, workspace=workspace, evidence_dir=evidence_dir
+    )
     actual = _with_results(framework, command, xml, root, scripts=scripts)
     if native_execution is not None:
         planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
@@ -1156,6 +1163,20 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
     receipt["execution_root"] = str(Path(tree).resolve())
     receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
     receipt["results_expected"] = expects_results(framework, command, root, scripts=scripts)
+    source_binding.attach_execution(
+        receipt,
+        framework,
+        command,
+        tree,
+        root,
+        evidence_dir,
+        label,
+        workspace=workspace,
+        execute=run_command,
+        timeout=timeout,
+        classification=source_plan,
+        native=native_execution is not None,
+    )
     schedule.record_result_capture(receipt, xml, actual, retain=native_execution is None)
     test_results.retain_report(receipt, xml, extension, command=actual, retain_node=native_execution is None)
     if native_execution is not None:
@@ -1207,8 +1228,7 @@ def execution_identity(
     except ValueError:
         words = []
     python_command = bool(
-        words
-        and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
+        (invocation is not None or (words and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)))
         and not shell_syntax.outside_quotes(command, ";&|<>`$\n")
     )
     python = (
@@ -1553,7 +1573,7 @@ def scratch_run(
                     workspace, run_dir, **{**parameters, "patch": captured}, _before_patch=before
                 ),
                 detect=lambda tree: detect_framework(tree, python=python or python_for(workspace)),
-                execute=run_suite,
+                execute=source_binding.runner(run_suite, workspace),
                 remove=remove_tree,
                 is_test=is_test_path,
             )
@@ -1567,6 +1587,7 @@ def scratch_run(
     try:
         review_snapshot = source_snapshot.snapshot(tree, paths=source_paths) if review_source else None
         review_locations = review_proof.source_locations(tree, review_source) if review_source else None
+        suite = source_binding.runner(run_suite, workspace)
         if command is None:
             python = python or python_for(workspace)
             framework = detect_framework(tree, python=python)
@@ -1579,7 +1600,7 @@ def scratch_run(
                 framework,
                 tests,
                 detect,
-                lambda found, command, label: run_suite(
+                lambda found, command, label: suite(
                     found, command, tree, run_dir, label, timeout=timeout, native_execution=native_execution
                 ),
                 acceptance_preflight=acceptance_preflight,
@@ -1599,7 +1620,7 @@ def scratch_run(
                     tests,
                     framework,
                     command,
-                    lambda found, selected, label: run_suite(
+                    lambda found, selected, label: suite(
                         found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
                     ),
                     schedule.complete_results,
@@ -1611,8 +1632,12 @@ def scratch_run(
                 ):
                     return receipt
             else:
-                receipt = run_command(
-                    command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution
+                # A native check runs exactly the command it planned; any other is observed like a suite.
+                log = run_dir / "scratch-command.log"
+                receipt = (
+                    suite(None, command, tree, run_dir, "scratch-command", timeout=timeout)
+                    if native_execution is None
+                    else run_command(command, tree, log, timeout=timeout, native_execution=native_execution)
                 )
                 receipt["results"] = None
                 try:
@@ -1677,7 +1702,9 @@ def baseline(
         ignored_inputs=ignored_inputs,
     )
     try:
-        receipt = run_suite(framework, suite_command, tree, evidence, "suite-on-base", timeout=timeout)
+        receipt = source_binding.runner(run_suite, workspace)(
+            framework, suite_command, tree, evidence, "suite-on-base", timeout=timeout
+        )
     finally:
         remove_tree(workspace, tree)
     return {"base": base, "command": suite_command, "receipt": receipt, "health": suite_health(receipt)}
@@ -1776,7 +1803,9 @@ def _run_suite_base_definition(
                     staged.write_text(text)
                     staged_manifests[path] = staged
                 scratch_overlay.apply(tree, staged_manifests, None)
-                receipt = run_suite(framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout)
+                receipt = source_binding.runner(run_suite, workspace)(
+                    framework, suite_command, tree, run_dir, "suite-base-definition", timeout=timeout
+                )
             finally:
                 remove_tree(workspace, tree)
     except ValueError as error:
@@ -1785,50 +1814,7 @@ def _run_suite_base_definition(
     return {"run": receipt, "boundary": ""}
 
 
-@dataclass
-class _Run:
-    """The inputs one verify() call passes to its phases, and the evidence they add to (#2753).
-
-    ``fail``, ``unverified``, ``notes``, ``review_reasons``, ``checks`` and ``proof`` are verify()'s own lists
-    and dicts: a phase appends to them, and verify() reports them.
-    """
-
-    workspace: Any
-    base: Any
-    run_dir: Any
-    framework: Any
-    commands: Any
-    changes: Any
-    runnable_tests: Any
-    cases: Any
-    timeout: Any
-    base_suite: Any
-    base_patch: Any
-    dependencies_from: Any
-    generated_record: Any
-    generated_unrecorded: Any
-    ignored_inputs: Any
-    new_behavior: Any
-    preserve: Any
-    fail: Any
-    unverified: Any
-    notes: Any
-    review_reasons: Any
-    checks: Any
-    proof: Any
-    independent_dependencies: Any
-    allow_no_test: Any
-    test_root: Any
-    suite_command: Any
-    regression_command: Any
-    guards: Any
-    existing_guards: Any
-    existing_failures: Any
-    existing_exit: Any
-    roles: Any
-    replaced: Any
-    test_side: Any = ()
-    progress: Any = None
+_Run = schedule.RunInputs
 
 
 def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit_project):
@@ -1844,12 +1830,16 @@ def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit
     ignored_inputs, new_behavior, preserve, fail = run.ignored_inputs, run.new_behavior, run.preserve, run.fail
     unverified, notes, review_reasons, checks = run.unverified, run.notes, run.review_reasons, run.checks
     proof = run.proof
+    suite = source_binding.runner(run_suite, workspace)
     on_candidate, took = base_bound.timed(
-        lambda: run_suite(
+        lambda: suite(
             framework, commands["regression"], trees["candidate"], run_dir, "regression-on-candidate", timeout=timeout
         )
     )
     checks["regression_on_candidate"] = on_candidate
+    if reasons := source_binding.reasons({"candidate": on_candidate}):
+        unverified.extend("Runner source resolution is not established — " + reason for reason in reasons)
+        return
     on_base = None
     first_go, first_go_proved = first_go_proof.qualify(run, trees, on_candidate, no_go_project, test_changes)
     if "base_with_tests" in trees and not first_go:
@@ -1862,13 +1852,16 @@ def _prove_regression(run: _Run, trees, test_changes, *, no_go_project, no_junit
             )
         # A test that never finishes on the original code is stopped there, not waited for (autocode_base_bound).
         allowed = base_bound.limit(on_candidate, took, timeout)
-        on_base = run_suite(
+        on_base = suite(
             framework, commands["regression"], trees["base_with_tests"], run_dir, "regression-on-base", timeout=allowed
         )
         checks["regression_on_base"] = on_base
         if said := base_bound.stopped(on_base, took, allowed, timeout):
             unverified.append(said)
 
+    if reasons := source_binding.reasons({"candidate": on_candidate, "base": on_base or {}}):
+        unverified.extend("Runner source resolution is not established — " + reason for reason in reasons)
+        return
     unstable, stability = proof_stability.repeat(
         framework.name if framework else None,
         commands["regression"],
@@ -1955,8 +1948,15 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     test_root, guards = run.test_root, run.guards
     existing_failures, fail, unverified, notes = run.existing_failures, run.fail, run.unverified, run.notes
     checks, proof, existing_guards = run.checks, run.proof, run.existing_guards
-    on_candidate = first_suite.suite_on_candidate(run, trees, run_suite)
+    suite = source_binding.runner(run_suite, workspace)
+    on_candidate = first_suite.suite_on_candidate(run, trees, suite)
     comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
+    source_reasons = source_binding.reasons(
+        {"candidate": on_candidate, "base": (comparable or {}).get("receipt") or {}}
+    )
+    if source_reasons:
+        unverified.extend("Runner source resolution is not established — " + reason for reason in source_reasons)
+        return []
     first_suite.flip(run, on_candidate)
     if framework is not None and framework.name == "junit" and comparable:
         checks["suite_on_base"] = comparable["receipt"]
@@ -2029,6 +2029,9 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
             "The base suite is not green, so the candidate's exit-code-only suite "
             "cannot prove the base definition still passes over the new code"
         )
+    if base_definition and (reasons := source_binding.reasons({"base definition": (base_definition.get("run") or {})})):
+        unverified.extend("Runner source resolution is not established — " + reason for reason in reasons)
+        base_definition = None
     first_suite.exit_repair(run, base_definition, command_receipt.completed)
     empty_root = None
     if (
@@ -2113,7 +2116,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         kept_tests=proof.get("pass_to_pass") or (),
         untested=bool(base) and _untested_base(workspace, base),
         repaired=first_suite.repaired_evidence(proof, existing_failures, comparable, checks, on_candidate, run),
-        quarantined=suite_flakes.for_proof(run, trees, on_candidate, comparable, (make_tree, run_suite, remove_tree)),
+        quarantined=suite_flakes.for_proof(run, trees, on_candidate, comparable, (make_tree, suite, remove_tree)),
         replaced=run.replaced,
     )
     judgment.judge_retained_runner(None if untyped else base_definition, comparable, fail, unverified)
@@ -2134,7 +2137,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
         with_tests = base_bound.ran_with_tests(checks, commands["regression"])
         if with_tests is None:
             label = "suite_on_base_with_tests" if commands["regression"] else "regression_on_base"
-            with_tests = checks[label] = run_suite(
+            with_tests = checks[label] = suite(
                 framework,
                 commands["suite"],
                 trees["base_with_tests"],
@@ -2146,17 +2149,7 @@ def _preserve_suite(run: _Run, trees, *, no_go_project, no_junit_project) -> lis
     return hidden
 
 
-def _incomplete_receipts(checks) -> list[str]:
-    """What the proof's command receipts leave unverified: an interrupted command, a JUnit report not intact."""
-    unverified = []
-    for label, receipt in checks.items():
-        if not command_receipt.completed(receipt):
-            unverified.append(f"{label} has no complete owned-command evidence")
-        if receipt.get("results_format") == "junit" and not schedule.intact(receipt):
-            unverified.append(
-                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
-            )
-    return unverified
+_incomplete_receipts = schedule.incomplete_receipts
 
 
 def _file_kind_reasons(stats) -> list[str]:
@@ -2379,6 +2372,7 @@ def verify(
         progress=progress,
     )
     trees, hidden = {}, []
+    suite = source_binding.runner(run_suite, workspace)
     baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
     if baseline_timed_out:
         # A settled timeout cannot anchor preservation. Retain its receipt, but
@@ -2458,7 +2452,7 @@ def verify(
                     "so a fail-to-pass flip cannot be attributed to the new tests"
                 )
             else:
-                on_base = run_suite(
+                on_base = suite(
                     framework,
                     commands["suite"],
                     trees["base_with_tests"],
@@ -2467,9 +2461,12 @@ def verify(
                     timeout=timeout,
                 )
                 checks["regression_on_base"] = on_base
-                review_reasons.append("the regression proof rests on the whole suite's exit code")
-                if on_base["exit_code"] == 0 and not preserve:
-                    fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
+                if reasons := source_binding.reasons({"base with tests": on_base}):
+                    unverified.extend("Runner source resolution is not established — " + reason for reason in reasons)
+                else:
+                    review_reasons.append("the regression proof rests on the whole suite's exit code")
+                    if on_base["exit_code"] == 0 and not preserve:
+                        fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
         elif runnable_tests and sources and not baseline_timed_out and not ambiguous:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
@@ -2489,7 +2486,7 @@ def verify(
     unverified += _incomplete_receipts(checks)
     stats = diff_stats(workspace, base, changes, roles=roles, allow_ambiguous=bool(ambiguous))
     review_reasons += _file_kind_reasons(stats)
-    verdict = FAIL if fail else UNVERIFIED if unverified else PASS
+    verdict, fail = verify_result.classified(fail, unverified)
     return verify_result.assemble(
         run,
         verdict=verdict,
@@ -2567,7 +2564,9 @@ def _pre_existing(
         ignored_inputs=ignored_inputs,
     )
     try:
-        receipt = run_suite(framework, command, tree, run_dir, "regression-files-on-base", timeout=timeout)
+        receipt = source_binding.runner(run_suite, workspace)(
+            framework, command, tree, run_dir, "regression-files-on-base", timeout=timeout
+        )
     finally:
         remove_tree(workspace, tree)
     checks["regression_files_on_base"] = receipt

@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_plan_base_guards as base_guards
@@ -107,6 +108,17 @@ class ObserveTests(WorkspaceCase):
         subprocess.run([*git, "commit", "-qam", "broken"], check=True)
         state = {**self.state(), "base_commit": "HEAD"}
         self.assertEqual([], base_guards.observe(state, plan("guard: test_sub")))
+
+    def test_source_uncertainty_decides_nothing_and_names_the_live_workspace(self):
+        receipt = {
+            "error": None,
+            "timed_out": False,
+            "results": {"complete": True, "passed": ["tests.test_calc.CalcTest.test_sub"], "failed": []},
+            "source_binding_required": True,
+        }
+        with patch.object(base_guards.verify, "run_suite", return_value=receipt) as run:
+            self.assertIsNone(base_guards._run(self.state(), self.root, self.base, ["tests/test_calc.py"]))
+        self.assertEqual(str(self.root), str(run.call_args.kwargs["source_workspace"]))
 
     def test_the_question_names_each_criterion_and_what_the_original_code_showed(self):
         draft = plan("guard: test_sub", "guard: test_add")

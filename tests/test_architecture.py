@@ -88,6 +88,8 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-11-24: read-only Requirements in an AutoCode self-checkout (#4167) lives in autocode_controller_isolation;
 # its import, the scope it reads in run_role, the route check and the launch's readonly_boundary argument, and the
 # direct-script bytecode switch raised autocode.py by 9, to 1836.
+# 2026-11-24: run_suite attaches the source-resolution binding to the receipts it returns (#4152); the attach
+# and its planning call are that boundary's integration point and raised autocode_verify.py by 1 line.
 MAX_LINES = {
     "autocode.py": 1836,
     "autocode_goals.py": 1404,
@@ -95,7 +97,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 2580,
+    "autocode_verify.py": 2581,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
