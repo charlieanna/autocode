@@ -1007,8 +1007,10 @@ def _python_environment(prefix):
     return environment
 
 
-def _python_startup_errors(dependencies, editable_root=None):
+def _python_startup_errors(dependencies, editable_root=None, workspace=None, observations=None):
     errors = []
+    if observations is None:
+        observations = []
     editable_root = Path(editable_root).resolve() if editable_root else Path(python_tests.__file__).parent.resolve()
     base = Path(sys.base_prefix).resolve()
     try:
@@ -1081,11 +1083,19 @@ def _python_startup_errors(dependencies, editable_root=None):
                         and Path(str(getattr(virtualenv, "__file__", "") or "")).resolve().is_relative_to(path.parent)
                     ):
                         continue
-                    errors.append(f"Python executable startup path is not observed: {path}")
+                    if workspace and workspace in text:
+                        errors.append(f"Python executable startup path names the live workspace: {path}")
+                    else:
+                        # Startup tooling the interpreter environment itself installed (a coverage
+                        # hook, a distro shim) is runtime custody: this probe runs under the same
+                        # interpreter, and any path it adds is one this resolution already classifies.
+                        observations.append(
+                            {"kind": "python_module", "name": path.stem, "path": str(path), "role": "dependency"}
+                        )
                     break
             except (OSError, UnicodeError, ValueError) as error:
                 errors.append(f"Python startup path could not be observed: {path}: {error}")
-    return errors
+    return errors, observations
 
 
 def _python_test_files(start, excluded=(), *, namespace=False):
@@ -1235,7 +1245,10 @@ def _python(request):
     tree = Path(request["tree"]).resolve()
     dependencies = _dependency_roots()
     observations = [{"kind": "python_root", "path": str(root.resolve()), "role": "root"}]
-    errors = _python_startup_errors(dependencies, request.get("observer_root"))
+    errors, startup_observations = _python_startup_errors(
+        dependencies, request.get("observer_root"), workspace=request.get("workspace")
+    )
+    observations.extend(startup_observations)
     queue, seen = [], set()
     scan_budget = [0, 0]
     observed_contexts = set()

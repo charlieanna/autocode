@@ -737,6 +737,26 @@ class SourceBindingTests(unittest.TestCase):
         self.assertIn("live workspace", leaked["reason"])
         self.assertTrue(any(row.get("name") == "leaked" for row in leaked["observations"]))
 
+    def test_interpreter_installed_pth_startup_tooling_is_runtime_custody(self):
+        # CI's own venv ships a coverage hook as a .pth; it is the interpreter environment's
+        # tooling, like a distro shim, and names no workspace path.
+        dependency = self.base / "site-packages"
+        dependency.mkdir()
+        hook = dependency / "a1_coverage.pth"
+        hook.write_text(
+            'import sys; exec(\'import os\n\nif os.getenv("COVERAGE_PROCESS_START"):\n try:\n  import coverage\n'
+            " except:\\n  pass\\n')\n"
+        )
+        errors, observations = source_probe._python_startup_errors([dependency], workspace=str(self.workspace))
+        self.assertEqual([], errors)
+        self.assertTrue(
+            any(row.get("path") == str(hook) and row.get("role") == "dependency" for row in observations),
+            observations,
+        )
+        hook.write_text(f"import sys; sys.path.insert(0, {str(self.workspace)!r})\n")
+        errors, _ = source_probe._python_startup_errors([dependency], workspace=str(self.workspace))
+        self.assertTrue(any("names the live workspace" in error for error in errors), errors)
+
     def test_exact_distro_pth_hooks_are_observed_only_inside_dependencies(self):
         dependency = self.base / "dist-packages"
         dependency.mkdir()
