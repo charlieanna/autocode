@@ -298,7 +298,8 @@ class Translator:
         if tool is None:
             return [{"type": "item.completed", "item": {"id": self._new_id(), "type": "tool_call", "status": "failed"}}]
         if tool["type"] == "command_execution":
-            output = row.get("output") if isinstance(row.get("output"), str) else ""
+            given = row.get("output")
+            output: str = given if isinstance(given, str) else ""
             error = _dict(row.get("error")).get("message")
             if failed and isinstance(error, str) and error and error not in output:
                 output = f"{output}\n{error}" if output else error

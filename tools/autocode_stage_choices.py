@@ -319,7 +319,7 @@ def _offers(backend, workspace, *, resolve, discover) -> list[dict]:
     billing = "subscription" if backend in ("claude", "gemini") else None
     account = {"claude": "Claude subscription", "gemini": "Google sign-in"}.get(backend)
     # Gemini CLI takes no reasoning level, so its models offer only their own default.
-    levels = [] if backend == "gemini" else None
+    levels: list[str] | None = [] if backend == "gemini" else None
     return [_option(model, levels, account=account, billing=billing) for model in sorted(listed)]
 
 
