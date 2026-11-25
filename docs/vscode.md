@@ -52,6 +52,12 @@ composer shows where the new chat will work; open it to choose:
   checked out there, as every chat did before. It shows a warning that your own
   edits and other chats in the folder can conflict with it, naming the chats
   working there now, and asks you to confirm when you send.
+- **Discuss only in this folder**: offered only when the AutoCode CLI is running
+  inside this AutoCode checkout and the folder already has a Git commit.
+  Requirements answers in verified read-only containment without changing Git or
+  source files. If the request needs file changes, the chat stops before Planner
+  and asks you to select an isolated AutoCode CLI; it never turns a question into
+  a build in this checkout.
 
 Once the chat starts, its header always shows where it works (**Own worktree ·
 branch autocode/…** or **Your folder · branch main**), and **Show details** lists

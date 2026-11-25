@@ -63,6 +63,31 @@ test('cancel, unsafe, failed, old and malformed candidate reads cannot change se
   await assert.rejects(settings.selectIsolatedController(unknown, '/project'), /names no supported/);
 });
 
+test('Requirements-only readiness cannot approve a controller for a full task', async (t) => {
+  host.config.set('cliArgs', ['/editable/tools/autocode.py']);
+  host.vscode.window.showOpenDialog = async () => [{ fsPath: '/candidate/autocode' }];
+  const invoke = t.mock.method(cli, 'invokeRead', async () => ({ code: 0, stdout: JSON.stringify({
+    ...listing(), controller: { ...listing().controller, requirements_ready: true,
+      requirements_detail: 'Requirements can run read-only with verified containment.' },
+  }), stderr: '' }));
+  await assert.rejects(settings.selectIsolatedController(blocked(), '/project'), /Select an AutoCode CLI installed outside/);
+  assert.deepEqual([...host.config], [['cliArgs', ['/editable/tools/autocode.py']]]);
+  assert.equal(invoke.mock.callCount(), 1, 'the named read proves full-task readiness only');
+});
+
+test('chat admits an explicitly chosen Requirements-only placement without selecting another CLI', async (t) => {
+  const place = (tab, read) => ChatView.prototype.placement.call({ dialog: (_tab, _title, open) => open() }, tab, read);
+  const list = listing();
+  list.controller.requirements_ready = true;
+  list.controller.requirements_detail = 'Requirements can run read-only with verified containment.';
+  list.places.push({ id: 'discuss', label: 'Discuss only in this folder', does: '', warning: null,
+    start_args: ['--in-place', '--workflow', 'discuss'] });
+  const warning = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const args = await place({ placeChoice: { place: 'discuss' } }, { list: readWorktrees(JSON.stringify(list)) });
+  assert.deepEqual(args, ['--in-place', '--workflow', 'discuss']);
+  assert.equal(warning.mock.callCount(), 0, 'an explicit discuss choice needs no CLI setup or inferred intent');
+});
+
 test('chat offers the named setup action before allocating a run, and leaves launch for a fresh retry', async (t) => {
   const place = (tab, read) => ChatView.prototype.placement.call({ dialog: (_tab, _title, open) => open() }, tab, read);
   const tab = {};

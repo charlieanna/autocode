@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -198,7 +199,25 @@ class CliSurfaceTests(unittest.TestCase):
         policy = package["tool"]["autocode"]["cli"]
         self.assertEqual(["autocode"], policy["public-entry-points"])
         self.assertEqual([], policy["internal-entry-points"])
-        self.assertEqual({"autocode": "autocode_cli.autocode_entry:cli"}, package["project"]["scripts"])
+        self.assertNotIn("scripts", package["project"])
+        self.assertEqual(["scripts/autocode"], package["tool"]["setuptools"]["script-files"])
+        with tempfile.TemporaryDirectory() as directory:
+            package_root = Path(directory) / "autocode_cli"
+            package_root.mkdir()
+            (package_root / "__init__.py").write_text("")
+            (package_root / "autocode_entry.py").write_text("def cli():\n    return 0\n")
+            env = dict(os.environ, PYTHONPATH=directory)
+            env.pop("PYTHONDONTWRITEBYTECODE", None)
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/autocode"), "--version"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertFalse(list(Path(directory).rglob("__pycache__")))
         for unit in ("autoplanner", "autocode", "autoreview", "autoresolver"):
             with self.subTest(unit=unit):
                 self.assertEqual(

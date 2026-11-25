@@ -56,12 +56,27 @@ class ShellPolicy:
     kilo_writer: bool = False
 
 
-def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=True, isolation=None, recovery=False):
+def shell_policy(
+    *,
+    engine,
+    adapter,
+    planning,
+    allow_write,
+    settings,
+    enforce=True,
+    isolation=None,
+    recovery=False,
+    readonly_boundary=False,
+):
     """The actual launch's shell selection, shared with early admission."""
     kilo_owner = type(isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     planner_shell = planning and not recovery and not allow_write
+    readonly_boundary = readonly_boundary and planning and not allow_write
     kilo_readonly = (
-        type(adapter) is KiloProvider and not allow_write and (not planning or planner_shell) and not kilo_owner
+        type(adapter) is KiloProvider
+        and not allow_write
+        and (not planning or planner_shell or readonly_boundary)
+        and not kilo_owner
     )
     kilo_writer = type(adapter) is KiloProvider and allow_write and not planning and not kilo_owner
     uncontained = containment_policy.accepted(settings)
@@ -69,7 +84,7 @@ def shell_policy(*, engine, adapter, planning, allow_write, settings, enforce=Tr
         engine == "opencode"
         and enforce
         and not uncontained
-        and (not planning or planner_shell or isolation is not None)
+        and (not planning or planner_shell or isolation is not None or readonly_boundary)
         and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly or kilo_writer)
     )
     return ShellPolicy(

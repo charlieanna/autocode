@@ -88,6 +88,11 @@ def opencode_major(version):
     return int(parsed.split(".", 1)[0])
 
 
+def containment_problem(workspace):
+    """Why this host cannot establish OpenCode's normal kernel boundary, or None."""
+    return tool_containment.unavailable(workspace)
+
+
 def transport_version(settings):
     """The OpenCode version recorded on a run, if that identity is present."""
     if not isinstance(settings, dict):
@@ -460,8 +465,8 @@ def launch(
     image_preparation=None,
     report_recovery=False,
 ):
-    if report_recovery and (allow_write or isolation is not None or containment is not None):
-        raise ValueError("OpenCode report recovery requires a read-only uncontained stage")
+    if report_recovery and (allow_write or isolation is not None or (containment is not None and not planning)):
+        raise ValueError("OpenCode report recovery requires read-only planning without native role isolation")
     if image_preparation is not None and (isolation is None or role != "tester" or planning or allow_write or session):
         raise ValueError("Native image staging requires the original fresh readonly Sol isolation")
     if image_preparation is not None:

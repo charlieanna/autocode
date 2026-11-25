@@ -3,7 +3,7 @@
  *
  * The core lists the places (a new worktree and branch, an existing branch, or the folder itself) with the
  * start flags each takes, and says when one is not offered or needs a warning. The extension shows them,
- * passes the chosen place's `start_args` unchanged, and refuses anything outside the three placements a
+ * passes the chosen place's `start_args` unchanged, and refuses anything outside the named placements a
  * start may carry, so a list can never smuggle another option into a launch.
  */
 
@@ -30,9 +30,11 @@ export interface WorktreeList {
   branch: string | null;
   defaultPlace: string;
   places: Place[];
-  /** Absent on older cores. A blocked controller needs setup before any placement can start. */
+  /** Absent on older cores. `ready` is full-task readiness; Requirements readiness is additive. */
   controller?: {
     ready: boolean;
+    requirementsReady?: boolean;
+    requirementsDetail?: string;
     detail: string;
     action: { label: string; nextCommand: string[] } | null;
   };
@@ -41,6 +43,8 @@ export interface WorktreeList {
 /** What a chat that has chosen nothing yet takes, and what an AutoCode without the list did. */
 export const NEW_BRANCH = "new_branch";
 export const LEGACY_PLACEMENT = ["--in-place"] as const;
+const DISCUSS_PLACEMENT = "discuss";
+const DISCUSS_ARGS = ["--in-place", "--workflow", "discuss"] as const;
 
 /** The read failed because this AutoCode has no `worktrees` command, not because the list could not be read. */
 export class NoPlaceList extends Error {}
@@ -58,10 +62,11 @@ export function lacksPlaceList(result: { code: number | null; stderr: string }):
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 const textOrNull = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
 
-/** Only the placement flags a start may carry: a new branch, one existing branch, or the folder. */
+/** Only the exact placement arrays a start may carry; no inferred intent or additional flags. */
 export function placementArgs(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((word) => typeof word === "string")) return null;
   const argv = value as string[];
+  if (argv.length === DISCUSS_ARGS.length && argv.every((word, index) => word === DISCUSS_ARGS[index])) return [...argv];
   if (argv.length === 1 && (argv[0] === "--build-in-worktree" || argv[0] === "--in-place")) return [...argv];
   if (argv.length === 3 && argv[0] === "--build-in-worktree" && argv[1] === "--worktree-branch"
     && argv[2]!.length > 0 && !argv[2]!.startsWith("-")) return [...argv];
@@ -116,8 +121,13 @@ export function readWorktrees(raw: string): WorktreeList {
       return action.id === "select_cli" && typeof action.label === "string" && action.label.length > 0
         && JSON.stringify(action.next_command) === JSON.stringify(expected);
     }) as Record<string, unknown> | undefined : undefined;
+    const hasRequirements = row.requirements_ready !== undefined || row.requirements_detail !== undefined;
+    if (hasRequirements && (typeof row.requirements_ready !== "boolean" || typeof row.requirements_detail !== "string")) {
+      throw new Error("AutoCode printed unreadable Requirements-only controller setup; update AutoCode.");
+    }
     controller = {
       ready: row.ready === true, detail: text(row.detail),
+      ...(hasRequirements ? { requirementsReady: row.requirements_ready === true, requirementsDetail: text(row.requirements_detail) } : {}),
       action: offered ? { label: text(offered.label), nextCommand: expected } : null,
     };
   }
@@ -129,15 +139,26 @@ export interface PlaceChoice { place: string; branch?: string }
 
 /** The place and its start flags for a choice, or an error saying why it cannot start there now. */
 export function chosenPlacement(list: WorktreeList, choice: PlaceChoice | undefined): { place: Place; args: string[]; label: string } {
-  if (list.controller && !list.controller.ready) throw new Error(list.controller.detail);
-  const place = list.places.find((row) => row.id === (choice?.place ?? list.defaultPlace))
-    ?? list.places.find((row) => row.id === list.defaultPlace)!;
-  if (place.branches.length || place.id === "branch") {
-    const branch = place.branches.find((row) => row.name === choice?.branch);
+  if (choice?.place === DISCUSS_PLACEMENT) {
+    const discuss = list.places.find((row) => row.id === DISCUSS_PLACEMENT);
+    if (choice.branch || !discuss || JSON.stringify(discuss.startArgs) !== JSON.stringify(DISCUSS_ARGS)) {
+      throw new Error(list.controller && !list.controller.ready
+        ? list.controller.detail : "Discuss only in this folder is no longer available; choose a placement again.");
+    }
+  }
+  if (list.controller && !list.controller.ready
+    && (choice?.place !== DISCUSS_PLACEMENT || !list.controller.requirementsReady)) {
+    throw new Error(list.controller.detail);
+  }
+  const place = list.places.find((row) => row.id === (choice?.place ?? list.defaultPlace));
+  if (choice && !place) throw new Error("The selected placement is no longer available; choose a placement again.");
+  const selected = place ?? list.places.find((row) => row.id === list.defaultPlace)!;
+  if (selected.branches.length || selected.id === "branch") {
+    const branch = selected.branches.find((row) => row.name === choice?.branch);
     if (!branch) throw new Error("Pick the branch this chat works on.");
     if (!branch.startArgs) throw new Error(`The branch ${branch.name} is not available: ${branch.unavailable ?? "AutoCode does not offer it"}`);
-    return { place, args: branch.startArgs, label: `branch ${branch.name}` };
+    return { place: selected, args: branch.startArgs, label: `branch ${branch.name}` };
   }
-  if (!place.startArgs) throw new Error(`${place.label} cannot be started from this extension; update AutoCode.`);
-  return { place, args: place.startArgs, label: place.label };
+  if (!selected.startArgs) throw new Error(`${selected.label} cannot be started from this extension; update AutoCode.`);
+  return { place: selected, args: selected.startArgs, label: selected.label };
 }

@@ -9,10 +9,15 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 [Providers](providers.md). Every command accepts `-h` / `--help`.
 
 For an AutoCode self-build, `autocode worktrees list --workspace FOLDER --json`
-also reports `controller.ready`, `controller.detail` and a named `select_cli` action
-when the executing controller is editable from that folder. This read starts no
-run or model. The action lets a client select and verify an existing isolated CLI,
-without installing anything; new-worktree placement alone cannot make startup safe.
+also reports `controller.ready`, `controller.detail`, `controller.requirements_ready`,
+`controller.requirements_detail` and a named `select_cli` action when the executing
+controller is editable from that folder. In an existing Git checkout with `HEAD`, the
+list offers an explicit **Discuss only in this folder** placement
+(`--in-place --workflow discuss`): Requirements answers in verified read-only
+containment without changing Git or source files, and a request that needs changes
+stops before Planner. This read starts no run or model. The action lets a client
+select and verify an existing isolated CLI, without installing anything;
+new-worktree placement alone cannot make startup safe.
 See [Worktrees for clients](task-run.md#worktrees-for-clients).
 
 ## Entry points

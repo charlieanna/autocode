@@ -13,13 +13,14 @@ const LIST = {
       { name: "sneaky", start_args: ["--build-in-worktree", "--worktree-branch", "sneaky", "--yes"], unavailable: null },
     ] },
     { id: "folder", label: "This folder", does: "", start_args: ["--in-place"], warning: "can conflict" },
+    { id: "discuss", label: "Discuss only in this folder", does: "", start_args: ["--in-place", "--workflow", "discuss"], warning: null },
     { id: "odd", label: "Something else", does: "", start_args: ["--allow-uncontained-tools"], warning: null },
   ],
 };
 
 test("a new chat's places keep only the placements a start may carry", () => {
   const list = readWorktrees(JSON.stringify(LIST));
-  assert.deepEqual(list.places.map((place) => place.id), ["new_branch", "branch", "folder"], "a place with other flags is dropped");
+  assert.deepEqual(list.places.map((place) => place.id), ["new_branch", "branch", "folder", "discuss"], "a place with other flags is dropped");
   const branches = list.places[1]!.branches;
   assert.deepEqual(branches.map((row) => [row.name, row.startArgs]), [
     ["feature", ["--build-in-worktree", "--worktree-branch", "feature"]], ["taken", null], ["sneaky", null]]);
@@ -45,6 +46,55 @@ test("only an AutoCode without the command counts as having no place list", () =
   assert.equal(lacksPlaceList({ code: null, stderr: "" }), false, "a killed read");
   assert.equal(lacksPlaceList({ code: 2, stderr: "Input rejected: not a Git checkout" }), false, "the command's own refusal");
   assert.equal(lacksPlaceList({ code: 2, stderr: "usage: autocode worktrees list [-h]\nautocode worktrees list: error: unrecognized arguments: --x" }), false);
+});
+
+test("Requirements-only admission accepts only an explicit, exact discuss placement", () => {
+  const controller = { ready: false, requirements_ready: true,
+    requirements_detail: "Requirements can run read-only with verified containment.",
+    detail: "Select an isolated CLI before changing files.", actions: [] };
+  const list = readWorktrees(JSON.stringify({ ...LIST, controller }));
+  assert.deepEqual(list.controller, {
+    ready: false, requirementsReady: true, requirementsDetail: controller.requirements_detail,
+    detail: controller.detail, action: null,
+  });
+  assert.deepEqual(chosenPlacement(list, { place: "discuss" }).args, ["--in-place", "--workflow", "discuss"]);
+  assert.throws(() => chosenPlacement(list, undefined), /Select an isolated CLI/, "never infer discussion");
+  for (const place of ["new_branch", "branch", "folder"]) {
+    assert.throws(() => chosenPlacement(list, { place, branch: "feature" }), /Select an isolated CLI/);
+  }
+  for (const start_args of [
+    ["--workflow", "discuss", "--in-place"],
+    ["--in-place", "--workflow", "discuss", "--allow-uncontained-tools"],
+    ["--in-place", "--workflow", "build"],
+  ]) {
+    const hostile = readWorktrees(JSON.stringify({ ...LIST, controller,
+      places: LIST.places.map((place) => place.id === "discuss" ? { ...place, start_args } : place) }));
+    assert.throws(() => chosenPlacement(hostile, { place: "discuss" }), /Select an isolated CLI/);
+  }
+});
+
+test("a retained discussion choice never falls back when a refreshed list changes", () => {
+  const controller = { ready: true, detail: "Ready.", actions: [] };
+  const ready = readWorktrees(JSON.stringify({ ...LIST, controller }));
+  assert.deepEqual(chosenPlacement(ready, { place: "discuss" }).args, ["--in-place", "--workflow", "discuss"]);
+  const withoutDiscussion = readWorktrees(JSON.stringify({
+    ...LIST, controller, places: LIST.places.filter((place) => place.id !== "discuss"),
+  }));
+  assert.throws(() => chosenPlacement(withoutDiscussion, { place: "discuss" }), /no longer available/);
+  const hostile = readWorktrees(JSON.stringify({ ...LIST, controller,
+    places: LIST.places.map((place) => place.id === "discuss"
+      ? { ...place, start_args: ["--in-place"] } : place) }));
+  assert.throws(() => chosenPlacement(hostile, { place: "discuss" }), /no longer available/);
+});
+
+test("a retained build placement never falls back when a refreshed list removes it", () => {
+  const controller = { ready: true, detail: "Ready.", actions: [] };
+  for (const place of ["new_branch", "folder"]) {
+    const refreshed = readWorktrees(JSON.stringify({
+      ...LIST, controller, places: LIST.places.filter((row) => row.id !== place),
+    }));
+    assert.throws(() => chosenPlacement(refreshed, { place }), /no longer available/);
+  }
 });
 
 test("controller admission blocks every placement and keeps only the exact named setup action", () => {

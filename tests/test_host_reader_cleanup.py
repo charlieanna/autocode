@@ -1,6 +1,8 @@
 """A completed fixture cannot confuse a reused PID with its recorded reader."""
 
 import os
+import stat
+import sys
 import tempfile
 import types
 import unittest
@@ -61,3 +63,39 @@ class OwnedReaders(unittest.TestCase):
             with mock.patch.object(cleanup.psutil, "Process", side_effect=psutil.AccessDenied(11)):
                 with self.assertRaises(psutil.AccessDenied):
                     cleanup.running_readers(log)
+
+
+class PrivateSourceHosts(unittest.TestCase):
+    def test_identity_allows_interpreter_flags_but_requires_the_exact_script_and_socket(self):
+        with tempfile.TemporaryDirectory() as root:
+            uid = 1001
+            directory = (Path(root) / "tmp" / f"autocode-{uid}").resolve()
+            directory.mkdir(parents=True)
+            socket_path = directory / "source-12345678901234567890.sock"
+            socket_path.touch()
+            tools = Path(cleanup.__file__).resolve().parents[1] / "tools"
+            script = tools / "autocode_source_host.py"
+            process = mock.Mock(pid=42)
+            process.cmdline.return_value = [sys.executable, "-B", str(script), str(socket_path)]
+            real_lstat = Path.lstat
+
+            def lstat(path):
+                if path == directory:
+                    return types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=uid)
+                if path == socket_path:
+                    return types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=uid)
+                return real_lstat(path)
+
+            with (
+                mock.patch.object(cleanup.os, "getuid", return_value=uid, create=True),
+                mock.patch.object(Path, "lstat", lstat),
+                mock.patch("autocode_source_host.host_status", return_value={"running": True, "pid": 42}) as status,
+                mock.patch("autocode_source_host.stop_host", return_value={"stopped": True}) as stop,
+                mock.patch.object(cleanup.psutil, "Process", return_value=process),
+            ):
+                self.assertEqual([42], cleanup.stop_private_source_hosts(root))
+                status.assert_called_once_with(socket_path)
+                stop.assert_called_once_with(socket_path)
+                process.cmdline.return_value = [sys.executable, "-B", str(script), f"{socket_path}.other"]
+                with self.assertRaisesRegex(ValueError, "Unexpected fixture source host identity"):
+                    cleanup.stop_private_source_hosts(root)

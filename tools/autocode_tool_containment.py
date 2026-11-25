@@ -316,26 +316,42 @@ def backend_version(name):
     return None
 
 
-def unavailable(workspace=None, environment=None):
+def unavailable(
+    workspace=None, environment=None, *, command="opencode", supported=(SUPPORTED_VERSION,), label="OpenCode"
+):
     """Why strict containment cannot be established on this machine, or None.
 
     Cheap run-setup check of what every launch's configure() refuses first: the
     platform, its sandbox (sandbox-exec, or bwrap able to create namespaces) and
-    the installed OpenCode version. It runs no conformance; None is not a proof,
+    the installed provider version. It runs no conformance; None is not a proof,
     and each launch still runs configure().
     """
     problem = sandbox_problem()
     if problem:
         return problem
     env = dict(os.environ if environment is None else environment)
-    executable = shutil.which("opencode", path=env.get("PATH", ""))
+    executable = shutil.which(command, path=env.get("PATH", ""))
     if not executable:
-        return opencode_problem(None)
+        if command == "opencode" and label == "OpenCode":
+            return NO_OPENCODE
+        return f"strict tool containment cannot find the {Path(command).name} executable on PATH"
     try:
         result = _tool_version(executable, env, workspace)
     except (OSError, subprocess.SubprocessError) as error:
-        return f"strict tool containment could not read the OpenCode version: {error}"
-    return opencode_problem(result)
+        return f"strict tool containment could not read the {label} version: {error}"
+    return version_problem(result, supported=supported, label=label)
+
+
+def version_problem(result, *, supported, label):
+    """Why the provider whose ``--version`` gave ``result`` cannot run contained, or None."""
+    if result is None:
+        return f"strict tool containment cannot find the {label.lower()} executable on PATH"
+    version = result.stdout.strip()
+    if result.returncode or version not in supported:
+        found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
+        wanted = " or ".join(supported) if supported else "a release qualified for this host's sandbox (none is yet)"
+        return f"strict tool containment is qualified only for {label} {wanted}; this machine has {label} {found}"
+    return None
 
 
 def opencode_problem(result):
@@ -344,16 +360,7 @@ def opencode_problem(result):
     ``result`` is that command's CompletedProcess, or None when no opencode is on PATH.
     unavailable() and `autocode doctor` (which runs the command its own way) share this rule.
     """
-    if result is None:
-        return NO_OPENCODE
-    version = result.stdout.strip()
-    if result.returncode or version != SUPPORTED_VERSION:
-        found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
-        return (
-            f"strict tool containment is qualified only for OpenCode {SUPPORTED_VERSION}; "
-            f"this machine has OpenCode {found}"
-        )
-    return None
+    return version_problem(result, supported=(SUPPORTED_VERSION,), label="OpenCode")
 
 
 def _path(value):
@@ -1383,23 +1390,46 @@ def _native_debug(prefix, workspace, child, *, supervised=False):
     return debug
 
 
-def _check_native_shell(actual, permissions):
+def _check_native_shell(actual, permissions, *, disable_tools=False):
     """Keep the final native policy gate ahead of every actual shell probe."""
     if not isinstance(actual, dict):
         raise RuntimeError("Native tool conformance returned an unsupported agent object")
     if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
         raise RuntimeError("Strict containment could not preserve the effective shell restrictions")
     tools = actual.get("tools", {})
-    if (
-        not isinstance(tools, dict)
-        or tools.get("bash") is not True
-        or any(value is not False for name, value in tools.items() if name != "bash")
-    ):
+    if not isinstance(tools, dict) or not tools:
+        raise RuntimeError("Strict containment could not inspect the effective native tools")
+    if disable_tools:
+        if any(value is not False for value in tools.values()):
+            raise RuntimeError("Strict containment could not disable every native tool")
+    elif tools.get("bash") is not True or any(value is not False for name, value in tools.items() if name != "bash"):
         raise RuntimeError("Strict containment could not disable every uncontained native tool")
     # The final restrictive wildcard shadows all non-shell asks. A shell ask
     # must remain a real approval, never be silently approved by debug agent.
     if any(action == "ask" for action in permissions["bash"].values()):
         raise RuntimeError("Native debug would auto-approve a shell ask; strict conformance is blocked")
+
+
+def _boundary_shell(workspace, target):
+    """Run model-free probes through the kernel shell when the provider has no tools."""
+
+    def debug(args=()):
+        if len(args) != 4 or args[0] != "--tool" or args[1] != "bash" or args[2] != "--params":
+            raise RuntimeError("A tool-disabled launch permits only direct kernel-shell probes")
+        params = json.loads(args[3])
+        command = params.get("command") if isinstance(params, dict) else None
+        if not isinstance(command, str):
+            raise RuntimeError("A kernel-shell probe needs an exact command")
+        result = captured.run_metadata([target["shell"], "-c", command], cwd=workspace, env={}, timeout=60)
+        return {
+            "input": {"command": command},
+            "result": {
+                "metadata": {"exit": result.returncode},
+                "output": result.stdout + result.stderr,
+            },
+        }
+
+    return debug
 
 
 def _shell_probe(debug, workspace, target):
@@ -1438,8 +1468,8 @@ def _shell_probe(debug, workspace, target):
     return control, probe, result, native_receipt
 
 
-def _private_read_probe(debug, workspace, target):
-    """Prove the actual native bash cannot read the run's private state, and can list its planning artifacts."""
+def _private_read_probe(debug, workspace, target, *, tool="bash"):
+    """Prove the actual bash path cannot read the run's private state, and can list its planning artifacts."""
     # A parent-created sentinel in the planning run's own directory stands for its state, and
     # one in each private store the denial names for what that store holds: the actual native
     # bash must fail to read every one, and must list the run's planning/ artifacts when they
@@ -1494,7 +1524,7 @@ def _private_read_probe(debug, workspace, target):
     finally:
         for sentinel in made:
             sentinel.unlink()
-    return {**reads, "listed": readable, "command": command, "tool": "bash", "exit": 0, "output": output}
+    return {**reads, "listed": readable, "command": command, "tool": tool, "exit": 0, "output": output}
 
 
 def _footprint_probe(debug, workspace, control, footprint, boundary):
@@ -1657,6 +1687,8 @@ def _retain(
     launch_identity,
     writer_proof=None,
     startup=None,
+    native_tools=None,
+    probe_tool="bash",
 ):
     """Write the conformance proof beside the profile, bind its digests to the boundary and verify it.
 
@@ -1667,9 +1699,10 @@ def _retain(
         **({"writer_footprint": writer_proof} if writer_proof is not None else {}),
         "toolchain_checks": tool_receipts,
         "command": probe,
-        "tool": "bash",
+        "tool": probe_tool,
         "exit": result["metadata"]["exit"],
         "output": result.get("output") if isinstance(result.get("output"), str) else None,
+        **({"native_tools": native_tools} if native_tools is not None else {}),
         "native_receipt": native_receipt,
         "native_version": supported_version,
         "backend": target.get("backend"),
@@ -1700,6 +1733,57 @@ def _retain(
         target["transport"] = transport
     verify(target)
     return target
+
+
+def _toolchain_setup(workspace, child, request, *, disable_tools):
+    if disable_tools:
+        return {"read_roots": [], "links": [], "probes": [], "environment": None, "tool_aliases": None}
+    try:
+        from . import autocode_toolchain as toolchain
+    except ImportError:
+        import autocode_toolchain as toolchain
+    return toolchain.discover(workspace, request.get("tool_commands", ()), child)
+
+
+def _toolchain_receipts(debug, workspace, child, prefix, probes, *, disable_tools, transport, allow_write):
+    if disable_tools:
+        return []
+    if transport == "kilocode" and not allow_write:
+        startup_debug = _native_debug(prefix, workspace, child, supervised=True)
+        return _parallel_toolchain_checks(startup_debug, workspace, probes)
+    return _toolchain_checks(debug, workspace, probes)
+
+
+def _validate_request(workspace, request, *, allow_write, retain_launch_identity, role):
+    if not isinstance(request, dict) or set(request) - {
+        "read_roots",
+        "protected_paths",
+        "loopback_checks",
+        "loopback_authority",
+        "tool_commands",
+        "source_paths",
+        "write_paths",
+        "private_run",
+        "verification_copy",
+        "disable_tools",
+    }:
+        raise ValueError("Unsupported strict tool containment request")
+    verification_copy = request.get("verification_copy", not allow_write and role != "requirements")
+    disable_tools = request.get("disable_tools", False)
+    if type(verification_copy) is not bool or type(disable_tools) is not bool:
+        raise ValueError("Containment copy and tool options must be explicit booleans")
+    if disable_tools and allow_write:
+        raise ValueError("A tool-disabled containment boundary must remain read-only")
+    _reject_loopback_request(request.get("loopback_checks", ()), request.get("loopback_authority"))
+    footprint = writer_footprint(workspace, request["write_paths"]) if "write_paths" in request else None
+    if footprint is not None and not allow_write:
+        raise ValueError("Read-only stages cannot receive a writer footprint")
+    if "private_run" in request and allow_write:
+        raise ValueError("Only a read-only shell takes the private run-store read denial")
+    opt_in_writer = retain_launch_identity and allow_write
+    if opt_in_writer and footprint is None:
+        raise ValueError("Native isolated writer requires exact literal paths before setup")
+    return verification_copy, disable_tools, footprint, opt_in_writer
 
 
 def configure(
@@ -1742,26 +1826,9 @@ def configure(
         raise RuntimeError(
             "Strict native tool containment needs macOS Seatbelt or Linux bubblewrap; no provider launched"
         )
-    if not isinstance(request, dict) or set(request) - {
-        "read_roots",
-        "protected_paths",
-        "loopback_checks",
-        "loopback_authority",
-        "tool_commands",
-        "source_paths",
-        "write_paths",
-        "private_run",
-    }:
-        raise ValueError("Unsupported strict tool containment request")
-    _reject_loopback_request(request.get("loopback_checks", ()), request.get("loopback_authority"))
-    footprint = writer_footprint(workspace, request["write_paths"]) if "write_paths" in request else None
-    if footprint is not None and not allow_write:
-        raise ValueError("Read-only stages cannot receive a writer footprint")
-    if "private_run" in request and allow_write:
-        raise ValueError("Only a read-only shell takes the private run-store read denial")
-    opt_in_writer = retain_launch_identity and allow_write
-    if opt_in_writer and footprint is None:
-        raise ValueError("Native isolated writer requires exact literal paths before setup")
+    verification_copy, disable_tools, footprint, opt_in_writer = _validate_request(
+        workspace, request, allow_write=allow_write, retain_launch_identity=retain_launch_identity, role=role
+    )
     initial_kinds = None
     if footprint is not None:
         initial_kinds = _writer_path_kinds(workspace, footprint)  # Refuse aliases before any native setup/debug.
@@ -1789,18 +1856,14 @@ def configure(
 
     debug = _native_debug(prefix, workspace, child)
 
-    if resolved_shell_policy is None:
+    if resolved_shell_policy is None or disable_tools:
         original = debug()
         if not isinstance(original, dict):
             raise RuntimeError("Native tool conformance returned an unsupported agent object")
         permissions = shell_permissions(original.get("permission"))
     else:
         permissions = _resolved_kilo_shell_policy(resolved_shell_policy, definition)
-    try:
-        from . import autocode_toolchain as toolchain
-    except ImportError:
-        import autocode_toolchain as toolchain
-    tools_ready = toolchain.discover(workspace, request.get("tool_commands", ()), child)
+    tools_ready = _toolchain_setup(workspace, child, request, disable_tools=disable_tools)
     boundary = prepare(
         workspace,
         allow_write=False if opt_in_writer else allow_write,
@@ -1809,7 +1872,7 @@ def configure(
         protected_paths=request.get("protected_paths", ()),
         loopback_checks=request.get("loopback_checks", ()),
         loopback_authority=request.get("loopback_authority"),
-        verification_copy=not allow_write and role != "requirements",
+        verification_copy=verification_copy,
         source_paths=request.get("source_paths", ()),
         write_paths=None if opt_in_writer else footprint,
         private_run=request.get("private_run"),
@@ -1821,27 +1884,40 @@ def configure(
     child["SHELL"] = boundary["shell"]
     child[config_variable] = json.dumps(config)
     actual = debug()
-    _check_native_shell(actual, permissions)
+    _check_native_shell(actual, permissions, disable_tools=disable_tools)
+    probe_debug = _boundary_shell(workspace, boundary) if disable_tools else debug
+    probe_tool = "kernel_shell" if disable_tools else "bash"
+    if disable_tools:
+        boundary["tools"] = []
 
-    control, probe, result, native_receipt = _shell_probe(debug, workspace, boundary)
+    control, probe, result, native_receipt = _shell_probe(probe_debug, workspace, boundary)
 
-    private_proof = _private_read_probe(debug, workspace, boundary) if "private_reads" in boundary else None
+    private_proof = (
+        _private_read_probe(probe_debug, workspace, boundary, tool=probe_tool) if "private_reads" in boundary else None
+    )
 
     footprint_proof = (
         _footprint_probe(debug, workspace, control, footprint, boundary)
         if footprint is not None and not opt_in_writer
         else None
     )
-    if transport == "kilocode" and not allow_write:
-        startup_debug = _native_debug(prefix, workspace, child, supervised=True)
-        tool_receipts = _parallel_toolchain_checks(startup_debug, workspace, tools_ready["probes"])
-    else:
-        tool_receipts = _toolchain_checks(debug, workspace, tools_ready["probes"])
+    tool_receipts = _toolchain_receipts(
+        debug,
+        workspace,
+        child,
+        prefix,
+        tools_ready["probes"],
+        disable_tools=disable_tools,
+        transport=transport,
+        allow_write=allow_write,
+    )
     retained = dict(
         tool_receipts=tool_receipts,
         supported_version=supported_version,
         transport=transport,
         private_proof=private_proof,
+        native_tools=actual.get("tools") if disable_tools else None,
+        probe_tool=probe_tool,
         launch_identity=(lambda: native_conformance.observe(command, child, executable, actual))
         if retain_launch_identity
         else None,
@@ -2056,10 +2132,21 @@ def verify(boundary):
                 raise ValueError("Containment authority bytes changed")
     except (KeyError, OSError, ValueError) as error:
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
-    if transport == "kilocode":
-        proof = json.loads(Path(boundary["conformance"]).read_text())
-        if proof.get("transport") != transport or proof.get("native_version") != boundary["native_version"]:
-            raise RuntimeError("Kilo kernel conformance does not match the recorded transport")
+    proof = json.loads(Path(boundary["conformance"]).read_text())
+    if transport == "kilocode" and (
+        proof.get("transport") != transport or proof.get("native_version") != boundary["native_version"]
+    ):
+        raise RuntimeError("Kilo kernel conformance does not match the recorded transport")
+    if boundary.get("tools") == []:
+        native_tools = proof.get("native_tools")
+        if (
+            boundary.get("allow_write") is not False
+            or proof.get("tool") != "kernel_shell"
+            or not isinstance(native_tools, dict)
+            or not native_tools
+            or any(value is not False for value in native_tools.values())
+        ):
+            raise RuntimeError("Tool-disabled containment lacks its exact native and kernel-shell proof")
     if "write_paths" in boundary:
         try:
             footprint = writer_footprint(workspace, boundary["write_paths"])
@@ -2147,7 +2234,7 @@ def verify(boundary):
             if (
                 not isinstance(proof, dict)
                 or {key: proof.get(key) for key in reads} != reads
-                or proof.get("tool") != "bash"
+                or proof.get("tool") not in ("bash", "kernel_shell")
                 or type(proof.get("exit")) is not int
                 or proof["exit"] != 0
                 or not isinstance(proof.get("command"), str)

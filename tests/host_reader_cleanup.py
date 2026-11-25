@@ -71,7 +71,7 @@ def stop_private_source_hosts(root):
         if not status.get("running"):
             continue
         process = psutil.Process(status["pid"])
-        if process.cmdline()[1:] != [str(tools / "autocode_source_host.py"), str(socket)]:
+        if process.cmdline()[-2:] != [str(tools / "autocode_source_host.py"), str(socket)]:
             raise ValueError(f"Unexpected fixture source host identity: {socket}")
         if not source_host.stop_host(socket).get("stopped"):
             raise RuntimeError(f"Fixture source host did not stop: {socket}")

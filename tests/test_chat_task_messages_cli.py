@@ -125,11 +125,17 @@ with ChatTUI() as ui:
             tmux=require_tmux(self),
         ) as screen:
             try:
-                screen.wait_for(
-                    lambda shown: ready.exists() and "Type a message" in shown,
-                    60,
-                    what="member Planner with anchor-owned composer",
-                )
+                try:
+                    screen.wait_for(
+                        lambda shown: ready.exists() and "Type a message" in shown,
+                        60,
+                        what="member Planner with anchor-owned composer",
+                    )
+                except AssertionError as error:
+                    # Say where the member stopped: the screen shows only the anchor run.
+                    member = {key: peer.status().get(key) for key in ("status", "next_stage", "stop_reason")}
+                    stages = calls.read_text() if calls.exists() else "(no provider call)"
+                    raise AssertionError(f"{error}\nmember: {member}\nprovider calls:\n{stages}") from None
                 screen.paste("Could we reuse the conversion?")
                 screen.keys("Enter")
                 screen.wait_for(lambda shown: "Message saved" in shown and "Requirements will reply" in shown, 30)
@@ -139,14 +145,30 @@ with ChatTUI() as ui:
                     # block until that reader exists; one nonblocking attempt can lose the release.
                     with gate.open("w") as release:
                         release.write("continue")
-            screen.wait_for(
-                lambda shown: (
-                    "We should assess conversion fidelity." in shown
-                    and "Question answered; plan still awaits approval." in shown
-                ),
-                300,
-                what="one Requirements reply and resumed original plan",
-            )
+            try:
+                screen.wait_for(
+                    lambda shown: (
+                        "We should assess conversion fidelity." in shown
+                        and "Question answered; plan still awaits approval." in shown
+                    ),
+                    300,
+                    what="one Requirements reply and resumed original plan",
+                )
+            except AssertionError as error:
+                # The screen shows only the anchor's chat: say where both runs stopped and which
+                # stages the provider was asked for, so a CI failure names its cause.
+                def where(run):
+                    view = run.status()
+                    return {
+                        **{key: view.get(key) for key in ("status", "next_stage", "stop_reason")},
+                        "needs": (view.get("needs") or {}).get("kind"),
+                        "conversation": (view.get("chat") or {}).get("conversation"),
+                    }
+
+                stages = calls.read_text() if calls.exists() else "(no provider call)"
+                raise AssertionError(
+                    f"{error}\nanchor: {where(source)}\nmember: {where(peer)}\nprovider calls:\n{stages}"
+                ) from None
             screen.keys("C-d")
             self.assertEqual(0, screen.exit_status(15))
         events = calls.read_text().splitlines()

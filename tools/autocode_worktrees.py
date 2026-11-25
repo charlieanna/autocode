@@ -91,22 +91,41 @@ def source_tree(worktree) -> str:
         return _git(worktree, "write-tree", env=env)
 
 
-def _task_branch(workspace, *, legacy=False):
+def _task_branch(workspace, *, state: RunState | None = None, legacy=False):
     """The branch of a task worktree AutoCode created for one task, or None.
 
     ``legacy`` also accepts worktrees made before task worktrees recorded their kind;
-    only clean-up does, and it checks program ownership separately.
+    only clean-up does, and it checks program ownership separately. Delivery additionally
+    requires the completed run's exact saved workspace, project and, when recorded, branch identity.
     """
     try:
         data = workspaces.metadata(workspace)
     except (OSError, ValueError, json.JSONDecodeError):
         return None
-    return data["branch"] if data and (data.get("kind") == "task" or legacy and "kind" not in data) else None
+    if not data or not (data.get("kind") == "task" or legacy and "kind" not in data):
+        return None
+    if state is not None:
+        saved_workspace = state.get("workspace")
+        project = state.get("project_workspace")
+        if not isinstance(saved_workspace, str) or not isinstance(project, str):
+            return None
+        if "task_branch" in state and state["task_branch"] != data["branch"]:
+            return None
+        try:
+            matches = (
+                Path(saved_workspace).resolve() == Path(workspace).resolve()
+                and Path(project).resolve() == Path(data["project_workspace"]).resolve()
+            )
+        except (OSError, ValueError):
+            return None
+        if not matches:
+            return None
+    return data["branch"]
 
 
 def deliver(state: RunState, workspace) -> str:
     """Commit a completed task worktree's source to its branch; the line to print, or ''."""
-    branch = _task_branch(workspace) if state.get("status") == COMPLETE else None
+    branch = _task_branch(workspace, state=state) if state.get("status") == COMPLETE else None
     if not branch:
         return ""
     try:
@@ -134,7 +153,7 @@ def deliver(state: RunState, workspace) -> str:
         _git(workspace, "update-ref", f"refs/heads/{branch}", commit, tip)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         return f"\nThe delivered source was not committed to {branch}: {error}"
-    project = state.get("project_workspace", "<project>")
+    project = state["project_workspace"]
     return (
         f"\nDelivered on branch {branch} ({commit[:12]}). Merge it with "
         f"`autocode merge --workspace {project} {workspace}` (or `git merge {branch}` from your checkout), "

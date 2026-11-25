@@ -63,7 +63,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual([(name, True) for name, _ in setup.BACKENDS], calls)
         install = {item["id"]: item.get("install_command") for item in found}
         self.assertEqual("npm install -g opencode-ai@1.18.33", install["opencode"])
-        self.assertEqual("npm install -g @kilocode/cli@7.8.3", install["kilocode"])
+        self.assertEqual(f"npm install -g @kilocode/cli@{setup.KILO}", install["kilocode"])
         self.assertEqual("npm install -g @google/gemini-cli", install["gemini"])
         self.assertIsNone(install["claude"])
         self.assertIsNone(install["codex"])
@@ -88,7 +88,7 @@ class SetupTests(unittest.TestCase):
         use = setup.new_runs_use([CLAUDE_IN, missing], choose=lambda: CLAUDE_CHOSEN)
         self.assertIsNone(use["id"])
         self.assertEqual("kilocode", use["configured_backend"])
-        self.assertIn("install it with `npm install -g @kilocode/cli@7.8.3`", use["reason"])
+        self.assertIn(f"install it with `npm install -g @kilocode/cli@{setup.KILO}`", use["reason"])
         shown = setup.text([CLAUDE_IN, missing], use)
         self.assertIn("New runs cannot start", shown)
         self.assertNotIn("New runs use Claude Code", shown)
@@ -292,7 +292,7 @@ class SetupTests(unittest.TestCase):
             for item in found
         ]
         npm_argv = {"opencode": ["npm", "install", "-g", "opencode-ai@1.18.33"]}
-        npm_argv["kilocode"] = ["npm", "install", "-g", "@kilocode/cli@7.8.3"]
+        npm_argv["kilocode"] = ["npm", "install", "-g", f"@kilocode/cli@{setup.KILO}"]
         for answer, hub in [
             ("", "opencode"),
             ("1", "opencode"),
@@ -319,8 +319,8 @@ class SetupTests(unittest.TestCase):
                 self.assertTrue(installed)
                 self.assertEqual(["Install which? [1-3, Enter for 1] "], asked)
                 self.assertIn("1. OpenCode 1.18.33", said[0])
-                self.assertIn("2. Kilo 7.8.3", said[0])
-                self.assertIn("(npm install -g @kilocode/cli@7.8.3)", said[0])
+                self.assertIn(f"2. Kilo {setup.KILO}", said[0])
+                self.assertIn(f"(npm install -g @kilocode/cli@{setup.KILO})", said[0])
                 self.assertIn("3. Neither", said[0])
                 self.assertEqual([npm_argv[hub]], ran)
                 self.assertEqual(f"Installed {setup.HUBS[hub]}.", said[-1])
@@ -444,7 +444,7 @@ class SetupTests(unittest.TestCase):
                 out=lambda _line: None,
             )
         )
-        self.assertEqual([["npm", "install", "-g", "@kilocode/cli@7.8.3"]], ran)
+        self.assertEqual([["npm", "install", "-g", f"@kilocode/cli@{setup.KILO}"]], ran)
         self.assertFalse(setup._install([opencode_in, kilo_missing], wanted="opencode", which=npm, run=ran.append))
 
     def test_without_npm_or_when_npm_fails_setup_says_what_to_run(self):
