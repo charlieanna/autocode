@@ -52,7 +52,7 @@ class CheckoutBusy(RuntimeError):
 # Stages whose agents only read the checkout and talk with the person. Requirements answers a
 # discussion itself (autocode_requirements_answer) and, for a change, says what it understood; neither
 # writes a file, so it runs while another run's agents hold the checkout. Every other stage waits for it.
-READS_ONLY = ("requirements_gather",)
+READS_ONLY = ("requirements_gather", "requirements")
 
 
 def needed_by(state: RunState) -> bool:

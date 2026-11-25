@@ -81,9 +81,20 @@ def checked_fixture(executable="opencode", *, env=None):
     )
     if selected.read_bytes() not in allowed:
         raise RuntimeError("Offline bootstrap refuses an unknown OpenCode executable")
-    for name, source in (("codex", "fake_codex.py"), ("goal_fixtures.py", "goal_fixtures.py")):
+    delegates = {"codex": [(TOOLS / "fake_codex.py").read_bytes()]}
+    # Scenario-backed Requirements fixtures keep the same checked OpenCode and
+    # production containment boundary; only their checked-in scripted delegate
+    # differs. An explicit fixture environment selects that exact source, never
+    # arbitrary model text or an executable supplied by the workspace.
+    scenario_delegate = env.get("AUTOCODE_FIXTURE_SCENARIO_DELEGATE")
+    if scenario_delegate:
+        delegates["codex"].append((TOOLS.parent / "scenarios/harness/fake_codex.py").read_bytes())
+    for name, allowed in (
+        ("codex", delegates["codex"]),
+        ("goal_fixtures.py", [(TOOLS / "goal_fixtures.py").read_bytes()]),
+    ):
         sibling = selected.with_name(name)
-        if not sibling.is_file() or sibling.read_bytes() != (TOOLS / source).read_bytes():
+        if not sibling.is_file() or sibling.read_bytes() not in allowed:
             raise RuntimeError("Offline bootstrap refuses an unknown delegated fixture: " + name)
     return selected
 

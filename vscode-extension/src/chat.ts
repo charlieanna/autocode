@@ -1153,7 +1153,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     const list = read.list;
     tab.places = list;
-    if (list.controller && !list.controller.ready) {
+    if (list.controller && !list.controller.ready
+      && !(list.controller.requirementsReady && tab.placeChoice?.place === "discuss")) {
       const action = list.controller.action;
       if (!action) throw new Error(`${list.controller.detail} AutoCode names no supported setup action; update it.`);
       await this.dialog(tab, "Select an isolated AutoCode CLI in the setup dialog.", async () => {

@@ -243,6 +243,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused re-checks; a person may need to confirm ownership.",
     ),
     # AutoCode's own gates
+    "PAUSED_LOCAL_REQUIREMENTS_BUILD": (
+        "This discussion ran inside the AutoCode controller's own checkout, where file-changing work could alter the running controller.",
+        "Select an AutoCode CLI installed outside this checkout, then start the build there; the saved discussion remains read-only.",
+    ),
     "PAUSED_INVALID_OUTPUT": (
         "A stage returned output the runner could not accept as a report.",
         "--resume-paused retries the stage; --abandon-stage ATTEMPT sets the bad attempt aside.",

@@ -85,10 +85,13 @@ TANGLED: frozenset[str] = frozenset()
 # autocode_verify.py by 7 lines, verify by 2 and _preserve_suite by 1.
 # 2026-11-16: pure file-role/result-parsing helpers (autocode_test_results) and the pure suite-definition
 # boundary analyzer (autocode_suite_boundary) moved out of autocode_verify.py (#3468), lowering it to ~2,562 lines.
+# 2026-11-24: read-only Requirements in an AutoCode self-checkout (#4167) lives in autocode_controller_isolation;
+# its import, the scope it reads in run_role, the route check and the launch's readonly_boundary argument, and the
+# direct-script bytecode switch raised autocode.py by 9, to 1836.
 # 2026-11-24: run_suite attaches the source-resolution binding to the receipts it returns (#4152); the attach
 # and its planning call are that boundary's integration point and raised autocode_verify.py by 1 line.
 MAX_LINES = {
-    "autocode.py": 1830,
+    "autocode.py": 1836,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1392,

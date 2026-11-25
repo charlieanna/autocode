@@ -690,6 +690,43 @@ class OpenCodeTests(unittest.TestCase):
         self.assertNotEqual("deny", captured["permission"].get("bash", "allow"))
         self.assertEqual("deny", captured["permission"]["edit"])
 
+    def test_requirements_report_recovery_keeps_its_boundary_with_every_tool_denied(self):
+        captured = {}
+        request = {
+            "source_paths": [],
+            "tool_commands": [],
+            "read_roots": [],
+            "protected_paths": [],
+            "private_run": "/workspace/.autocode/runs/one",
+        }
+
+        def configure(command, child, workspace, **kwargs):
+            config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+            agent = command[command.index("--agent") + 1]
+            captured.update(config["agent"][agent]["permission"])
+            return child, {"shell": "/contained/bash"}
+
+        with (
+            patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": "{}"}),
+            patch.object(oc.tool_containment, "configure", side_effect=configure) as prepared,
+        ):
+            oc.launch(
+                "requirements_gather",
+                Path("/workspace"),
+                Path("/workspace/.autocode/runs/one"),
+                None,
+                "test/model",
+                None,
+                False,
+                planning=True,
+                containment=request,
+                report_recovery=True,
+            )
+        self.assertIs(request, prepared.call_args.kwargs["request"])
+        self.assertEqual("deny", captured["*"])
+        for tool in ("read", "glob", "grep", "list", "edit", "bash", "task", "question", "external_directory"):
+            self.assertEqual("deny", captured.get(tool, captured["*"]))
+
     def test_inline_role_denies_and_patterns_survive_launch(self):
         for policy in (
             "deny",

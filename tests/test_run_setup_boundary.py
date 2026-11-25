@@ -125,6 +125,28 @@ class RunSetupBoundaryTests(unittest.TestCase):
                 self.runtime.resolver_runtime.record_operational_exhaustion.assert_not_called()
                 self.owner_factory.assert_not_called()
 
+    def test_local_requirements_guard_precedes_source_mutating_run_actions(self):
+        self.args._local_requirements_only = True
+        self.args.run_dir = self.run
+        self.args.submit_repair = self.workspace / "delivery"
+        self.state.update(
+            status="PAUSED_BUILDER_CLASSIFICATION",
+            next_stage="requirements_gather",
+            workflow={"kind": "discuss"},
+            stages=[],
+        )
+        with patch.object(
+            setup.controller_isolation,
+            "setup_view",
+            return_value={"ready": False, "requirements_ready": True},
+        ):
+            self.assertEqual(2, self.run_locked())
+        self.runtime.run_actions.handle.assert_not_called()
+        self.runtime.build_loop.run.assert_not_called()
+        saved = util.read(self.path)
+        self.assertEqual("PAUSED_LOCAL_REQUIREMENTS_BUILD", saved["status"])
+        self.assertIn("cannot continue into file changes", saved["stop_reason"])
+
     def test_runner_warning_errors_retain_the_same_preload_boundary(self):
         failure = RuntimeError("cannot inspect runner identity")
         self.runtime.util.runner_changed.side_effect = failure

@@ -98,6 +98,20 @@ class ExclusiveTests(unittest.TestCase):
             self.assertEqual({}, checkout_lock.holder(root))
 
 
+class NeededByTests(unittest.TestCase):
+    def test_both_requirements_spellings_and_their_repairs_read_only_and_every_planner_needs_the_checkout(self):
+        for stage in ("requirements_gather", "requirements"):
+            with self.subTest(stage=stage):
+                self.assertFalse(checkout_lock.needed_by({"next_stage": stage}))
+                repair = {"next_stage": stage, "pending_report_repair": {"original": {"stage": stage}}}
+                self.assertFalse(checkout_lock.needed_by(repair))
+        for stage in ("draft_plan", "plan", "builder"):
+            with self.subTest(stage=stage):
+                self.assertTrue(checkout_lock.needed_by({"next_stage": stage}))
+        repair = {"next_stage": "requirements", "pending_report_repair": {"original": {"stage": "plan"}}}
+        self.assertTrue(checkout_lock.needed_by(repair), "a Planner report repair needs what the Planner needs")
+
+
 class InPlaceRunTests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
     launch = test_subprocess.SubprocessFlow.launch

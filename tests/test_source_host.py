@@ -86,6 +86,10 @@ class SourceHostTests(unittest.TestCase):
             self.assertIsNone(host.snapshot(self.root, False))
             self.assertIsNone(host.snapshot(self.root, False))
             self.assertEqual(1, spawn.Popen.call_count)
+            self.assertEqual(
+                [sys.executable, "-B", str(Path(host.__file__).resolve()), str(self.socket)],
+                spawn.Popen.call_args.args[0],
+            )
             util.use_snapshot_service(host.snapshot)
             served = util.snapshot(self.root)
         self.assertEqual(self.local(), served)

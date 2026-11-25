@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+sys.dont_write_bytecode = True
+
 try:
     from . import autocode_capture_family as capture_family
 except ImportError:
@@ -468,7 +470,7 @@ def _start(path: Path) -> None:
         if not _ensure_private_parent(path):
             return  # never serve through a folder another user could reach
         subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()), str(path)],
+            [sys.executable, "-B", str(Path(__file__).resolve()), str(path)],
             cwd=str(path.parent),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

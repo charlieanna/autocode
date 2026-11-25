@@ -14,6 +14,8 @@ import sys
 import threading
 import time
 
+sys.dont_write_bytecode = True
+
 try:
     from . import autocode_command_receipt as receipts
     from . import autocode_elapsed_timing as elapsed_timing

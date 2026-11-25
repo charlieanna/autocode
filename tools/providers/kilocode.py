@@ -282,6 +282,16 @@ class KiloProvider(command.CommandProvider):
             )
         return result
 
+    def containment_problem(self, workspace):
+        """Check the exact configured Kilo executable against this host's qualified release."""
+        return containment.unavailable(
+            workspace,
+            command=self._config["command"][0],
+            environment=self._preflight_environment(None),
+            supported=containment.kilo_versions(),
+            label="Kilo",
+        )
+
     def local_settings(self, workspace=None, *, env=None):
         settings = super().local_settings(workspace, env=env)
         check_version(settings.get("version"))

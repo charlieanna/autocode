@@ -469,6 +469,14 @@ included; an ordinary CLI launch creates its own worktree by default. An unsafe 
 or advancing invocation is refused before starting a provider. Saved status,
 explanations and dry runs remain readable without changing the checkpoint.
 
+An existing checkout with `HEAD` may run Requirements in place under the explicit
+`--in-place --workflow discuss` exception. Requirements uses its assigned route in
+verified kernel read-only containment and cannot provision a worktree or write source
+or Git metadata. A discussion completes there; a request needing changes stops before
+Planner with a named action to select an isolated controller. `TaskRun.start` can pass
+those exact `start_args`, and advancing the same Requirements-only run preserves the
+boundary. Neither the prompt's wording nor another role's engine grants this exception.
+
 `view.runner` and `view.evidence.runner` identify the controller that last saved
 the run: its package directory (`path`) and source revision (`commit`, with
 `+modified` for local source edits). `view.evidence.base_commit` identifies the
@@ -3533,9 +3541,18 @@ unchanged in place of its own placement flag, and, when that place has a `warnin
 starts only once the person confirms. It reads the list again just before the start.
 
 The additive `controller` object is pre-start admission, not saved-run state:
-`ready` (boolean), `detail` (display text), and `actions` (empty when ready).
+`ready` (boolean), `detail` (display text), `requirements_ready` (boolean) and
+`requirements_detail` (display text), and `actions` (empty when ready).
 When the executing controller is inside an AutoCode task checkout, `ready` is false
-for every placement. Its `select_cli` action has `label` and
+for every placement. If that folder is an existing Git checkout with `HEAD`, the list
+also offers the explicit `discuss` place with
+`start_args: ["--in-place", "--workflow", "discuss"]`. It runs only Requirements,
+with its assigned planning route in the verified read-only kernel boundary; it creates
+no task worktree, launch baseline or build authority and changes no Git or source file.
+A request that needs file changes stops at `PAUSED_LOCAL_REQUIREMENTS_BUILD` before
+Planner, and the person must select an isolated CLI to build. `requirements_ready`
+is not full-task readiness or containment approval, and a client never infers this
+choice from the message. Its `select_cli` action has `label` and
 `next_command: ["worktrees", "list", "--workspace", FOLDER, "--json"]`.
 This is a local executable-selection capability, not an install or a run command:
 the client lets the person pick an existing AutoCode executable and invokes it with
