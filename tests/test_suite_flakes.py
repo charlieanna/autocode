@@ -543,7 +543,7 @@ class ProjectSuiteHealthFlakeTests(unittest.TestCase):
         self.assertEqual(verify.PASS, proof2["verdict"], proof2["failures"] + proof2["unverified"])
         self.assertNotIn("pre-existing-base-2", proof2["checks"])
         self.assertNotIn("pre-existing-base-3", proof2["checks"])
-        self.assertEqual(["candidate"], log_path.read_text().split())
+        self.assertEqual(["base", "candidate"], log_path.read_text().split())
         row = proof2["suite_flakes"]["pre_existing"]["tests"][0]
         self.assertEqual("project_baseline", row.get("source"))
 

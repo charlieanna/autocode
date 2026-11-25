@@ -63,7 +63,7 @@ def looker(state: RunState, workspace, run_dir, base, say, *, limit):
                     file.write_text(text)
                 elif strict:
                     return None
-            receipt = verify.run_suite(None, command, tree, folder, label, timeout=limit)
+            receipt = verify.run_suite(None, command, tree, folder, label, timeout=limit, source_workspace=workspace)
         except (OSError, ValueError):
             return None
         finally:

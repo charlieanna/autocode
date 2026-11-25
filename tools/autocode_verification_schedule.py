@@ -14,7 +14,9 @@ import re
 import shlex
 import subprocess
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_command_receipt as command_receipt
@@ -22,6 +24,7 @@ try:
     from . import autocode_junit as junit
     from . import autocode_junit_proof as junit_proof
     from . import autocode_python_tests as python_tests
+    from . import autocode_source_binding as source_binding
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_recovery as recovery
@@ -31,9 +34,77 @@ except ImportError:
     import autocode_junit as junit
     import autocode_junit_proof as junit_proof
     import autocode_python_tests as python_tests
+    import autocode_source_binding as source_binding
     import autocode_util as util
     import autocode_verification_preparation as preparation
     import autocode_verification_recovery as recovery
+
+
+@dataclass
+class RunInputs:
+    """The inputs and shared evidence lists for one verification attempt."""
+
+    workspace: Any
+    base: Any
+    run_dir: Any
+    framework: Any
+    commands: Any
+    changes: Any
+    runnable_tests: Any
+    cases: Any
+    timeout: Any
+    base_suite: Any
+    base_patch: Any
+    dependencies_from: Any
+    generated_record: Any
+    generated_unrecorded: Any
+    ignored_inputs: Any
+    new_behavior: Any
+    preserve: Any
+    fail: Any
+    unverified: Any
+    notes: Any
+    review_reasons: Any
+    checks: Any
+    proof: Any
+    independent_dependencies: Any
+    allow_no_test: Any
+    test_root: Any
+    suite_command: Any
+    regression_command: Any
+    guards: Any
+    existing_guards: Any
+    existing_failures: Any
+    existing_exit: Any
+    roles: Any
+    replaced: Any
+    test_side: Any = ()
+    progress: Any = None
+
+
+def incomplete_receipts(checks) -> list[str]:
+    """What retained command receipts leave unverified: ownership, source resolution or a changed report."""
+    unverified = [
+        "Runner source resolution is not established — " + reason for reason in source_binding.reasons(checks)
+    ]
+    for label, receipt in checks.items():
+        if not command_receipt.completed(receipt):
+            unverified.append(f"{label} has no complete owned-command evidence")
+        binding = receipt.get("source_binding")
+        if (
+            "source_binding" in receipt
+            and source_binding.applicable(binding)
+            and not source_binding.intact(binding, root=None, receipt=receipt)
+        ):
+            detail = binding.get("reason") if isinstance(binding, dict) else None
+            unverified.append(
+                f"{label}: {detail or 'source-resolution probe evidence is missing, malformed or changed'}"
+            )
+        if receipt.get("results_format") == "junit" and not intact(receipt):
+            unverified.append(
+                f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
+            )
+    return unverified
 
 
 def optional_editable_unavailable(error):
@@ -124,8 +195,16 @@ def intact(receipt, *, root=None):
             and util.file_hash(output) == receipt["output_sha256"]
             and (receipt.get("results_format") != "junit" or junit_proof.report_intact(receipt, junit, root=root))
             and ("results_capture" not in receipt or results_capture_intact(receipt, root=root))
+            and (
+                not receipt.get("source_binding_required")
+                or "source_binding" in receipt
+                and (
+                    not source_binding.applicable(receipt["source_binding"])
+                    or source_binding.intact(receipt["source_binding"], root=root, receipt=receipt)
+                )
+            )
         )
-    except (OSError, KeyError, TypeError):
+    except (OSError, KeyError, TypeError, ValueError):
         return False
 
 

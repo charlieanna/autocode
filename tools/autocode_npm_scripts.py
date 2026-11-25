@@ -31,15 +31,10 @@ def words(command) -> list[str] | None:
         return None
 
 
-def test_script(command, tree) -> tuple[dict, list[str], str] | None:
-    """What ``command`` runs when it is npm's ``test`` script of a package inside ``tree``.
-
-    Returns the package's ``scripts`` object, the words npm appends to the script (those after ``--``)
-    and the package directory as the command names it (``.`` without ``--prefix``). None for any other
-    command, a package outside ``tree`` and a package.json that cannot be read.
-    """
+def test_invocation(command) -> tuple[list[str], str] | None:
+    """The extra arguments and package prefix of one literal npm test invocation."""
     found = words(command)
-    if not found or Path(found[0]).name not in ("npm", "npm.cmd") or tree is None:
+    if not found or Path(found[0]).name not in ("npm", "npm.cmd"):
         return None
     at = found.index("--") if "--" in found else len(found)
     args, extra = found[1:at], found[at + 1 :]
@@ -56,8 +51,20 @@ def test_script(command, tree) -> tuple[dict, list[str], str] | None:
             prefix = arg.partition("=")[2]
         else:
             selected.append(arg)
-    if selected not in SPELLINGS:
+    return (extra, prefix) if selected in SPELLINGS else None
+
+
+def test_script(command, tree) -> tuple[dict, list[str], str] | None:
+    """What ``command`` runs when it is npm's ``test`` script of a package inside ``tree``.
+
+    Returns the package's ``scripts`` object, the words npm appends to the script (those after ``--``)
+    and the package directory as the command names it (``.`` without ``--prefix``). None for any other
+    command, a package outside ``tree`` and a package.json that cannot be read.
+    """
+    found = test_invocation(command)
+    if not found or tree is None:
         return None
+    extra, prefix = found
     try:
         root = Path(tree).resolve()
         package_root = (root / prefix).resolve()

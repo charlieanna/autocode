@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_run_base as run_base
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
     from . import autocode_test_environment as test_environment
     from . import autocode_test_setup as test_setup
@@ -41,6 +42,7 @@ try:
     from . import autocode_verify as verify
 except ImportError:
     import autocode_run_base as run_base
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
     import autocode_test_environment as test_environment
     import autocode_test_setup as test_setup
@@ -98,11 +100,15 @@ def _run(state: RunState, workspace: Path, base: str, files: list[str]) -> dict 
         verify.make_tree(workspace, base, tree, workspace, {}, dependencies_from=dependencies)
         for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
             command = command.replace(root, str(tree))
-        receipt = verify.run_suite(framework, command, tree, evidence, "plan-guards", timeout=TIMEOUT)
+        receipt = source_binding.runner(verify.run_suite, workspace)(
+            framework, command, tree, evidence, "plan-guards", timeout=TIMEOUT
+        )
     finally:
         if tree.exists():
             verify.remove_tree(workspace, tree)
         shutil.rmtree(scratch, ignore_errors=True)
+    if framework.name in source_binding.FRAMEWORKS and source_binding.reasons({"run": receipt}):
+        return None
     if receipt.get("error") or receipt.get("timed_out") or not schedule.complete_results(receipt):
         return None
     return {

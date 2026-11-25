@@ -659,5 +659,7 @@ class AcceptanceReferenceCliTests(unittest.TestCase):
             self.assertEqual("passes candidate; fails original reference", view["acceptance_tests"]["results"]["C1"])
             logs = list(Path(run.run_dir).glob("iterations/*/acceptance-tests*.jsonl"))
             self.assertEqual(1, len(logs), "no format-repair call or duplicate acceptance run")
-            self.assertEqual(1, len(list(Path(run.run_dir).glob("iterations/*/acceptance-proof/scratch-*.log"))))
+            scratch = [log.name for log in Path(run.run_dir).glob("iterations/*/acceptance-proof/scratch-*.log")]
+            # One acceptance run; its source-resolution observation keeps its own `.source-*.log` beside it.
+            self.assertEqual(1, len([name for name in scratch if ".source" not in name]), scratch)
             self.assertFalse(list(Path(run.run_dir).glob("iterations/*/builder-*.jsonl")))

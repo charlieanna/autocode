@@ -14,9 +14,11 @@ from pathlib import Path
 
 try:
     from . import autocode_junit as junit
+    from . import autocode_source_binding as source_binding
     from .autocode_test_framework import Framework
 except ImportError:
     import autocode_junit as junit
+    import autocode_source_binding as source_binding
     from autocode_test_framework import Framework
 
 
@@ -65,7 +67,7 @@ def _unexecuted(command, log, error):
     }
 
 
-def run_suite(framework, command, tree, evidence_dir, label, *, timeout, execute, is_tracked):
+def run_suite(framework, command, tree, evidence_dir, label, *, timeout, execute, is_tracked, source_workspace=None):
     """Prepare, execute and capture without altering the trusted command.
 
     ``execute(command, tree, log_path, *, timeout)`` returns its owned command
@@ -92,6 +94,10 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, execute
         junit.prepare(tree, spec, tracked=tracked)
     except (OSError, ValueError, TypeError, RuntimeError) as error:
         return _unexecuted(command, log, error)
+    workspace = source_workspace if source_workspace is not None else tree
+    source_plan = source_binding.plan(
+        framework, command, tree, tree, label, workspace=workspace, evidence_dir=evidence_dir
+    )
     receipt = dict(execute(command, tree, log, timeout=timeout))
     receipt.update(results=None, results_expected=True, results_format="junit")
     # Never carry a previous result/report through a callback that reused a dict.
@@ -105,4 +111,20 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, execute
         receipt["report_error"] = str(error)
     else:
         receipt.update(test_report=metadata, results=parsed, report_status="captured")
+    receipt["execution_root"] = str(Path(tree).resolve())
+    source_binding.attach(
+        receipt,
+        source_binding.observe(
+            framework,
+            command,
+            tree,
+            tree,
+            evidence_dir,
+            label,
+            workspace=workspace,
+            execute=execute,
+            timeout=timeout,
+            classification=source_plan,
+        ),
+    )
     return receipt

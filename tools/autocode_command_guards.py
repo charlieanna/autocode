@@ -38,10 +38,12 @@ from typing import TYPE_CHECKING
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_plan_proof_command as plan_command
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_plan_proof_command as plan_command
+    import autocode_source_binding as source_binding
     import autocode_test_cases as test_cases
 
 if TYPE_CHECKING:
@@ -171,6 +173,8 @@ def problem(
 def judge(guard, on_base, on_change) -> tuple[list[str], list[str]]:
     """(failures, unverified) from one guard's command on the original code and with the change."""
     what = f"Guard {guard['id']}'s command `{guard['command']}`"
+    if reasons := source_binding.reasons({"base": on_base, "candidate": on_change}):
+        return [], [f"{what}: runner source resolution is not established — " + "; ".join(reasons)]
     for receipt, when in ((on_base, "on the original code"), (on_change, "with the change")):
         if not command_receipt.completed(receipt) or receipt.get("timed_out"):
             return [], [f"{what} did not finish {when}, so it does not show the behavior holds"]

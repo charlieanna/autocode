@@ -60,6 +60,18 @@ class ReplayTests(unittest.TestCase):
         saved = json.loads(saved_path.read_text())
         self.assertEqual("PASS", saved["verdict"])
 
+    def test_source_uncertainty_cannot_supply_a_passing_replay(self):
+        command = "python -m pytest -q"
+        contaminated = receipt()
+        contaminated["source_binding_required"] = True
+        with self.assertRaises(check_replay.check_outcome.CheckUndetermined) as stopped:
+            self.replay([{"command": command, "exit_code": 0, "evidence_ref": "event:a"}], {command: contaminated})
+        self.assertIn("source-resolution binding is missing", str(stopped.exception))
+        [saved_path] = (self.run_dir / "check-replay").glob("sol-01-*/replay.json")
+        saved = json.loads(saved_path.read_text())
+        self.assertEqual("NOT_VERIFIED", saved["verdict"])
+        self.assertEqual([command], [row["command"] for row in saved["undetermined"]])
+
     def test_g1_a_passing_replay_still_runs_each_distinct_command_once_and_writes_a_pass_receipt(self):
         checks = [
             {"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"},

@@ -42,6 +42,27 @@ except ImportError:
 VERSION = 6
 
 
+def compact_receipt(receipt):
+    """A receipt as the proof stores it: its source binding's verdict, not the observer's bulk.
+
+    Nothing re-verifies a changed-code receipt's binding from the proof (intact() authenticates by
+    captured output); the observer's request, capture and pinned probe files stay in the evidence
+    directory their recorded paths name.
+    """
+    binding = receipt.get("source_binding") if isinstance(receipt, dict) else None
+    if isinstance(binding, dict):
+        return {
+            **receipt,
+            "source_binding": {
+                "version": binding.get("version"),
+                "framework": binding.get("framework"),
+                "status": binding.get("status"),
+                "reason": binding.get("reason"),
+            },
+        }
+    return receipt
+
+
 def collect(
     proof,
     result,
@@ -104,7 +125,7 @@ def collect(
     def run(command, label, limit):
         if package:
             command = package_scope.command(package, command)
-        receipt = verify.run_suite(framework, command, tree, evidence, label, timeout=limit)
+        receipt = verify.run_suite(framework, command, tree, evidence, label, timeout=limit, source_workspace=workspace)
         # Ownership uncertainty must retain the scratch tree and stop normal
         # cleanup. A truncated/missing capture is never a killed mutant.
         if not measurement.known_capture(receipt, root=out):
@@ -130,7 +151,7 @@ def collect(
         if proof.get("verdict") == verify.PASS
         else mutation.record("The regression proof has not passed")
     )
-    proof["changed_code_receipts"] = [*coverage_receipts, *receipts]
+    proof["changed_code_receipts"] = [compact_receipt(row) for row in [*coverage_receipts, *receipts]]
     mutated = measurement.mutation_envelope(
         report,
         source_revision=source_revision,

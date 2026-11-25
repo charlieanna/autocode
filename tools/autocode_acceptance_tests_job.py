@@ -65,6 +65,7 @@ try:
     from . import autocode_handoff_dedup as handoff
     from . import autocode_project_kinds as project_kinds
     from . import autocode_run_status as run_status
+    from . import autocode_source_binding as source_binding
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
     from . import autocode_unreached_skip as unreached_skip
@@ -82,6 +83,7 @@ except ImportError:
     import autocode_handoff_dedup as handoff
     import autocode_project_kinds as project_kinds
     import autocode_run_status as run_status
+    import autocode_source_binding as source_binding
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
     import autocode_unreached_skip as unreached_skip
@@ -398,6 +400,10 @@ def _verdicts(
     state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=(), retained=()
 ) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
+    if reasons := source_binding.reasons({"acceptance candidate": run}):
+        raise ReferenceEvidenceRequired(
+            "Acceptance evidence requires established runner source resolution — " + "; ".join(reasons)
+        )
     if run.get("error"):
         if run.get("acceptance_refusal") and str(run["error"]).startswith(wrapped_runner.PREFLIGHT_ERROR):
             raise TestsNeedRewriting(run["error"])

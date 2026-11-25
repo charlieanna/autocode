@@ -11,6 +11,7 @@ try:
     from . import autocode_changed_tests as changed_tests
     from . import autocode_project_inventory as project_inventory
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_source_binding as source_binding
     from . import autocode_test_setup as test_setup
     from . import autocode_test_support as test_support
     from . import autocode_util as util
@@ -19,6 +20,7 @@ except ImportError:
     import autocode_changed_tests as changed_tests
     import autocode_project_inventory as project_inventory
     import autocode_project_kinds as project_kinds
+    import autocode_source_binding as source_binding
     import autocode_test_setup as test_setup
     import autocode_test_support as test_support
     import autocode_util as util
@@ -36,6 +38,10 @@ _NO_GO_SUITE = (
 )
 # The pattern itself, reported as a build failure when `go test` is not inside a module.
 _GO_PATTERN_FAILURES = frozenset({"./...::[build failed]", ".::[build failed]"})
+
+
+def source_established(*receipts):
+    return all(not source_binding.reasons({"receipt": receipt}) for receipt in receipts if receipt is not None)
 
 
 def no_go_project(inventory, copied) -> bool:
@@ -497,7 +503,13 @@ def suite_on_candidate(run, trees, run_suite):
                 phase="candidate_suite",
             )
         checks["suite_on_candidate"] = reuse or run_suite(
-            run.framework, commands["suite"], trees["candidate"], run.run_dir, "suite-on-candidate", timeout=run.timeout
+            run.framework,
+            commands["suite"],
+            trees["candidate"],
+            run.run_dir,
+            "suite-on-candidate",
+            timeout=run.timeout,
+            source_workspace=run.workspace,
         )
     return checks["suite_on_candidate"]
 
@@ -520,6 +532,8 @@ def reloaded(run, on_candidate) -> list[str]:
     """
     gone = unloaded(run.base_suite, run.commands["suite"])
     candidate = (on_candidate or {}).get("results")
+    if not source_established(on_candidate, (run.base_suite or {}).get("receipt")):
+        return []
     if not gone or run.existing_failures or not (candidate or {}).get("complete") or on_candidate.get("timed_out"):
         return []
     tests, added = run.roles.partition(run.changes)[0], _added_tests(run)
@@ -544,6 +558,9 @@ def reloads(run, trees, run_suite) -> list[str]:
 def flip(run, on_candidate) -> None:
     """What the whole suite on the candidate adds to the fail-to-pass proof: the repair the base suite's own
     failing tests show (existing_flip), or the tests a repair of unloadable code let run (``reloaded``)."""
+    if not source_established(on_candidate, (run.base_suite or {}).get("receipt")):
+        run.unverified.append("Runner source resolution is not established; the candidate suite cannot show a repair")
+        return
     if run.existing_failures:
         failing = run.existing_failures
         if not changed_tests.inline_tests_kept(run.workspace, run.base, run.changes):
@@ -593,6 +610,9 @@ def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, no
     their tests that run and pass on the candidate (``loaded``) are fail-to-pass proof as well, and are
     listed as not run on the base.
     """
+    if not source_established(on_candidate, (base_suite or {}).get("receipt")):
+        unverified.append("Runner source resolution is not established; existing tests cannot show the repair")
+        return
     candidate = on_candidate.get("results")
     if on_candidate["timed_out"] or not (candidate and candidate.get("complete")):
         unverified.append(
@@ -642,6 +662,8 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     fail-to-pass evidence of new behavior (judge_regression), not the repair of a base failure.
     """
     if not on_base_with_tests or not on_candidate:
+        return []
+    if not source_established(on_base_with_tests, on_candidate, (base_suite or {}).get("receipt")):
         return []
     if on_base_with_tests.get("timed_out") or on_candidate.get("timed_out"):
         return []
@@ -747,6 +769,13 @@ def exit_repair(run, base_definition, completed) -> None:
     if not run.existing_exit:
         return
     held = (base_definition or {}).get("run")
+    if not source_established(
+        run.checks.get("suite_on_candidate"), (run.base_suite or {}).get("receipt"), *([held] if held else [])
+    ):
+        run.unverified.append(
+            "Runner source resolution is not established; the suite's exit code cannot show the repair"
+        )
+        return
     passes = bool(
         base_definition is not None
         and not base_definition["boundary"]
@@ -798,6 +827,10 @@ def suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None)
     """
     candidate = on_candidate.get("results")
     if not (candidate and candidate.get("complete")):
+        return
+    before = ((base_suite or {}).get("receipt") or {}) if unchanged else (with_tests or {})
+    if not source_established(on_candidate, *([before] if before else [])):
+        proof["guard_run_incomplete"] = True
         return
     if unchanged:
         base = ((base_suite or {}).get("receipt") or {}).get("results")

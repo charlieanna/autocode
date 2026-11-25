@@ -85,6 +85,8 @@ TANGLED: frozenset[str] = frozenset()
 # autocode_verify.py by 7 lines, verify by 2 and _preserve_suite by 1.
 # 2026-11-16: pure file-role/result-parsing helpers (autocode_test_results) and the pure suite-definition
 # boundary analyzer (autocode_suite_boundary) moved out of autocode_verify.py (#3468), lowering it to ~2,562 lines.
+# 2026-11-24: run_suite attaches the source-resolution binding to the receipts it returns (#4152); the attach
+# and its planning call are that boundary's integration point and raised autocode_verify.py by 1 line.
 MAX_LINES = {
     "autocode.py": 1830,
     "autocode_goals.py": 1404,
@@ -92,7 +94,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1038,
-    "autocode_verify.py": 2580,
+    "autocode_verify.py": 2581,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
