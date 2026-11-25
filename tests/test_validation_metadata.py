@@ -153,10 +153,18 @@ class ValidationMetadataTests(unittest.TestCase):
             {"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": 0}, check
         )
 
-    def test_t4_refuses_shortened_compound_command(self):
+    def test_t4_a_shortened_compound_command_takes_only_the_exit_code_the_line_shows(self):
+        # `cat example.py && python3 -m unittest -q` exiting 0 shows that both commands exited 0 (#4165).
         self.native_log(self.native_event())
+        check = {"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 0}
+        self.assertIsNone(support.verify_checks([check], self.workspace, self.log))
+        self.assertEqual(
+            {"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 0}, check
+        )
+        # Exiting 1 does not say which command failed, so the shortened command is still refused.
+        self.native_log(self.native_event(exit_code=1))
         self.assert_checks_refused_unchanged(
-            [{"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 0}]
+            [{"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 1}]
         )
 
     def test_t5_refuses_bare_event_placeholder(self):

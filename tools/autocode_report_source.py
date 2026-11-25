@@ -423,8 +423,14 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
     ):
         if workspace is None:
             raise ValueError("Cannot derive check metadata without the validation workspace")
+        # A Tester's check with a hidden exit code is bound here; admission refuses it unless its replay saw exit 0.
+        tester = "tester" in (record.get("stage"), evidence_record.get("stage"))
         runtime.support.verify_checks(
-            checks, workspace, evidence_record["events"], **runtime.check_evidence_options(evidence_record)
+            checks,
+            workspace,
+            evidence_record["events"],
+            hidden_exit=[] if tester else None,
+            **runtime.check_evidence_options(evidence_record),
         )
     # A Tester's extra citation beside a verified check costs a repair; the raw report stays as .reported.json.
     runtime.check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))

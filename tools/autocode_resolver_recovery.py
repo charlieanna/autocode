@@ -1354,7 +1354,11 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     try:
         verified_checks = copy.deepcopy(validation["checks"])
         runtime.support.verify_checks(
-            verified_checks, state["workspace"], accepted["events"], **runtime.check_evidence_options(accepted)
+            verified_checks,
+            state["workspace"],
+            accepted["events"],
+            hidden_exit=[],  # an accepted report's hidden exit codes were seen by its replay (#4165)
+            **runtime.check_evidence_options(accepted),
         )
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
@@ -1625,6 +1629,7 @@ def _exhausted_builder(state: RunState, request, packet):
             accepted.get("events"),
             receipt_only=accepted.get("output_mode") == "report_file",
             capture_context=accepted.get("capture_context"),
+            hidden_exit=[],  # an accepted report's hidden exit codes were seen by its replay (#4165)
         )
     except (ValueError, OSError) as error:
         _stale("exhaustion preview lacks a verified current failure: " + str(error))

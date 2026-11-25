@@ -474,7 +474,11 @@ def route(runtime, state: RunState, decision, record, queue, retry_policy, *, ru
     try:
         verified_checks = copy.deepcopy(validation["checks"])
         runtime.support.verify_checks(
-            verified_checks, workspace, accepted["events"], **runtime.check_evidence_options(accepted)
+            verified_checks,
+            workspace,
+            accepted["events"],
+            hidden_exit=[],  # an accepted report's hidden exit codes were seen by its replay (#4165)
+            **runtime.check_evidence_options(accepted),
         )
     except ValueError as error:
         raise util.Paused("PAUSED_STALE_HANDOFF", "Failed check lacks an executed Validator receipt") from error
