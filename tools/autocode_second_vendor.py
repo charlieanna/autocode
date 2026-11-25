@@ -33,6 +33,7 @@ import os
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping
+from typing import Any
 
 try:
     from . import autocode_providers as providers
@@ -96,7 +97,7 @@ def decide(
     moving = [role for role in present if role not in kept]
     if not moving:
         return None
-    unavailable = None
+    unavailable: dict[str, Any] | None = None
     for name, executable in candidates:
         if not which(executable):
             continue
