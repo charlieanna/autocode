@@ -1,0 +1,119 @@
+name: setup-sweep
+
+# AutoCode's own setup steps, with no model, on about 50 real repositories pinned to exact commits
+# (tools/setup_sweep.py, docs/setup-sweep.md): the suite it detects, that suite on a clean copy of
+# the base, the suite narrowed to two named tests, and whether the coverage and mutation checks can
+# run. Language support was otherwise proven only on small fixtures. Nightly, beside the full CI run;
+# a red night opens or updates one "Nightly setup sweep is red" issue, and a green one closes it.
+on:
+  # A pull request that changes the sweep runs it, so its list and expectations are checked before merge.
+  pull_request:
+    paths:
+      - tools/setup_sweep.py
+      - tools/setup_sweep_repos.json
+      - .github/workflows/setup-sweep.yml
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Space-separated repository ids (blank for every one)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: setup-sweep-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - { name: python, languages: "python" }
+          - { name: node, languages: "javascript typescript" }
+          - { name: go, languages: "go" }
+          - { name: rust, languages: "rust" }
+          - { name: jvm, languages: "java" }
+          - { name: other, languages: "ruby php perl c" }
+    name: sweep (${{ matrix.group.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: Prepare AutoCode
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          # The suites run in the same isolated verification shell as the Linux test suite.
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          corepack enable
+          # Pinned: two Rust entries compare the compiler's own messages, which change between releases.
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e .
+      - name: Run the sweep
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+          ONLY: ${{ github.event.inputs.only }}
+          LANGUAGES: ${{ matrix.group.languages }}
+        run: |
+          args=()
+          for language in $LANGUAGES; do args+=(--language "$language"); done
+          for id in $ONLY; do args+=(--only "$id"); done
+          .venv/bin/python tools/setup_sweep.py run --out "$RUNNER_TEMP/setup-sweep" "${args[@]}"
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-sweep-${{ matrix.group.name }}
+          path: |
+            ${{ runner.temp }}/setup-sweep/results.json
+            ${{ runner.temp }}/setup-sweep/summary.md
+            ${{ runner.temp }}/setup-sweep/*/prepare.log
+            ${{ runner.temp }}/setup-sweep/*/base/*.log
+            ${{ runner.temp }}/setup-sweep/*/targeted/*.log
+          if-no-files-found: ignore
+
+  report:
+    needs: [sweep]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open, update or close the setup sweep issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.sweep.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: python3 tools/ci_nightly_issue.py --kind setup-sweep --result "$RESULT" --run-url "$RUN_URL" --sha "$SHA"

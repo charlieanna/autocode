@@ -25,6 +25,7 @@ API = "https://api.github.com"
 _URL = re.compile(r"https?://[^/]+/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/(?:issues|pull)/(?P<number>\d+)/?(?:[?#].*)?$")
 _SHORT = re.compile(r"(?:(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)#|#)?(?P<number>\d+)$")
 _REMOTE = re.compile(r"(?:[:/])(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+?)(?:\.git)?/?$")
+_COMMIT = re.compile(r"(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)@(?P<commit>[0-9a-f]{40})$")
 
 
 class GitHubError(RuntimeError):
@@ -43,6 +44,28 @@ class IssueRef:
     @property
     def slug(self) -> str:
         return f"{self.owner}-{self.repo}-{self.number}".lower()
+
+
+@dataclass(frozen=True)
+class CommitRef:
+    """An upstream commit that made a change no issue or pull request describes: OWNER/REPO@SHA.
+
+    A benchmark case taken from such a commit (Arena) cites it as its source. It names where the change
+    came from; the task brief shows only the repository, so the fix's own commit is not handed to the run.
+    """
+
+    owner: str
+    repo: str
+    commit: str
+
+    def __str__(self) -> str:
+        return f"{self.owner}/{self.repo}@{self.commit}"
+
+
+def parse_commit_ref(text: str) -> CommitRef | None:
+    """``OWNER/REPO@FULL_SHA`` as a CommitRef, or None for any other text (an issue reference, say)."""
+    match = _COMMIT.match(text.strip())
+    return CommitRef(match.group("owner"), match.group("repo"), match.group("commit")) if match else None
 
 
 def parse_ref(text: str, default_repo: tuple[str, str] | None = None) -> IssueRef:

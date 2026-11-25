@@ -1,0 +1,6 @@
+{
+  "title": "Add subfactorial() to count derangements",
+  "html_url": "https://github.com/more-itertools/more-itertools/pull/1166",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR more-itertools/more-itertools#1166, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "more-itertools has derangements(), which yields the arrangements of an iterable that leave no element in its original position, but no way to count them without generating them all. Add a function subfactorial(n) that returns how many derangements a set of n elements has (the subfactorial of n, OEIS A000166): subfactorial(0) is 1, subfactorial(1) is 0, subfactorial(7) is 1854. It must return an exact int for large n, not a rounded float, and raise ValueError for a negative n. Export it from the package like the other functions (it must be in more_itertools.__all__ and in the type stubs), document it beside derangements, and add tests."
+}

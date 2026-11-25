@@ -18,10 +18,14 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_repeated_tests as repeated_tests
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_npm_scripts as npm_scripts
+    import autocode_repeated_tests as repeated_tests
+    import autocode_shell_syntax as shell_syntax
     import autocode_util as util
 
 VALUE_OPTIONS = {
@@ -71,13 +75,7 @@ def command_words(command):
         words = shlex.split(command)
     except ValueError:
         return None
-    shell_syntax = r"[;&|<>`$()\n\r]"
-    if re.search(shell_syntax, command) and not (
-        len(words) > 1
-        and words[1].startswith("--test-skip-pattern=")
-        and command == shlex.join(words)
-        and not re.search(shell_syntax, shlex.join([words[0], *words[2:]]))
-    ):
+    if shell_syntax.outside_quotes(command, ";&|<>`$()\n\r"):
         return None
     if len(words) < 2 or Path(words[0]).name not in ("node", "node.exe") or "--test" not in words:
         return None
@@ -317,7 +315,7 @@ def result_events(text):
         rows = [json.loads(line) for line in text.splitlines()]
         if len(rows) < 3 or rows[0] != {"protocol": "autocode-node-tests", "version": 1} or rows[-1] != {"type": "end"}:
             return None
-        starts, outcomes, parents, identities = {}, {}, {}, set()
+        starts, outcomes, parents = {}, {}, {}
         summary = None
         counts = dict(tests=0, suites=0, passed=0, failed=0, skipped=0, todo=0, cancelled=0)
         passed, failed, skipped, collection = set(), set(), set(), set()
@@ -351,10 +349,8 @@ def result_events(text):
                 if depth and not parent:
                     return None
                 names = (*parent, name)
+                # Tests of one name in one file are one identity (autocode_repeated_tests).
                 identity = file + "::" + "::".join(names)
-                if identity in identities:
-                    return None
-                identities.add(identity)
                 starts[key] = identity
                 parents[file, depth] = names
                 continue
@@ -406,6 +402,12 @@ def result_events(text):
             )
         ):
             return None
+        states: dict[str, set[str]] = {}
+        for state, found in (("passed", passed), ("failed", failed), ("skipped", skipped)):
+            for identity in found:
+                states.setdefault(identity, set()).add(state)
+        settled = repeated_tests.settle(states)
+        passed, failed, skipped = settled["passed"], settled["failed"], settled["skipped"]
         return {
             "passed": sorted(passed),
             "failed": sorted(failed),

@@ -1,0 +1,6 @@
+{
+  "title": "Extract scientific()'s superscript digits into a module constant",
+  "html_url": "https://github.com/python-humanize/humanize/pull/313",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream PR python-humanize/humanize#313, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "humanize.number.scientific() builds its table of superscript characters (the digits 0 to 9 and the minus sign) inside the function on every call, and assembles the exponent with a loop and a temporary list. Refactor it: move the table to a module-level constant named _SUPERSCRIPT_MAP in humanize/number.py, have scientific() read it instead of its own copy, and simplify how it joins the exponent. This is a refactor: every output of scientific(), for any value and precision, including NaN, infinities and values it cannot convert, must stay exactly as it is now. Keep the existing tests passing."
+}

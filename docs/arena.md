@@ -376,6 +376,11 @@ autocode arena ingest OSS-0001 \
   --check greeting --split development
 ```
 
+A change that has no pull request or issue upstream is declared by its commit,
+`--issue owner/repo@FULL_COMMIT_SHA`, and needs `--issue-file`. Its brief says
+"Make this change to GitHub repository owner/repo" and does not cite the commit,
+which would point at the answer.
+
 Without `--issue-file`, ingestion uses the existing GitHub client to read the issue
 and its latest comments; `GH_TOKEN` / `GITHUB_TOKEN` work as in `autocode issue`.
 The supplied snapshot is an evaluator declaration, not independently authenticated

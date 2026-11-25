@@ -704,6 +704,17 @@ class ReposCollectionTests(unittest.TestCase):
         )
         self.assertEqual(f"{shlex.quote(sys.executable)} -m unittest discover -v", framework.suite)
 
+    def test_tests_named_after_their_module_are_collected_by_discovery(self):
+        # colorama names its tests ansi_test.py: under discovery's default test*.py no test ran (setup sweep).
+        test = "import unittest\nclass T(unittest.TestCase):\n def test_one(self): pass\n def test_two(self): pass\n"
+        project, framework, receipt, _ = self.collect({"lib.py": "", "pkg/__init__.py": "", "pkg/ansi_test.py": test})
+        self.assertEqual(f"{shlex.quote(sys.executable)} -m unittest discover -v -p '*_test.py'", framework.suite)
+        self.assertEqual(2, receipt["results"]["total"], receipt)
+        self.assertEqual("passing", verify.suite_health(receipt))
+        # Modules of both kinds keep the default: one pattern for both would import modules that are not tests.
+        _, both = self.detect({"lib.py": "", "tests/test_a.py": test, "tests/b_test.py": test})
+        self.assertEqual(f"{shlex.quote(sys.executable)} -m unittest discover -v -s tests", both.suite)
+
     def test_joint_proof_fails_before_and_passes_after_with_original_guards_unchanged(self):
         # The whole native/public path: fresh detection inside Project.verify, after the
         # Builder overlay (with its markerless root joint tests) is already in place.

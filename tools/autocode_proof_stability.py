@@ -22,6 +22,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_python_tests as python_tests
     from . import autocode_rspec_tests as rspec_tests
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_cargo_tests as cargo_tests
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_python_tests as python_tests
     import autocode_rspec_tests as rspec_tests
+    import autocode_shell_syntax as shell_syntax
     import autocode_test_cases as test_cases
 
 REPEATS = 3
@@ -36,7 +38,8 @@ NEXT_STEP = (
     "Fix the unstable test so it passes on every run. A test: criterion must also fail "
     "on every run against the original code. Do not retry the proof until the test is stable."
 )
-SHELL = re.compile(r"[;&|<>`$\n]")
+# Shell syntax where the shell reads it (autocode_shell_syntax): a quoted test name is a literal word.
+SHELL = ";&|<>`$\n"
 
 
 def runner(run, trees, framework, run_suite, timeout):
@@ -161,7 +164,7 @@ def repeat(
         and set(selected) == {test for group in ("passed", "failed", "skipped") for test in results.get(group, [])}
         and not {test for group in ("passed", "failed", "skipped") for test in base_results.get(group, [])}
         - set(selected)
-        and not SHELL.search(command)
+        and not shell_syntax.outside_quotes(command, SHELL)
     ):
         narrowed = command
     if not narrowed:
@@ -207,10 +210,9 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
         narrowed = narrow(framework_name, inner, test_ids)
         return package_scope.command(directory, narrowed) if narrowed else None
     if framework_name == "minitest":
-        # Read by Minitest's own command parser, which refuses unquoted shell syntax: the detected suite
-        # (autocode_toolchain_suite.RUBY_SUITE) holds `|f|` inside quotes, which SHELL below would refuse.
+        # Read by Minitest's own command parser, which refuses a backslash and parentheses outside quotes too.
         return minitest_tests.narrow(command, test_ids) if command and test_ids else None
-    if not command or not test_ids or SHELL.search(command):
+    if not command or not test_ids or shell_syntax.outside_quotes(command, SHELL):
         return None
     invocation = python_tests.parse(command, include_owned=True)
     if invocation and invocation.kind == "unittest":
@@ -241,8 +243,10 @@ def narrow(framework_name, command, test_ids, *, directory=None) -> str | None:
         return shlex.join([*shlex.split(command), "-k", " or ".join(names)])
     if framework_name == "go" and command.startswith("go test ") and " -run" not in command:
         tops = {test.split("::", 1)[-1].split("/", 1)[0] for test in test_ids}
-        go_names = sorted(name for name in tops if re.fullmatch(r"Test[A-Za-z0-9_]+", name))
-        if not go_names:
+        # -run selects tests, examples and fuzz targets alike. A name it cannot select leaves no command:
+        # a narrowed run that silently left a proving test out would not be the run the proof judged.
+        go_names = sorted(tops)
+        if not go_names or not all(re.fullmatch(r"(?:Test|Example|Fuzz)[A-Za-z0-9_]*", name) for name in go_names):
             return None
         pattern = "^(" + "|".join(go_names) + ")$"
         return "go test -run " + shlex.quote(pattern) + " " + command[len("go test ") :]
@@ -316,7 +320,10 @@ def _narrow_cargo(command: str, test_ids: list[str]) -> str | None:
     names = sorted({test.partition("::")[2] for test in test_ids if "::" in test})
     if not names or any(not name or name.startswith("[") for name in names):
         return None
-    return shlex.join([*words[:split], "--", *harness, "--exact", *names])
+    # rustdoc never matches a documentation test's name (``src/lib.rs - (line 20)``) under --exact, so a
+    # selection holding one filters by substring: a test whose name contains it may run too, not judged.
+    exact = [] if any(test.startswith("Doc-tests ") for test in test_ids) else ["--exact"]
+    return shlex.join([*words[:split], "--", *harness, *exact, *names])
 
 
 def _narrow_rspec(command: str, test_ids: list[str]) -> str | None:
@@ -340,7 +347,7 @@ _JS_REGEX_META = re.compile(r"([.*+?^${}()|[\]\\])")
 
 def _narrow_js(framework_name: str, command: str, test_ids: list[str]) -> str | None:
     """Narrow a direct Vitest, Jest, or Mocha command to the failing files and test names."""
-    if SHELL.search(command):
+    if shell_syntax.outside_quotes(command, SHELL):
         return None
     try:
         words = shlex.split(command)

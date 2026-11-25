@@ -1,0 +1,6 @@
+{
+  "title": "Move the expirable LRU out of simplelru into its own package",
+  "html_url": "https://github.com/hashicorp/golang-lru",
+  "provenance": "Evaluator-authored problem-only adaptation of upstream commit hashicorp/golang-lru@1154eabd8734fc7f7005e582498ee57dc6b3bc22, which no issue or pull request describes, retrieved 2026-11-24. Written from the change itself; solution text omitted.",
+  "body": "The time-limited cache, simplelru.ExpirableLRU with its constructor simplelru.NewExpirableLRU, lives in the simplelru package beside the plain LRU, and it is not yet released. Move it into a new package, github.com/hashicorp/golang-lru/v2/expirable: there the cache type is named LRU[K, V], the constructor keeps its name and parameters (NewExpirableLRU(size, onEvict, ttl)), and the package has its own EvictCallback[K, V] type. The doubly linked list both caches use (simplelru/list.go) must not be copied: move it into an internal package of the module that both simplelru and expirable import, so the list is written once. After the move simplelru contains only the plain LRU, whose behavior must not change, and the expirable cache behaves exactly as before (size eviction, expiry after its ttl, the eviction callback). Move its tests with it and keep every test passing."
+}

@@ -27,8 +27,10 @@ from pathlib import Path
 
 try:
     from . import autocode_npm_scripts as npm_scripts
+    from . import autocode_repeated_tests as repeated_tests
 except ImportError:
     import autocode_npm_scripts as npm_scripts
+    import autocode_repeated_tests as repeated_tests
 
 COLLECTION = "::[collection]"
 RUNTIME = "[jest runtime error]"
@@ -159,9 +161,8 @@ def results(path, tree):
             return None
         if report["numTotalTestSuites"] != len(files) or type(report["success"]) is not bool:
             return None
-        failed = {identity for identity, states in seen.items() if "failed" in states}
-        passed = {identity for identity, states in seen.items() if "passed" in states} - failed
-        skipped = set(seen) - failed - passed
+        settled = repeated_tests.settle(seen)
+        failed, passed, skipped = settled["failed"], settled["passed"], settled["skipped"]
         if report["success"] and (failed or collection):
             return None
         if not report["success"] and not failed and not collection:

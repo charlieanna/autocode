@@ -8,7 +8,10 @@ The sets are fixed here so that every sweep measures the same tasks (docs/real-r
 
 - ``starter`` (weekly): the Docutils scenario and the three starter Arena cases;
 - ``hard`` (monthly): the five hard Arena cases (SymPy, Django, pytest, TypeScript, Go), after their
-  dependencies are installed as docs/arena.md describes.
+  dependencies are installed as docs/arena.md describes;
+- ``kinds`` (monthly): a feature and a refactor in each major language (Python, JavaScript, Go, Rust,
+  Java), so the sweep measures more than bug fixes. Needs Node, Go, Rust and a JDK with Maven; the one
+  test dependency js-yaml's suite loads is installed here, outside the case (``npm_support``).
 
 Every case runs on the ``claude-tiers`` route (scenarios/harness/profiles.py): Sonnet for Requirements, the
 Planner and the Tester, Opus for the Plan Reviewer, Resolver, Completion Reviewer and Investigator, Haiku for
@@ -86,6 +89,23 @@ SETS = {
             "oracle_timeout": 400,
         },
     },
+    "kinds": {
+        "more-itertools-subfactorial": _pytest("-q tests/test_more.py"),
+        "humanize-superscript-map": _pytest(
+            "-q -p no:cacheprovider tests/test_number.py",
+            PYTHONPATH=str(REPO / "arena/support/humanize"),
+            PYTEST_PLUGINS="arena_humanize_bootstrap",
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+        ),
+        "js-yaml-max-depth": {"test": "node --test test/core/*.test.*", "env": {}, "npm_support": "js-yaml"},
+        "commander-strip-vt-control": {"test": "node --test", "env": {}},
+        "cast-float-strings-to-integers": {"test": "go test ./...", "env": {}},
+        "golang-lru-expirable-package": {"test": "go test ./...", "env": {}},
+        "semver-precedence-comparison": {"test": "cargo test", "env": {}, "oracle_timeout": 900},
+        "httparse-chunk-size-duplication": {"test": "cargo test", "env": {}, "oracle_timeout": 900},
+        "commons-cli-option-count": {"test": "mvn -B -q test", "env": {}, "oracle_timeout": 400},
+        "commons-cli-first-value-helper": {"test": "mvn -B -q test", "env": {}, "oracle_timeout": 400},
+    },
 }
 ORACLE_TIMEOUT = 120
 
@@ -130,8 +150,31 @@ def arena_store(out: Path, case: str) -> Path:
     return out / "arenas" / case
 
 
+def npm_support(out: Path, name: str) -> Path:
+    """A case's test dependencies from ``arena/support/NAME``'s lock file, installed once under ``out``.
+
+    They stay outside the case's workspace and reach its suite through ``NODE_PATH``, as the TypeScript
+    case's build bundle does (docs/arena.md); the case's own files are never changed."""
+    where = out / "support" / name
+    if not (where / "node_modules").is_dir():
+        where.mkdir(parents=True, exist_ok=True)
+        for manifest in ("package.json", "package-lock.json"):
+            (where / manifest).write_bytes((REPO / "arena/support" / name / manifest).read_bytes())
+        subprocess.run(["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=where, check=True)
+    return where / "node_modules"
+
+
+def case_env(out: Path, spec: dict) -> dict:
+    """The environment a case's preparation, test command and oracle run with."""
+    env = dict(spec["env"])
+    if spec.get("npm_support"):
+        env["NODE_PATH"] = str(npm_support(out, spec["npm_support"]))
+    return env
+
+
 def run_arena(out: Path, case: str, spec: dict, cohort: str, timeout: int) -> dict:
     arena = arena_store(out, case)
+    spec = {**spec, "env": case_env(out, spec)}
     test = spec["test"]
     if spec["env"]:
         test = "env " + _env_prefix(spec["env"]) + test

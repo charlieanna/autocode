@@ -1,6 +1,7 @@
 """Parse Python test declarations, literal commands and results without running them."""
 
 import ast
+import fnmatch
 import re
 import shlex
 from collections.abc import Callable
@@ -9,10 +10,16 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_project_kinds as project_kinds
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_test_setup as test_setup
 except ImportError:
     import autocode_project_kinds as project_kinds
+    import autocode_shell_syntax as shell_syntax
     import autocode_test_setup as test_setup
+
+# The shell syntax that makes a command more than one Python invocation. Not the backslash: a Windows
+# interpreter path holds one.
+PYTHON_SHELL_SYNTAX = ";&|<>`$\n"
 
 COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
 # A test method, or a module unittest skipped at import: "pkg.mod (unittest.loader.ModuleSkipped.pkg.mod)" (#2944).
@@ -23,6 +30,25 @@ UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "te
 
 # The Python test modules a targeted unittest or pytest command is given.
 TEST_MODULE = project_kinds.targets("unittest")
+
+
+def discover_command(python, start, tests) -> str:
+    """unittest discovery from ``start`` (`` -s DIR`` or ""), collecting ``tests``."""
+    return f"{shlex.quote(python)} -m unittest discover -v{start}{discovery_pattern(tests)}"
+
+
+def discovery_pattern(tests) -> str:
+    """The ``-p`` option unittest discovery needs to collect ``tests``, or "" for its default ``test*.py``.
+
+    A project whose test modules are all named ``*_test.py`` (colorama's ``ansi_test.py``) ran no test
+    at all under the default, and its base suite was "broken" (setup sweep, docs/setup-sweep.md). A
+    project with modules of both kinds keeps the default: a pattern collecting both would also import
+    modules that are not tests.
+    """
+    names = [PurePosixPath(path).name for path in tests]
+    if not names or any(fnmatch.fnmatch(name, "test*.py") for name in names):
+        return ""
+    return " -p '*_test.py'" if all(name.endswith("_test.py") for name in names) else ""
 
 
 def empty_package_marker(path: str, source: str) -> bool:
@@ -379,7 +405,7 @@ def parse(command, *, include_owned=False):
     Recognizing a script for named selection does not give it those capabilities.
     """
     """Accept Python directly or behind env with literal NAME=value assignments."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, PYTHON_SHELL_SYNTAX):
         return None
     try:
         words = shlex.split(command)
@@ -419,7 +445,7 @@ def verbose_unittest(command):
     report. ``discover`` has to stay the first argument. A shell program is
     left alone: its text is not a single unittest invocation.
     """
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command, PYTHON_SHELL_SYNTAX):
         return command
     try:
         words = shlex.split(command)

@@ -26,6 +26,7 @@ try:
     from . import autocode_arena_policy as policy
     from . import autocode_failure_attribution as attribution
     from . import autocode_github as github
+    from . import autocode_linked_issues as linked_issues
     from . import autocode_names as names
     from . import autocode_util as util
     from .autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_arena_policy as policy
     import autocode_failure_attribution as attribution
     import autocode_github as github
+    import autocode_linked_issues as linked_issues
     import autocode_names as names
     import autocode_util as util
     from autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
@@ -164,8 +166,18 @@ def ingest(args, store: Store):
     if not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", args.base):
         raise ArenaError("base must be a full commit SHA, never a moving ref")
     commit = git(repo, "rev-parse", "--verify", f"{args.base}^{{commit}}")
-    ref = github.parse_ref(args.issue)
-    issue = read_json(args.issue_file) if args.issue_file else github.Client().issue(ref)
+    # A change no issue or pull request describes is cited by its upstream commit, with its request written
+    # up in --issue-file (there is nothing to fetch); its brief names only the repository.
+    commit_ref = github.parse_commit_ref(args.issue)
+    if commit_ref is not None:
+        if not args.issue_file:
+            raise ArenaError("a case sourced from a commit needs --issue-file with its written-up request")
+        issue = read_json(args.issue_file)
+        cited, task = str(commit_ref), linked_issues.brief(commit_ref, issue, args.note, kind="change")
+    else:
+        ref = github.parse_ref(args.issue)
+        issue = read_json(args.issue_file) if args.issue_file else github.Client().issue(ref)
+        cited, task = str(ref), brief(ref, issue, args.note)
     # Historical issues must be supplied as snapshots; newest comments can leak the fix.
     directory = store.root / "cases" / args.id
     if directory.exists():
@@ -179,14 +191,14 @@ def ingest(args, store: Store):
         "repository": str(repo),
         "base_commit": commit,
         "base_tree": git(repo, "rev-parse", f"{commit}^{{tree}}"),
-        "issue_ref": str(ref),
+        "issue_ref": cited,
         "issue_path": str(issue_path),
         "issue_sha256": digest(issue_path.read_bytes()),
         "oracle_path": str(oracle_path),
         "oracle_sha256": digest(oracle_path.read_bytes()),
         "split": args.split,
         "required_checks": args.check,
-        "task": brief(ref, issue, args.note),
+        "task": task,
         "reference_sha256": snapshot(args.reference.resolve()),
     }
     if len(set(args.check)) != len(args.check):
@@ -401,7 +413,11 @@ def parser() -> argparse.ArgumentParser:
     add.add_argument("id", help="case ID")
     add.add_argument("--repository", type=Path, required=True, help="local Git repository to pin")
     add.add_argument("--base", required=True, help="commit the case starts from")
-    add.add_argument("--issue", required=True, help="the request text")
+    add.add_argument(
+        "--issue",
+        required=True,
+        help="the issue (OWNER/REPO#N or URL), or OWNER/REPO@SHA for a change no issue describes",
+    )
     add.add_argument("--issue-file", type=Path, help="file whose text is the request, in place of --issue text")
     add.add_argument("--note", help="free-text note kept with the case")
     add.add_argument("--oracle", type=Path, required=True, help="oracle script that judges an attempt")

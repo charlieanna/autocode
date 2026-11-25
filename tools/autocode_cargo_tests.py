@@ -51,10 +51,12 @@ try:
     from . import autocode_cargo_build_evidence as build_evidence
     from . import autocode_project_kinds as project_kinds
     from . import autocode_rust_inline_tests as rust_inline_tests
+    from . import autocode_shell_syntax as shell_syntax
 except ImportError:
     import autocode_cargo_build_evidence as build_evidence
     import autocode_project_kinds as project_kinds
     import autocode_rust_inline_tests as rust_inline_tests
+    import autocode_shell_syntax as shell_syntax
 
 BUILD_FAILED = "::[build failed]"
 NO_RESULT = "::[no result]"
@@ -79,7 +81,7 @@ def command_words(command, *, include_owned=False):
     """The words of a plain ``cargo test`` command whose per-test lines can be read, or None.
 
     Leading ``NAME=value`` words are kept, as an approved Go command's are."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$()\n\r\\]", command):
+    if not isinstance(command, str) or shell_syntax.outside_quotes(command):
         return None
     try:
         words = shlex.split(command)
