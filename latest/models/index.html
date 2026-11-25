@@ -2318,7 +2318,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d27ecab497938df033000664e48b1910cc1d3387/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6fc7f36517745e7053a0169b38622d071f99754a/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2490,7 +2490,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/d27ecab497938df033000664e48b1910cc1d3387/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/6fc7f36517745e7053a0169b38622d071f99754a/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2582,9 +2582,13 @@ are three ways to get that:</p>
 <ul>
 <li>
 <p><strong>Sign in to a second vendor's tool; AutoCode uses it by itself.</strong> A new run on Claude
-  Code with Gemini CLI also signed in with Google, or a new run on Gemini CLI with Claude
-  Code also signed in, runs its Plan Reviewer, Tester and Completion Reviewer on the other
-  tool, with that tool's default model for each (<code>gemini-2.5-pro</code>; Opus). The run says so
+  Code, Codex or Gemini CLI with another of the three also signed in runs its Plan
+  Reviewer, Tester and Completion Reviewer on the other tool, with that tool's default
+  model for each (Opus and Sonnet on Claude Code; <code>gpt-6-astra</code> and <code>gpt-5.6-sol</code> on Codex;
+  <code>gemini-2.5-pro</code> on Gemini CLI). A Claude Code run takes Gemini CLI, then Codex; a Gemini
+  CLI run takes Claude Code, then Codex; a Codex run takes Claude Code, then Gemini CLI. Codex
+  checks through its bundled <a href="../providers/#codex-for-one-role">provider config</a>, so it needs
+  a ChatGPT login and Codex CLI 0.160.0 or newer. The run says so
   in one line when it starts (<code>Checks by a second vendor: Gemini CLI runs the Plan Reviewer
   (gemini-2.5-pro), …</code>) and keeps the decision in its settings (<code>second_vendor</code>: the tool,
   the stages it took and why). A stage you chose a model for (a <code>--ROLE-model</code> or
@@ -2592,24 +2596,26 @@ are three ways to get that:</p>
   and <code>--role-transport</code>, <code>--single-model</code> or a replay keeps every stage where it was. When
   the second tool is installed but cannot sign in (an expired sign-in, a Workspace account
   without <code>GOOGLE_CLOUD_PROJECT</code>), the run says why and keeps its own vendor. <code>autocode setup</code>
-  says which tool will check new runs. A run on Codex gets none yet.</p>
+  says which tool will check new runs. <code>AUTOCODE_SECOND_VENDOR=off</code> in the environment keeps
+  every run on its own tool on that machine (AutoCode's test suites set it).</p>
 </li>
 <li>
 <p><strong>OpenCode or Kilo with two vendors' accounts</strong>, for example a ChatGPT login and a Z.ai
   or Anthropic key. Each checker then runs on another family than what it checks, as in
   the defaults above. A signed-in OpenCode comes first when a run names no backend.</p>
 </li>
-<li><strong>Claude Code with chosen stages on Gemini CLI</strong>, signed in with Google:
+<li><strong>Claude Code with chosen stages on Gemini CLI or Codex</strong>:
   <code>autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro</code>
-  (<a href="../providers/#gemini-cli-provider">Gemini CLI provider</a>).</li>
+  (<a href="../providers/#gemini-cli-provider">Gemini CLI provider</a>), or
+  <code>--role-transport tester=codex --tester-model gpt-5.6-sol</code>
+  (<a href="../providers/#codex-for-one-role">Codex for one role</a>).</li>
 <li><strong>Claude Code with one stage on a Kilo account</strong>:
   <code>autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL</code>,
   with <code>MODEL</code> from <code>autocode models --provider kilocode</code>
   (<a href="../providers/#a-different-tool-for-one-role">a different tool for one role</a>).</li>
 </ul>
-<p>With both Claude Code and Codex signed in, a run uses one of them for every stage;
-they are not yet combined in one run. <code>autocode setup</code> says this when new runs use
-Claude Code or Codex.</p>
+<p>With both Claude Code and Codex signed in, a run on either one has its checks made by
+the other, as above. <code>autocode setup</code> says which tool checks new runs.</p>
 <h2 id="choosing-each-stages-model">Choosing each stage's model<a class="headerlink" href="#choosing-each-stages-model" title="Permanent link">&para;</a></h2>
 <p>You choose the model and reasoning level of each stage once, and every new task uses them
 (owner decision 2026-10-30). <code>autocode setup</code> offers this right after connecting your

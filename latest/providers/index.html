@@ -609,6 +609,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="A different tool for one role">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#codex-for-one-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex for one role
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -2284,6 +2301,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="A different tool for one role">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#codex-for-one-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex for one role
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -2428,7 +2462,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d27ecab497938df033000664e48b1910cc1d3387/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6fc7f36517745e7053a0169b38622d071f99754a/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -3024,7 +3058,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/d27ecab497938df033000664e48b1910cc1d3387/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/6fc7f36517745e7053a0169b38622d071f99754a/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="gemini-cli-provider">Gemini CLI provider<a class="headerlink" href="#gemini-cli-provider" title="Permanent link">&para;</a></h2>
 <p><code>--provider gemini</code> runs every stage through Google's Gemini CLI (<code>gemini</code>) with your Google sign-in:
 a free Gemini account, Google AI Pro or Ultra, or a Gemini Code Assist license. No API key is used. It
@@ -3175,13 +3209,13 @@ Changing the config file or the tool version pauses a saved run. <code>version_c
 read-only check, such as <code>kilo --version</code>. If it times out after 15 seconds, AutoCode retries it
 once with 30 seconds. A second timeout stops the run before any agent launches.</p>
 <h3 id="a-different-tool-for-one-role">A different tool for one role<a class="headerlink" href="#a-different-tool-for-one-role" title="Permanent link">&para;</a></h3>
-<p>For a <strong>new</strong> run on the OpenCode facade engine (<code>--engine opencode</code> with any
-provider, or <code>--engine claude</code>), repeat <code>--role-transport ROLE=PROVIDER</code> to run
-only those roles on another connected tool. <code>ROLE</code> is the existing CLI code name,
-such as <code>tester</code> or <code>completion</code>; <code>PROVIDER</code> names a tool with its own identity: a
-registered TOML config such as <code>kilocode</code>, the built-in <code>claude</code> provider, or the
-<code>autocode</code> direct connection, or the built-in <code>gemini</code> provider. It cannot name the run's own tool, and <code>--engine
-codex</code> keeps Codex's own transport for every role. Each selection requires an
+<p>For a <strong>new</strong> run (<code>--engine opencode</code> with any provider, <code>--engine claude</code> or
+<code>--engine codex</code>), repeat <code>--role-transport ROLE=PROVIDER</code> to run only those roles on
+another connected tool. <code>ROLE</code> is the existing CLI code name, such as <code>tester</code> or
+<code>completion</code>; <code>PROVIDER</code> names a tool with its own identity: a registered TOML config
+such as <code>kilocode</code>, the bundled <code>codex</code> config, the built-in <code>claude</code> or <code>gemini</code>
+provider, or the <code>autocode</code> direct connection. It cannot name the run's own tool. On a
+Codex-engine run the other roles keep Codex's own transport. Each selection requires an
 explicit corresponding model flag. Select its exact model ID from that tool's
 catalogue, including a bare ID when the tool publishes one:</p>
 <pre><code class="language-sh">autocode models --provider opencode
@@ -3196,7 +3230,23 @@ autocode &quot;Your task&quot; --engine claude \
 # A run on Claude Code with the Tester on Gemini CLI and a Google sign-in.
 autocode &quot;Your task&quot; --engine claude \
   --role-transport tester=gemini --tester-model gemini-2.5-pro
+# A run on Claude Code with the Tester on Codex and a ChatGPT login.
+autocode &quot;Your task&quot; --engine claude \
+  --role-transport tester=codex --tester-model gpt-5.6-sol
+# A run on Codex with the Tester on Claude Code.
+autocode &quot;Your task&quot; --engine codex \
+  --role-transport tester=claude --tester-model claude-sonnet-5-5
 </code></pre>
+<h4 id="codex-for-one-role">Codex for one role<a class="headerlink" href="#codex-for-one-role" title="Permanent link">&para;</a></h4>
+<p><code>codex</code> in <code>--role-transport</code> names a provider config AutoCode bundles
+(<code>tools/providers/configs/codex.toml</code>): <code>codex exec</code> on your ChatGPT login, with the
+<code>codex_artifacts</code> sandbox below (<a href="#codex-commands-that-write-capture-receipts">Codex commands that write capture receipts</a>),
+so it needs Codex CLI 0.160.0 or newer. It reports through Codex's last message, and its
+checks are evidence through capture receipts. It only runs single roles of another
+tool's run: a run on Codex alone is <code>--engine codex</code>, and <code>--provider codex</code> or
+<code>AUTOCODE_PROVIDER=codex</code> is refused. A <code>~/.config/autocode/providers/codex.toml</code> of your
+own replaces the bundled one. A new run on Claude Code or Gemini CLI with Codex signed in
+hands Codex its checks by itself (<a href="../models/#checks-by-a-second-vendor">checks by a second vendor</a>).</p>
 <p>The other roles retain their routes selected by the ordinary model flags and
 OpenCode defaults. Roles derived mid-run (such as the Design Reviewer's Architect,
 Acceptance Tester, Resolver or Stuck Investigator) inherit the external
@@ -3672,7 +3722,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/d27ecab497938df033000664e48b1910cc1d3387/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/6fc7f36517745e7053a0169b38622d071f99754a/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
