@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "autocode": {
-      "command": "python3",
-      "args": ["-m", "autocode_cli.autocode_mcp", "--workspace", ".", "--", "--engine", "claude"]
+      "command": "autocode",
+      "args": ["mcp", "--workspace", "."]
     }
   }
 }

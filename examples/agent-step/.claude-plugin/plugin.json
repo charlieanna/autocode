@@ -1,0 +1,11 @@
+{
+  "name": "autocode",
+  "description": "Run AutoCode from Claude Code: it plans a change, waits for your approval, builds it on its own branch and reports test evidence. Needs the autocode CLI (pipx install autocode-supervisor).",
+  "author": {
+    "name": "AutoCode",
+    "url": "https://github.com/charlieanna/autocode"
+  },
+  "homepage": "https://charlieanna.github.io/autocode/latest/agent-step/",
+  "repository": "https://github.com/charlieanna/autocode",
+  "license": "Apache-2.0"
+}

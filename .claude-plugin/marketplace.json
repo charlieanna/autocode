@@ -1,0 +1,17 @@
+{
+  "name": "autocode",
+  "owner": {
+    "name": "AutoCode"
+  },
+  "metadata": {
+    "description": "AutoCode inside Claude Code: plan, build and independently check a change, with your approval."
+  },
+  "plugins": [
+    {
+      "name": "autocode",
+      "source": "./examples/agent-step",
+      "description": "Run AutoCode from Claude Code: it plans a change, waits for your approval, builds it on its own branch and reports test evidence. Needs the autocode CLI (pipx install autocode-supervisor).",
+      "category": "development"
+    }
+  ]
+}
