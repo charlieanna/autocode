@@ -64,8 +64,26 @@ def expose(original, target, view, *, live=(), tree=None) -> dict:
         _venv_view(original, view, _pairs(live, tree, ((original, target),)), record)
     else:
         _node_view(original, view, _pairs(live, tree) if live and tree is not None else [], record, scoped=False)
+    _source_file(view).write_text(os.path.realpath(original) + "\n", encoding="utf-8")
     target.symlink_to(view, target_is_directory=True)
     return record
+
+
+def _source_file(view) -> Path:
+    """Beside ``view``, outside what a package manager run in the copy rewrites."""
+    view = Path(view)
+    return view.with_name(view.name + ".from")
+
+
+def built_from(view) -> str | None:
+    """The resolved installed directory ``view`` was built from, or None for a view without that record.
+
+    A copy's check compares it with where the person's directory resolves now: a directory retargeted
+    while the copy was made (and restored after) built the view from somewhere else."""
+    try:
+        return _source_file(view).read_text(encoding="utf-8").rstrip("\n") or None
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 # Files of a virtualenv that name paths and are read at startup or when a script runs: what custody rewrites.

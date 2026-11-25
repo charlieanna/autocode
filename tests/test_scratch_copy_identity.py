@@ -418,6 +418,32 @@ class ScratchCopyIdentityTests(unittest.TestCase):
                 self.run_copy()
         self.assertFalse(self.marker.exists())
 
+    def test_installed_packages_retargeted_during_copy_are_rejected(self):
+        # The copy's node_modules is a view built from the directory (#4152 phase 2): a view built from a
+        # retargeted directory is refused like a retargeted virtualenv.
+        with (self.workspace / ".gitignore").open("a") as stream:
+            stream.write("node_modules/\n")
+        original = self.workspace / "node_modules"
+        original.mkdir()
+        saved = self.workspace / "node_modules-saved"
+        foreign = Path(self.project.temp.name) / "foreign-node_modules"
+        (foreign / "left-pad").mkdir(parents=True)
+        make_tree = verify.make_tree
+
+        def transient(*args, **kwargs):
+            original.rename(saved)
+            original.symlink_to(foreign, target_is_directory=True)
+            try:
+                return make_tree(*args, **kwargs)
+            finally:
+                original.unlink()
+                saved.rename(original)
+
+        with patch.object(verify, "make_tree", side_effect=transient):
+            with self.assertRaises(util.Paused):
+                self.run_copy()
+        self.assertFalse(self.marker.exists())
+
     def test_pinned_copy_keeps_the_authorized_virtualenv_link(self):
         with (self.workspace / ".gitignore").open("a") as stream:
             stream.write(".venv/\n")

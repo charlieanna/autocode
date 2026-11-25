@@ -55,17 +55,25 @@ def _installed_link(tree, name, source, expected_files):
         # The copy's own view of the environment (autocode_dependency_dirs.expose keeps custody of it).
         original = next((root / path.name for root in roots if (root / path.name).is_dir()), None)
         view = Path(tree) / dependency_dirs.VIEWS / path.name
-        return original is not None and link == view and view.is_dir()
+        return original is not None and link == view and view.is_dir() and _built_from(view, [original])
     if path.name == "node_modules":
         package = path.parent
         if package != Path(".") and (package / "package.json").as_posix() not in expected_files:
             return False
         sources = roots[:1] if package == Path(".") else roots
-        if not any((root / package / "node_modules").is_dir() for root in sources):
+        originals = [root / package / "node_modules" for root in sources if (root / package / "node_modules").is_dir()]
+        if not originals:
             return False
         view = Path(tree) / dependency_dirs.VIEWS / package / "node_modules"
-        return link == view and view.is_dir()
+        return link == view and view.is_dir() and _built_from(view, originals)
     return False
+
+
+def _built_from(view, originals) -> bool:
+    """Whether ``view`` was built from where one of ``originals`` resolves now (not a directory that was
+    retargeted while the copy was made)."""
+    source = dependency_dirs.built_from(view)
+    return source is not None and any(source == os.path.realpath(original) for original in originals)
 
 
 def _dependency_links(tree, source, expected_files):
