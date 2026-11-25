@@ -135,13 +135,10 @@ with ChatTUI() as ui:
                 screen.wait_for(lambda shown: "Message saved" in shown and "Requirements will reply" in shown, 30)
             finally:
                 if ready.exists():
-                    try:
-                        descriptor = os.open(gate, os.O_WRONLY | os.O_NONBLOCK)
-                    except OSError:
-                        pass
-                    else:
-                        with os.fdopen(descriptor, "w") as release:
-                            release.write("continue")
+                    # The fixture writes ready before opening its reader, so this writer must
+                    # block until that reader exists; one nonblocking attempt can lose the release.
+                    with gate.open("w") as release:
+                        release.write("continue")
             screen.wait_for(
                 lambda shown: (
                     "We should assess conversion fidelity." in shown
