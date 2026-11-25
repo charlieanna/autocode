@@ -1,0 +1,2658 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.11.1/vscode/">
+      
+      
+        <link rel="prev" href="../task-run/">
+      
+      
+        <link rel="next" href="../agent-step/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>VS Code extension - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vs-code-extension" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              VS Code extension
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel bridge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../real-repo-sweep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Real-repo sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../setup-sweep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup sweep
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chat-in-the-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat in the sidebar
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat in the sidebar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-chat-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a chat works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-from-master" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update from master
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-from-a-checkout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it from a checkout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reduce-memory-use-on-macos-or-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reduce memory use on macOS or Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remaining-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remaining scope
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remaining scope">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backends-and-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backends and API keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chat-in-the-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat in the sidebar
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat in the sidebar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-chat-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a chat works
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-from-master" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update from master
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-it-from-a-checkout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run it from a checkout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reduce-memory-use-on-macos-or-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reduce memory use on macOS or Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remaining-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remaining scope
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Remaining scope">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backends-and-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backends and API keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/README.md">← Back to README</a></p>
+<p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
+reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
+<a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
+reads <code>state.json</code>.</p>
+<h2 id="chat-in-the-sidebar">Chat in the sidebar<a class="headerlink" href="#chat-in-the-sidebar" title="Permanent link">&para;</a></h2>
+<p>Open <strong>AutoCode → Chat</strong>, type a request, and press Enter. Shift+Enter adds a
+newline. Chat fills the sidebar, keeping the composer at the bottom. <strong>New chat</strong>
+starts another conversation; <strong>History</strong> switches to the Runs list so you can
+reopen one. Its <strong>Recent</strong> section lists the ten chats used most recently across
+every project, newest first, with how long ago each was active; each project's
+chats follow, folded, newest first. <strong>Back to Chat</strong> returns to the current conversation and its draft.
+The selected conversation and each unsent draft survive reopening VS Code.
+When the same workspace is open in multiple VS Code windows, each window keeps
+its own selected run and drafts, so switching tasks in one window does not
+change the conversation shown in another. The Runs list in each window can
+still open any task registered for that workspace.</p>
+<p>New sidebar chats start in the run mode shown on the <strong>Run mode</strong> chip beside the
+engine chip. AutoCode lists one mode, <strong>Full</strong>: every chat starts with the
+Requirements conversation (the <strong>Quick plan</strong> mode that skipped it was removed
+on 2026-10-22). The list and each mode's flags come from
+<code>autocode modes list --json</code>
+(<a href="../task-run/#run-modes-for-clients">Run modes for clients</a>); the extension
+passes the chosen mode's flags unchanged. A choice is remembered for new
+chats in this workspace; one the list no longer names, such as Quick plan,
+starts Full. A chat that has started keeps the flow it started with, so the
+chip shows only on a new chat. An AutoCode without run modes shows no chip and
+starts the full flow.</p>
+<h3 id="where-a-chat-works">Where a chat works<a class="headerlink" href="#where-a-chat-works" title="Permanent link">&para;</a></h3>
+<p>Each chat changes files on a branch of its own, so two chats never edit the same
+files. Before you send the first message, <strong>Where this chat works</strong> above the
+composer shows where the new chat will work; open it to choose:</p>
+<ul>
+<li><strong>New worktree and branch</strong> (the default): the chat talks with you in your
+  folder, then plans and builds in a worktree of its own under
+  <code>.autocode/worktrees/</code>, on a new <code>autocode/…</code> branch named from the task,
+  starting from your last commit. Your folder, your uncommitted edits and other
+  chats are not touched; review and merge the branch when it is done.</li>
+<li><strong>Existing branch</strong>: the same, on a local branch you pick, for example a
+  finished chat's branch to carry on. A branch that is checked out anywhere
+  (your folder included) or that another chat is about to use is greyed out with
+  the reason, so two chats never share a branch.</li>
+<li><strong>This folder</strong>: the chat changes your folder's files directly, on the branch
+  checked out there, as every chat did before. It shows a warning that your own
+  edits and other chats in the folder can conflict with it, naming the chats
+  working there now, and asks you to confirm when you send.</li>
+</ul>
+<p>Once the chat starts, its header always shows where it works (<strong>Own worktree ·
+branch autocode/…</strong> or <strong>Your folder · branch main</strong>), and <strong>Show details</strong> lists
+the worktree path, the branch and your folder. The choices come from
+<code>autocode worktrees list --json</code> and the header from the status view's
+<code>worktree</code> (<a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>); the
+extension passes the chosen place's own flags unchanged. An AutoCode without the
+list starts chats in your folder, as before.</p>
+<p>In the full flow, new sidebar chats enable joint planning and the core's <code>--spec-first</code> flow.
+The Requirements agent answers your first message, whatever it is, and talks
+with you until it understands what you want done. A greeting or an off-topic
+question gets a short, natural reply, as in any chat, and the conversation stays
+open; Requirements starts working out what you want once you say what you want done.
+Answer in the same composer. Requirements reuses
+its provider session, retains prior replies and streams assistant text through
+the public status view; tool output and reasoning stay outside that stream.
+A reply still being written shows as <strong>AutoCode · writing…</strong> with provisional
+text, the same as the terminal chat, and status polls speed up while that
+extract is still growing. You can keep writing a draft while a reply arrives.
+The conversation does not show an empty task dashboard.</p>
+<p>Once the requirements are clear, read the bound understanding and choose
+<strong>Approve understanding and prepare plan</strong>, or send a correction. This releases
+independent plan preparation/review. Requirements has already named the
+workflow (build, fix, review, design or discuss) with that understanding, and
+the approval starts it. It does not authorize
+implementation. <strong>Approve and build</strong> appears later for the concrete reviewed
+execution plan. Terminal users can answer the requirements review with <strong>plan</strong>.</p>
+<p>The thread shows your messages, saved answers and completed-turn replies, with
+Markdown and code blocks for assistant replies. A fixed composer grows with your
+draft. New output follows the bottom until you scroll up or select text;
+<strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
+are adapted from Kilo Code's open-source UI; the exact revision and attribution
+are in <a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+<p>Models and usage are shown once, in the run header at the top of the chat (below):
+each stage's model, level, time, tokens and cost is a row of its stage table, and
+<strong>Show details</strong> has the rest. Cache and reasoning are already included in
+input/output totals; partial counts end in <code>+</code> or say <strong>known</strong>, and unreported
+usage stays unknown. These figures describe recorded usage, not an invoice or a
+guarantee that the next step fits within the cap.
+A report repair counts as the repaired stage's next attempt. When the working
+stage is retrying after a failed attempt, its row shows ↻ and the working card
+shows a warning with which attempt it is, how long it has run and why the last
+one failed. A stage that runs again after succeeding, such as a second
+plan-review round, counts its runs and shows no warning. The toolbar
+shows the run's cost against its cap and its tokens; with two or more chats open
+it adds a total for all of them, which leaves out what a restored run carried
+over and ends in <code>+</code> while any chat has not been read yet. These figures are the
+same ones the terminal chat's stage panel reads: <code>usage.accounting.attempts</code>,
+<code>cost.breakdown.by_stage</code>, <code>cost.spent_usd</code> and <code>usage.accounting.tokens</code>.</p>
+<p>A finished run closes with a card: its result, how many requirements were
+checked, the files its saved steps and acceptance tests changed, the time its
+stages ran and its cost, with <strong>Show changes</strong> (the run's whole change, below)
+and <strong>Run details</strong>. A new chat opens with what AutoCode does and three example
+requests; choosing one only fills the message box. A tab shows ● while its run
+waits for you and ✓ once it has finished, and the status bar names the working
+stage and the run's cost.</p>
+<p>Open chat tabs also notify you when a run needs attention or finishes. The
+notification's <strong>Open chat</strong> link selects that run; it closes when the need
+changes or clears, or when the tab closes. Set <code>autocode.notify</code> to false to
+turn these notifications off.</p>
+<p>Provider-reported cost and the core's historical comparison estimates are shown
+separately. These estimates are not current API prices or your token-plan bill.
+The extension reads the public accounting view and does not calculate its own
+prices. A new chat shows configured models once the core creates the run; actual
+model history appears as attempts are recorded. Older cores without the new
+display metadata still show available model IDs and leave missing variants unknown.</p>
+<p>When a plan is ready, the thread lists what it will deliver, marks the items you
+check yourself, and shows its constraints and what it may do. Criterion IDs,
+verification commands and the plan revision stay in <strong>Run details</strong>. Send
+<strong>plan feedback and continue</strong> to revise it. <strong>Approve and build</strong> approves only
+the displayed plan, then continues the same run. A stale click is refused and
+the revised plan must be reviewed.
+Answer cards handle questions and model replacement choices.</p>
+<p>After completion, sending a <strong>follow-up and continue</strong> reopens the same run for
+the next turn. Earlier messages and completed replies remain visible. A new
+build plan requires its own approval. While AutoCode works, you can compose a
+draft; sending becomes available when the core offers a message action.</p>
+<p>While a run works, <strong>Pause</strong> takes the place of <strong>Send</strong>; Send stays beside it
+when the run also takes a message. Pause lets the current step finish and save,
+then the run pauses with nothing lost, and <strong>Continue</strong> resumes it where it
+paused. Until then the button reads <strong>Pausing after this step…</strong>. The button
+appears only when the status view names the pause (<code>view.pause</code>). <strong>Stop now</strong>
+beside it, when the view names <code>view.pause.stop_now</code>, ends the running step at
+once instead of letting it finish: nothing more is spent on it, its partial work
+and logs are kept, the run pauses ("Stopped by you"), and <strong>Continue</strong> runs that
+step again. The run's terminal Stop stays outside the chat.</p>
+<p><strong>Changes</strong> offers <strong>Show all changes</strong> once the run has saved a code change: one diff of
+everything the run kept, from where it started to its newest kept code (for a finished run, its
+delivery), whichever stage kept it, read from saved code (<code>code_checkpoints.all_changes</code>). When the
+diff ends before the run's current files, the section and the result card say which saved code it ends
+at and that later changes are not included. The diff and the result card's file count are read again
+when the run's kept code changes (<code>code_checkpoints.kept</code>). The chat does not offer a step-by-step
+history to compare or go back to (owner decision 2026-11-13): a person asks for a change in the chat,
+and AutoCode takes it through Requirements and the plan again on the same branch. The diff is a
+display-only read, so the button stays available while a stage runs or the chat waits for one of its
+commands (#3871).</p>
+<p><strong>Run details</strong> opens the detailed progress panel. The Runs list reads the local
+registry and the open project's chats, and retains unavailable pointers with their
+diagnostic. Both surfaces use the core's named commands, including the optional
+<code>view.chat.input</code> offer. Commands use argument arrays; issued tokens stay in the child
+environment.</p>
+<p>Use a chat's actions in History (the icons on its row) or right-click it for
+<strong>Archive Chat</strong>, <strong>Unarchive Chat</strong> or <strong>Delete Chat</strong>; the entries appear only when
+the registry names them. Archived chats stay out of Recent
+and the project lists until <strong>Archived Chats</strong> in the Runs title re-reads the list with
+them, when an <strong>Archived</strong> section lists them. Delete asks first and names the chat; it permanently removes that chat's transcript,
+logs and evidence (the run directory), never the code branch or task worktree, and refuses
+a chat that is still running. Archive is reversible; Delete is not.</p>
+<p>Above the conversation, a run header stays in view while you scroll, like Kilo
+Code's task header. It says where the run is in one sentence, then shows every
+stage in one aligned table: Requirements, Planner, Plan Reviewer, Builder, Tester
+and Completion Reviewer, plus any other job the run launched (a model preflight,
+an Investigator) where it ran. Each row has the stage's mark (✓ ran, ● working,
+↻ retrying, › next, – skipped, · still to come), its name with a ×N badge when it
+launched more than once and a <code>+N repairs</code> badge for its report repairs, which are
+not runs of the stage (amber when an attempt failed; hover for the count in
+words), its model without the provider prefix and reasoning level, and the time,
+tokens and cost of its own attempts (<code>+</code> while some are not reported yet). The
+working stage's row is highlighted. A <strong>Total</strong> row gives the run's working time,
+tokens and accounted spend. Hover a row for its whole route, or why it was
+skipped. Where the sidebar is too narrow for a model column, the model sits under
+the stage's name (or beside a stage that has not run yet), and below 340 pixels
+the tokens column gives way to time and cost. Under the table, a line says what
+the working stage is doing now (<code>reading files</code>, <code>running a command</code>), then where
+the chat works, then how the cost (not the time) splits between the Builder, planning and
+checking (<code>Cost: Builder 4% · planning 28% · checking 68%</code>) and
+how many things went wrong. <strong>Show details</strong> unfolds the same
+reading as the terminal chat's <code>/details</code>, <code>/why</code> and <code>/spend</code>: where the run
+is; each stage's whole route and attempts (<code>4 attempts, 3 failed</code>, and why the
+last failed), with its report repairs counted apart (<code>2 report repairs</code>: a repair only rewrote a
+rejected report, so it is not another run of the stage), with what the working stage is doing and its latest message; every recovery and what AutoCode did about it; where the
+money went, each job with its share of the cost and its own time, and what the checking produced; <strong>Cost and usage</strong> (the accounted
+total and why it may be a floor, the running stage's spend, the price-table and
+provider-reported figures, the historical comparison estimate, the cap, tokens by kind, time by kind of work, total
+execution time and every attempt with its model, level, outcome and tokens); the
+models saved for the next attempts and any route changes; the verification once
+the run finishes; the planning path; and which stages ran or were skipped and
+why. A stage with no saved route of its own shows the model its attempt launched
+on. The choice to keep details open is remembered. The arrow at the end of the
+first line folds the whole header to that one line: where the run is, the
+working stage's model and level, then the run's total time and cost; the toolbar
+keeps the run's cost against its cap and its tokens. Folding is the same for every chat and is remembered
+until you unfold it, including when the sidebar is closed and opened again. Everything in the header
+comes from the status view (<code>summary</code>, <code>explanation</code>, <code>pipeline</code>, <code>recoveries</code>,
+<code>run_metrics</code>, <code>cost</code>, <code>usage</code>, <code>efficiency</code>, <code>routes</code>, <code>escalations</code>,
+<code>route_assignments</code>, <code>chat.now</code>, <code>chat.log</code>, <code>verification</code>, <code>stage_policy</code>,
+<code>stage_decisions</code>); it shows no command or flag. Its one action is <strong>Change this
+chat's models</strong> beside <strong>Show details</strong>, shown when the status view offers
+<code>stage_models</code>: it opens this chat's own Stage models, and is greyed out with the
+core's reason (on hover) while a stage is working.</p>
+<p>While a step works, the conversation shows the live agent log the status view
+names (<code>view.chat.log</code>): what each running agent thinks (<code>∴</code>), says (<code>»</code>) and
+does (<code>$</code>, <code>±</code>, <code>·</code>); each mark names itself on hover. Each agent's screen name
+heads its run of steps once, followed by what it is doing now from <code>view.chat.now</code>
+("Requirements · searching the code"), and the run's headline is not repeated
+above it. A run of thoughts folds to one "Thought" line ("Thinking…" while one
+still arrives) that a click unfolds. Tool calls are in plain words ("Searched tools
+for “context_packet”"), and a run of them with the same <code>summary</code> is one counted
+line ("Searched code ×4") that a click unfolds to each call. Like the terminal chat's <code>/live</code>,
+those entries are display only — a thought is not a report and a command shown
+is not a passed check. Where an older core offers only <code>chat.activity</code>, the
+conversation shows those tool marks instead.</p>
+<p>Starting a new chat asks you to confirm model spend. Buttons that save an input
+and then advance explicitly say <strong>and continue</strong>; advancing uses the run’s saved
+provider and per-role routes. Person-only recovery decisions still require their
+separate confirmation (<code>autocode.confirmPersonOnly</code>). Free text cannot bypass an
+operational stop or approve a plan.</p>
+<p><strong>Accept the reviewed criteria</strong> also continues the run toward the Completion
+Reviewer, taking only the fresh status view's named Continue. Another review,
+question, plan approval or person-only stop still waits for you.</p>
+<p><strong>Change sets.</strong> For a run linked with runs in other repositories (<code>scope.linked</code>,
+<code>autocode changeset link</code>), Run details reads <code>autocode changeset status --json</code>
+and shows every run of the change set. While the set approval is offered it lists
+every run's plan, and <strong>Approve all N plans</strong> asks first, then approves them
+together. If a plan changes after the card was shown, nothing is approved. Once
+every run is complete and an integration check is due, <strong>Run the set's check</strong>
+asks first, then runs it. These are the only change-set actions the extension
+takes (<a href="../task-run/#change-sets-in-clients">change sets in clients</a>).</p>
+<h2 id="update-from-master">Update from master<a class="headerlink" href="#update-from-master" title="Permanent link">&para;</a></h2>
+<p>Once Marketplace publishing is set up (<a href="../releasing/#vs-code-extension">VS Code extension</a>),
+every master commit that changes the extension is published to the Marketplace, and VS Code's
+auto-update installs it like any other extension. An extension installed from a <code>.vsix</code> with the
+same name is replaced by the next Marketplace version.</p>
+<p>To install the newest extension from master yourself, for example before it is published, run
+this from any AutoCode checkout:</p>
+<pre><code class="language-sh">scripts/update-vscode-extension.sh
+</code></pre>
+<p>It fetches master from <code>origin</code>, builds it in a temporary Git worktree (so your
+checkout, its branch and uncommitted changes stay as they are), packages the
+extension and installs it with <code>code --install-extension --force</code>. Then reload the
+VS Code window (<strong>Developer: Reload Window</strong>). <code>--local</code> builds the checkout you are in
+instead, as it stands, and <code>--remote NAME</code> fetches from another remote. It needs Node.js
+(<code>npm</code>) and the <code>code</code> command; on macOS, when <code>code</code> is not on <code>PATH</code>, it uses the one
+inside Visual Studio Code.app, and <code>CODE=cursor</code> or <code>CODE=code-insiders</code> picks another
+editor.</p>
+<p>The extension starts whichever <code>autocode</code> <code>autocode.cliPath</code> names. When that CLI is an
+editable install of the same checkout (<code>pipx install --editable</code>, see
+<a href="../install/#advanced-install-from-a-checkout">install from a checkout</a>), <code>git pull</code> on
+master updates it too; a separate release install keeps its own version.</p>
+<h2 id="run-it-from-a-checkout">Run it from a checkout<a class="headerlink" href="#run-it-from-a-checkout" title="Permanent link">&para;</a></h2>
+<pre><code class="language-sh">cd vscode-extension
+npm ci
+npm run build
+npm test
+code .
+</code></pre>
+<p>Press F5 to launch the configured Extension Development Host. The AutoCode view
+appears in the Activity Bar. Point <code>autocode.cliPath</code> at your <code>autocode</code>, or set
+<code>cliPath: python3</code>, <code>cliArgs: ["/path/to/autocode/tools/autocode.py"]</code> for a source
+checkout. Provider execution needs a supported host; see <a href="../testing/">testing.md</a>.</p>
+<p>For Kilo, set <code>autocode.provider</code> to <code>kilocode</code>, connect the selected providers
+with <code>kilo auth</code>, and put your per-role model routes in <code>autocode.extraOptions</code>.
+The CLI and Kilo must run on the same supported backend host. A Docker or remote
+wrapper must forward the argument array and issued token environment, and expose
+the same workspace paths. Point <code>cliPath</code>/<code>cliArgs</code> at that real CLI or wrapper;
+the qualification fixture is only a UI test backend and cannot conduct a model
+conversation.</p>
+<p>PR #1425 was merged before full live qualification finished. Its draft
+Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
+full build/test/completion qualification remains outstanding. The earlier full
+task attempt stopped on a MiMo network failure before building.
+See the <a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
+<h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autocode.cliPath</code></td>
+<td><code>autocode</code></td>
+<td>The CLI to start.</td>
+</tr>
+<tr>
+<td><code>autocode.cliArgs</code></td>
+<td><code>[]</code></td>
+<td>Arguments passed to the configured executable before the AutoCode command.</td>
+</tr>
+<tr>
+<td><code>autocode.provider</code></td>
+<td><code>""</code></td>
+<td><code>--provider</code> for new chats.</td>
+</tr>
+<tr>
+<td><code>autocode.extraOptions</code></td>
+<td><code>[]</code></td>
+<td>Extra engine and model flags for new chats.</td>
+</tr>
+<tr>
+<td><code>autocode.maxStageSeconds</code></td>
+<td>empty</td>
+<td>Time limit for each step of a new chat, in seconds (<code>--max-stage-seconds</code>). Empty uses AutoCode's default or <code>max-stage-seconds</code> in <code>.autocode/config.toml</code>; <code>0</code> turns it off. A pause never asks for it.</td>
+</tr>
+<tr>
+<td><code>autocode.pollSeconds</code></td>
+<td><code>5</code></td>
+<td>Seconds between read-only status updates.</td>
+</tr>
+<tr>
+<td><code>autocode.confirmPersonOnly</code></td>
+<td><code>true</code></td>
+<td>Ask before acting on a pause the run stopped for a person.</td>
+</tr>
+</tbody>
+</table>
+<p>On macOS and Linux, the extension enables AutoCode's warm Python helper by
+default. It keeps CLI modules and workspace snapshot hashes in memory between
+calls. On a 12,500-file project, cold workspace reads took 13–27 seconds of the
+editor's 30-second status deadline. The extension also honors an existing
+<code>AUTOCODE_SOURCE_HOST</code> value in the environment VS Code was started in.
+<a href="../task-run/#warm-local-cli-host">How the warm CLI host works</a></p>
+<h3 id="reduce-memory-use-on-macos-or-linux">Reduce memory use on macOS or Linux<a class="headerlink" href="#reduce-memory-use-on-macos-or-linux" title="Permanent link">&para;</a></h3>
+<p>To run each status read in a short-lived process, add these entries to VS
+Code's <strong>User Settings (JSON)</strong>. Use the absolute path to your installed
+<code>autocode</code> executable. VS Code passes each array entry as one argument, so
+paths containing spaces work as written.</p>
+<pre><code class="language-json">{
+  &quot;autocode.cliPath&quot;: &quot;/usr/bin/env&quot;,
+  &quot;autocode.cliArgs&quot;: [
+    &quot;AUTOCODE_SOURCE_HOST=0&quot;,
+    &quot;/absolute/path/to/bin/autocode&quot;
+  ]
+}
+</code></pre>
+<p>The measured setup also used a separate Python 3.12 environment for the editor.
+To reproduce it, run these commands from an AutoCode checkout at the revision
+you use. Put the executable path printed by the last command in the array above.</p>
+<pre><code class="language-sh">python3.12 -m venv &quot;$HOME/.venvs/autocode-vscode&quot;
+&quot;$HOME/.venvs/autocode-vscode/bin/python&quot; -m pip install .
+echo &quot;$HOME/.venvs/autocode-vscode/bin/autocode&quot;
+</code></pre>
+<p>On an Apple M1 Max with VS Code and its terminal already open, switching from
+Python 3.14 with the helper to Python 3.12 with it disabled reduced median
+peak added memory from <strong>340 to 297 MiB</strong>. While waiting for approval, it fell
+from <strong>200 to 133 MiB</strong>. Each configuration ran the same scripted task three
+times with the chat sidebar visible. To undo the change, return both
+<code>autocode.cliPath</code> and <code>autocode.cliArgs</code> to their previous values.</p>
+<h2 id="remaining-scope">Remaining scope<a class="headerlink" href="#remaining-scope" title="Permanent link">&para;</a></h2>
+<p>This is an AutoCode chat client with selected Kilo UI adaptations, not the full
+Kilo, Cline or ZooCode extension. It displays saved task replies and status
+updates; token-by-token model output, file attachments, inline edit/diff
+acceptance and editing arbitrary plan files are not implemented.</p>
+<p>At a total active-time pause, the core can name a finite total-time decision.
+Enter the desired total seconds explicitly in the blank field and confirm that
+total. It must exceed the saved cap and active time already consumed; chat text
+does not supply or authorize it. Other limits, models and plan approval still
+apply.</p>
+<p>While a plan awaits approval, VS Code can also offer a total active-time field
+when the saved finite limit can be increased. Enter a larger total and confirm
+<strong>Save limit</strong>. This saves only that limit: the plan remains unapproved and no
+model starts. Review and approve the same displayed plan separately.</p>
+<p>At a planning-review allowance pause, a core-named finite input shows the saved
+allowance and calls already used. Enter an explicit total above both and confirm
+the exact number of calls. <strong>Set review allowance</strong> takes only the named command
+and waits for the next status before offering any separate continuation. Even a
+named command containing Resume can save the allowance first. Used calls stay counted, other
+limits and models stay saved, and neither action approves a plan. Blank, zero,
+fractional or stale choices cannot run.</p>
+<p>An exhausted automatic recovery allowance asks nothing of you: the core no longer
+names <strong>Additional recoveries</strong>. AutoCode ends the run with a recorded outcome that
+says how many recoveries ran and why they stopped, and the chat shows it as ended.</p>
+<p>Plan editing (<code>--edit-goal</code>) and other actions with unresolved
+<code>GOAL_FILE</code>, untyped recovery <code>N</code> or explanatory placeholders remain explicit gaps.
+The client cannot invent those decisions. The separate core Requirements
+conversation journal is documented in <a href="../task-run/">task-run.md</a>; this client
+uses ordinary task runs and their additive chat projection.</p>
+<h3 id="connections">Connections<a class="headerlink" href="#connections" title="Permanent link">&para;</a></h3>
+<p>Open <strong>Connections</strong> from the chat toolbar or <strong>AutoCode: Connections</strong> in the
+command palette. It lists installed and registered backends in the AutoCode CLI
+environment. <strong>Check connection</strong> checks saved credentials without launching a
+model. <strong>Sign in / Reconnect</strong> runs the backend's own sign-in in a terminal;
+finish there and check again. AutoCode does not ask you to paste credentials into
+chat. Credential presence does not establish selected-model access or a passing
+live qualification.</p>
+<p><strong>Use for new chats</strong> changes the default backend. Each backend's role/model
+options are saved separately, so switching back to Kilo restores its token-plan
+routes. Existing chats retain their saved backend, models and budgets. Company
+providers such as GoCode appear when registered; their optional connection
+commands are described in <a href="../providers/#connection-setup-and-company-backends">Providers</a>.</p>
+<h3 id="stage-models">Stage models<a class="headerlink" href="#stage-models" title="Permanent link">&para;</a></h3>
+<p>Open <strong>AutoCode: Stage Models</strong> from the command palette, or <strong>Stage models…</strong>
+in the chat's engine picker, to choose the model and reasoning level each stage
+of a new chat runs. Each stage shows what it does and the kind of model and level
+that suits it, with one dropdown for the model and one for the level; the level
+list follows the chosen model. A model the stage may not run beside the others (a
+Builder on the model its Tester runs, for example) is greyed out with the reason.
+<strong>Save</strong> keeps the choice for every new chat on that backend, and <strong>Use the
+default</strong> forgets it. Chats already started keep their own models. The panel
+reads <code>autocode stages list --json</code> and takes only the stage's own save or reset
+command (<a href="../task-run/#stage-choices-for-clients">stage choices for clients</a>),
+naming the backend when a provider or engine is chosen for new chats.</p>
+<p>A new chat shows <strong>This chat's models</strong> above the composer before you send
+anything: each stage with the model and level it will run in its dropdowns, and
+beside them where that comes from: the default, your Stage models choice, the
+workspace config (<strong>project</strong>), your <code>autocode.extraOptions</code> model flags (<strong>settings</strong>),
+or <strong>this chat</strong>'s own (hover for the whole route). Change a stage's model or level there
+and only that chat runs it; Stage models and every other new chat are left alone.
+AutoCode checks the pick against its list, which takes a few seconds on OpenCode or
+Kilo: meanwhile the row keeps your pick and says <strong>Checking…</strong>, and a refused pick
+goes back to what the stage runs with the reason. A list read that has not answered
+after a minute fails and says so instead of leaving the box greyed out.
+The same independence rules apply, so a model the stage's checker runs is greyed
+out with the reason, and <strong>Use project</strong>, <strong>Use settings</strong>, or <strong>Use Stage models</strong>
+drops this chat's pick back to the underlying route. When <code>single-model</code> fixes every
+stage, <strong>This chat's models</strong> explains why per-stage picks are disabled and the chip
+shows <strong>Models · fixed</strong>; changing <code>autocode</code> workspace settings refreshes open
+unstarted chats automatically. When the chat starts, AutoCode checks the picks again
+and the run starts with them; once it has started they are listed in the run header's
+stage table like any started chat's models
+(<a href="../models/#changing-a-new-chats-models">Changing a new chat's models</a>).</p>
+<p>The list is shown at once. Listing the models a backend offers takes a few
+seconds on OpenCode or Kilo, so the extension keeps the latest list for each
+folder and backend in the workspace and shows it as soon as a chat opens, then
+reads it again in the background when it is more than a minute old, after a
+restart, or after a Stage models save; the fresh list replaces it in every new
+chat that has no picks of its own. Only a folder and backend never listed before
+shows "Reading the stages…" first. A chat with picks of its own reads its own
+list, and every pick is checked again where the chat starts, so a list shown from
+the cache never decides what a run uses.</p>
+<p>The <strong>Models</strong> chip under the message box does the same from the chat box: choose
+a stage, then one of the models AutoCode offers it, then a level. On a new chat it
+changes that chat's pick (the chip counts the stages changed); on a started chat it
+changes that chat's own stage from its next launch, through the list the chat's
+status names. While a stage is working it is greyed out as "Models · after this
+stage", with the core's reason on hover, and it comes back between stages; on a new
+chat it reads "Models · loading…" while the backend's models are read and
+"Models · starting…" once the first message starts the chat. A model
+the stage may not run beside the others is not offered, and AutoCode checks the
+pick again either way. An AutoCode without per-chat models shows no chip.</p>
+<h3 id="backends-and-api-keys">Backends and API keys<a class="headerlink" href="#backends-and-api-keys" title="Permanent link">&para;</a></h3>
+<p>Connections lists AutoCode's four backends: <strong>Claude Code</strong> and <strong>Codex</strong> as
+engines, and <strong>OpenCode</strong> and <strong>Kilo</strong> for other accounts and API keys
+(<code>opencode auth login</code>, <code>kilo auth login</code>). When a backend's CLI is not on
+<code>PATH</code>, its card remains listed as unavailable until it is installed in the
+AutoCode CLI environment (<code>autocode setup</code> can install OpenCode or Kilo).</p>
+<p>The <strong>AutoCode · Direct connection</strong> card is retired (#2049) and hidden from new
+setups. It appears in Connections only when already configured, so existing
+setups can still be checked, updated (<strong>Check setup</strong>, <strong>Edit AutoCode setup</strong>,
+or <strong>Add or rotate an API provider</strong>), and selected for new chats until the
+direct connection is removed in the next release. Local configuration does not
+mean live model access was verified. See
+<a href="../providers/#autocode-direct-connections-issue-1493">AutoCode direct connections</a>
+for retirement details, credential storage, protocol support and qualification
+limits.</p>
+<p>Credentials are never entered into the chat or its webview. Existing chats keep
+their saved backend. Model overrides, explicit external role transports and
+backend-specific containment options are kept with their original backend when
+switching connections, so Kilo settings do not become direct API settings.</p>
+<p>The plan approval card and Run details show the complete material plan supplied by
+the core, including outcomes, deliverables, behaviors, failure cases, approach,
+decisions and verification. Long plans remain scrollable in full. If the core does
+not supply that review content, approval stays disabled until it is available.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

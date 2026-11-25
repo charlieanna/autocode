@@ -1,0 +1,245 @@
+[
+  {
+    "date": "2026-11-24",
+    "profile": "claude-tiers",
+    "master": "6d4488e",
+    "mode": "live",
+    "runs": 8,
+    "passed": 8,
+    "false_completions": 0,
+    "median_minutes": 7.6,
+    "note": "First full starter sweep: Docutils scenario 2/2 (14/14), Boltons 2/2, Humanize 2/2, More Itertools 2/2 (Arena oracles 5/5, 5/5, 6/6). Ran on the driver fix that gives each Arena case its own store. One Humanize run cost $7.33 on repeated Tester rejections of piped check commands (#4165). 8 runs over 4 pinned real-repo cases; reported spend $23.11.",
+    "case_costs": [
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.74984,
+        "spent_usd": 1.74984,
+        "cap_usd": null
+      },
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.157656,
+        "spent_usd": 1.157656,
+        "cap_usd": null
+      },
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.506287,
+        "spent_usd": 1.506287,
+        "cap_usd": null
+      },
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 4.908264,
+        "spent_usd": 4.908264,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.241227,
+        "spent_usd": 2.241227,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 7.33433,
+        "spent_usd": 7.33433,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.193421,
+        "spent_usd": 2.193421,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.014094,
+        "spent_usd": 2.014094,
+        "cap_usd": null
+      }
+    ]
+  },
+  {
+    "date": "2026-11-23",
+    "profile": "claude-tiers",
+    "master": "7fadb3a",
+    "mode": "live",
+    "runs": 1,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": 6.9,
+    "note": "Re-run of the pilot's Humanize stop after #4148 (a build-written _version.py now reaches the clean test copies): Arena humanize-intcomma-large TASK_COMPLETE, oracle 5/5. docs/bugs/2026-11-23-real-repo-benchmark-pilot.md",
+    "case_costs": [
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.761899,
+        "spent_usd": 2.761899,
+        "cap_usd": null
+      }
+    ]
+  },
+  {
+    "date": "2026-11-23",
+    "profile": "claude-tiers",
+    "master": "39af945",
+    "mode": "live",
+    "runs": 4,
+    "passed": 3,
+    "false_completions": 0,
+    "median_minutes": 13.6,
+    "note": "Real-repo pilot, one run per case: scenario bugfix-realrepo-docutils-number-lines (PASS 14/14, 19 min) and Arena boltons-indexedset-update (PASS 5/5, 4 min), more-itertools-custom-exceptions (PASS 6/6, 18 min), humanize-intcomma-large (correct fix, oracle 5/5, but PAUSED_INVALID_OUTPUT: a planned check replayed in a clean copy cannot import the gitignored hatch-vcs _version.py). docs/bugs/2026-11-23-real-repo-benchmark-pilot.md",
+    "case_costs": [
+      {
+        "case": "bugfix-realrepo-docutils-number-lines",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 5.77104,
+        "spent_usd": 5.77104,
+        "cap_usd": null
+      },
+      {
+        "case": "boltons-indexedset-update",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 1.424771,
+        "spent_usd": 1.424771,
+        "cap_usd": null
+      },
+      {
+        "case": "more-itertools-custom-exceptions",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.670147,
+        "spent_usd": 2.670147,
+        "cap_usd": null
+      },
+      {
+        "case": "humanize-intcomma-large",
+        "run": null,
+        "estimated_usd": null,
+        "reported_usd": 2.244741,
+        "spent_usd": 2.244741,
+        "cap_usd": null
+      }
+    ]
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "glm53-mimo",
+    "master": "a8852cf4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 94,
+    "note": "Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED)."
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "glm53-mimo",
+    "master": "a8852cf4",
+    "mode": "live",
+    "runs": 1,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": 82,
+    "note": "Re-run of the budget-cut to-do case with a 130-minute budget. TASK_COMPLETE, oracle 10/10. Completes the three-case portfolio for this profile."
+  },
+  {
+    "date": "2026-10-07",
+    "profile": "glm53-openai",
+    "master": "4e7e6895",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 27,
+    "note": "Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-04",
+    "profile": "claude-tiers",
+    "master": "e8366ad",
+    "mode": "live",
+    "runs": 9,
+    "passed": 8,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Three runs of each case. To-do 2/3: one honest stop on event-ID citations. docs/bugs/2026-10-04-claude-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "glm53-openai",
+    "master": "fba6e738",
+    "mode": "live",
+    "runs": 3,
+    "passed": 1,
+    "false_completions": 1,
+    "median_minutes": null,
+    "note": "Re-run of the two failed cases after budget/prompt fixes: three runs. Bug fix completed. To-do stopped honestly once at Requirements (output token limit), then completed falsely through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "glm53-openai",
+    "master": "68e89aa4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "First three-case run. Greenfield deliverable correct (10/10) but never completed (permission recovery). docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "fake",
+    "master": "06d6c390",
+    "mode": "fake",
+    "runs": 64,
+    "passed": 62,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator)."
+  },
+  {
+    "date": "2026-10-10",
+    "profile": "native-glm53-latency",
+    "master": "e18cf660 + #727 candidate (wheel 756c8a10)",
+    "mode": "live",
+    "runs": 1,
+    "passed": 0,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Targeted greeting-workload latency sample on frozen codex/first-interaction-727, not clean master. PAUSED_REQUESTED after successful real Builder, oracle 4/4 and delivered tests; no completed-delivery count. Native OpenCode 1.18.33, all-role GLM 5.3; active/stage/idle 5400/1200/300s, invocation timeout3900s. Baseline external comparison and sample limitations: docs/bugs/2026-10-10-first-interaction-latency.md.",
+    "interaction_timings": [
+      {
+        "run": "20261010-081756-build-a-small-python-standard-library-cli-named--5d277d95",
+        "first_builder_at": "2026-10-10T15:28:52.096595+00:00",
+        "first_builder_seconds": 655.162113,
+        "first_plan_at": "2026-10-10T15:27:20.046636+00:00",
+        "first_plan_seconds": 563.112154,
+        "first_question_at": "2026-10-10T15:22:48.185894+00:00",
+        "first_question_seconds": 291.251412,
+        "launched_at": "2026-10-10T15:17:56.934482+00:00"
+      }
+    ]
+  }
+]
