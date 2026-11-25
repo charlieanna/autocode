@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **A second vendor checks a one-vendor run by itself** ([checks by a second vendor](docs/models.md#checks-by-a-second-vendor)): a new run on Claude Code with Gemini CLI also signed in, or on Gemini CLI with Claude Code signed in, runs its Plan Reviewer, Tester and Completion Reviewer on the other tool, says so in one line when it starts and keeps the decision in its settings. Before, a person had to know `--role-transport` and type a model for each stage. A stage the person chose a model for keeps it; a second tool that is installed but cannot sign in is named with the reason, and the run keeps its own vendor.
+
 - **Gemini CLI as a backend, and as the second vendor that checks a Claude Code run** ([Gemini CLI provider](docs/providers.md#gemini-cli-provider)): with Gemini CLI signed in with Google, `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro` has Gemini test what Claude Code built, and `--provider gemini` runs every stage on Gemini. Before, a person with Claude Code got checks by a second vendor only through an OpenCode or Kilo account with API keys. `autocode setup` and `autocode doctor` find a signed-in Gemini CLI and print that command; a Google Workspace account whose sign-in fails for want of a Google Cloud project is told the `export GOOGLE_CLOUD_PROJECT="your-project-id"` line that fixes it, and an API key, Vertex or an expired sign-in is named too. Gemini CLI reports no command exit codes, so its stages cite checks by their capture receipts.
 
 ## [0.11.1] - 2026-11-25

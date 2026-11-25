@@ -382,6 +382,13 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("check each other's work", on_a_hub)
         models = (Path(__file__).resolve().parents[1] / "docs" / "models.md").read_text(encoding="utf-8")
         self.assertIn("\n### Checks by a second vendor\n", models)
+        # With Gemini CLI signed in, a Claude Code run's checks move there (autocode_second_vendor), and setup says so.
+        gemini_in = row("gemini", "Gemini CLI", "credentials_present")
+        shown = setup.text([CLAUDE_IN, gemini_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
+        self.assertIn("Gemini CLI is signed in too, so it checks the work of new runs on Claude Code", shown)
+        self.assertNotIn("own models check each other's work", shown)
+        codex = setup.text([gemini_in], {"id": "codex", "label": "Codex", "reason": "connected"})
+        self.assertIn("Codex's own models check each other's work", codex)
 
     def test_invalid_numeric_hub_choices_return_without_installing(self):
         found = [

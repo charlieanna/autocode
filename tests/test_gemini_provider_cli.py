@@ -101,6 +101,17 @@ class GeminiProviderCliTests(unittest.TestCase):
             self.assertFalse(set(CANARIES) & set(call["env_names"]), call["argv"])
         self.assertTrue(all(call["prompt_head"].startswith("You are the Validator") for call in stages), stages)
 
+    def test_a_claude_code_run_moves_its_checks_to_a_signed_in_gemini(self):
+        # No transport flag: the launch finds Gemini CLI signed in and gives it the checking stages.
+        run = self.start(("--engine", "claude"))
+        view = self.finish(run, run.status())
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        stages = self.stages()
+        self.assertEqual({"gemini-2.5-pro"}, {call["argv"][call["argv"].index("--model") + 1] for call in stages})
+        heads = {call["prompt_head"].split("\n", 1)[0] for call in stages}
+        self.assertGreater(len(heads), 1, heads)
+        self.assertIn("You are the Validator", "\n".join(heads))
+
     def test_a_run_on_gemini_completes(self):
         run = self.start(("--provider", "gemini"))
         view = self.finish(run, run.status())
@@ -150,7 +161,12 @@ class GeminiProviderCliTests(unittest.TestCase):
         )
         self.assertIn("✔ Gemini CLI: signed in", done.stdout)
         self.assertIn("New runs use Claude Code", done.stdout)
-        self.assertIn("--engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro", done.stdout)
+        self.assertIn(
+            "Gemini CLI is signed in too, so it checks the work of new runs on Claude Code (Plan Reviewer, Tester, "
+            "Completion Reviewer)",
+            done.stdout,
+        )
+        self.assertNotIn("own models check each other's work", done.stdout)
 
 
 if __name__ == "__main__":

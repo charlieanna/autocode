@@ -34,6 +34,7 @@ try:
     from . import autocode_connected_engine as connected_engine
     from . import autocode_connections as connections
     from . import autocode_providers as providers
+    from . import autocode_second_vendor as second_vendors
     from . import autocode_stage_choices as stage_choices
     from . import autocode_stages_cli as stages_cli
     from . import autocode_tool_containment as containment
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_connections as connections
     import autocode_providers as providers
+    import autocode_second_vendor as second_vendors
     import autocode_stage_choices as stage_choices
     import autocode_stages_cli as stages_cli
     import autocode_tool_containment as containment
@@ -169,32 +171,27 @@ def text(found, use) -> str:
     else:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
         if use["id"] in ENGINES:
-            lines.append(SAME_VENDOR_CHECKS.format(label=use["label"]))
-            second = second_vendor(found, use["id"])
-            if second:
-                lines.append(second)
+            lines.append(second_vendor(found, use["id"]) or SAME_VENDOR_CHECKS.format(label=use["label"]))
     return "\n".join(lines)
 
 
 # The backends whose row says why it is not ready, not only how to sign in.
 SAY_WHY = frozenset({"gemini"})
+
+
 # A signed-in one-vendor backend that can check another's work, with the stage flags that move the Tester there.
-SECOND_VENDOR = {"gemini": ("Gemini CLI", "gemini-2.5-pro")}
-
-
 def second_vendor(found, engine) -> str | None:
-    """How to have a second signed-in vendor check the work of a run on ``engine``, or None."""
-    for row in found:
-        if row["id"] == engine or row["id"] not in SECOND_VENDOR or row.get("connection_status") not in CONNECTED:
-            continue
-        label, model = SECOND_VENDOR[row["id"]]
-        flag = "--engine claude" if engine == "claude" else f"--provider {engine}" if engine != "codex" else ""
-        if engine == "codex":
-            return None  # --role-transport binds roles on the OpenCode facade; Codex keeps its own transport
-        return (
-            f"{label} is signed in too, so it can check the work: "
-            f'autocode "your idea" {flag} --role-transport tester={row["id"]} --tester-model {model}'
-        )
+    """What a signed-in second vendor does for new runs on ``engine``, or None (autocode_second_vendor)."""
+    connected = {row["id"]: row for row in found if row.get("connection_status") in CONNECTED}
+    for name, _executable in second_vendors.SECOND_VENDORS.get(engine, ()):
+        if name in connected:
+            own = next((row["label"] for row in found if row["id"] == engine), engine)
+            label = connected[name]["label"]
+            stages = ", ".join(second_vendors.LABELS[role] for role in second_vendors.CHECKERS)
+            return (
+                f"{label} is signed in too, so it checks the work of new runs on {own} ({stages}); "
+                "a stage you choose a model for keeps it"
+            )
     return None
 
 
