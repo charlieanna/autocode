@@ -21,6 +21,7 @@ env:
   SUITE_SHARDS: "8"
   NIGHTLY_SUITE_SHARDS: "8"
   SCENARIO_SHARDS: "6"
+  GATE_SCENARIO_SHARDS: "4"
 
 concurrency:
   # Superseded runs of a non-master ref stop burning a full suite: rapid PR pushes
@@ -91,7 +92,8 @@ jobs:
         run: |
           python tools/ci_depth.py --event "$EVENT" --pr-base "$PR_BASE" --group-base "$GROUP_BASE" \
             --push-base "$PUSH_BASE" --suite-shards "$SUITE_SHARDS" --nightly-suite-shards "$NIGHTLY_SUITE_SHARDS" \
-            --scenario-shards "$SCENARIO_SHARDS" --github-output "$GITHUB_OUTPUT"
+            --scenario-shards "$SCENARIO_SHARDS" --gate-scenario-shards "$GATE_SCENARIO_SHARDS" \
+            --github-output "$GITHUB_OUTPUT"
 
   extension:
     needs: scope
@@ -347,7 +349,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # One shard for the gate's changed selection, SCENARIO_SHARDS for the full catalog.
+        # GATE_SCENARIO_SHARDS for the gate's changed selection, SCENARIO_SHARDS for the full catalog.
         shard: ${{ fromJSON(needs.scope.outputs.scenario_shards) }}
     name: scenario-harness (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
