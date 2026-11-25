@@ -330,6 +330,17 @@ class ProviderSandboxTests(unittest.TestCase):
                 self.report.unlink()
         self.assertEqual("{}", target.read_text())
 
+    def test_a_standalone_call_reports_in_its_own_directory_but_never_in_a_run_root(self):
+        # The model access preflight passes its fresh attempt directory as the run directory, with
+        # events.json as the report (provider_conformance_transport.execute); a run root never qualifies.
+        probe = self.run / "model-preflight/model-sol/attempt-1"
+        probe.mkdir(parents=True)
+        argv = self.launch(run_dir=probe, report=probe / "events.json")
+        self.assertIn('default_permissions="autocode_artifacts"', argv)
+        (self.run / "state.json").write_text("{}")
+        with self.assertRaises(ValueError):
+            self.launch(report=self.run / "events.json")
+
     def test_aliased_operational_roots_and_contents_are_rejected(self):
         source = self.project / "protected.txt"
         source.write_text("protected")

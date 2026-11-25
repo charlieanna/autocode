@@ -237,7 +237,7 @@ def select_provider(base, args, parser, state: "RunState", workspace):
                 # A second signed-in vendor checks a one-vendor run's work (autocode_second_vendor).
                 second_vendor.apply(
                     args,
-                    None if args.engine == "codex" else selected,
+                    "codex" if args.engine == "codex" else selected,
                     stage_choices_taken=taken,
                     workspace=workspace,
                     say=_notice,

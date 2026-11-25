@@ -799,13 +799,13 @@ once with 30 seconds. A second timeout stops the run before any agent launches.
 
 ### A different tool for one role
 
-For a **new** run on the OpenCode facade engine (`--engine opencode` with any
-provider, or `--engine claude`), repeat `--role-transport ROLE=PROVIDER` to run
-only those roles on another connected tool. `ROLE` is the existing CLI code name,
-such as `tester` or `completion`; `PROVIDER` names a tool with its own identity: a
-registered TOML config such as `kilocode`, the built-in `claude` provider, or the
-`autocode` direct connection, or the built-in `gemini` provider. It cannot name the run's own tool, and `--engine
-codex` keeps Codex's own transport for every role. Each selection requires an
+For a **new** run (`--engine opencode` with any provider, `--engine claude` or
+`--engine codex`), repeat `--role-transport ROLE=PROVIDER` to run only those roles on
+another connected tool. `ROLE` is the existing CLI code name, such as `tester` or
+`completion`; `PROVIDER` names a tool with its own identity: a registered TOML config
+such as `kilocode`, the bundled `codex` config, the built-in `claude` or `gemini`
+provider, or the `autocode` direct connection. It cannot name the run's own tool. On a
+Codex-engine run the other roles keep Codex's own transport. Each selection requires an
 explicit corresponding model flag. Select its exact model ID from that tool's
 catalogue, including a bare ID when the tool publishes one:
 
@@ -822,7 +822,25 @@ autocode "Your task" --engine claude \
 # A run on Claude Code with the Tester on Gemini CLI and a Google sign-in.
 autocode "Your task" --engine claude \
   --role-transport tester=gemini --tester-model gemini-2.5-pro
+# A run on Claude Code with the Tester on Codex and a ChatGPT login.
+autocode "Your task" --engine claude \
+  --role-transport tester=codex --tester-model gpt-5.6-sol
+# A run on Codex with the Tester on Claude Code.
+autocode "Your task" --engine codex \
+  --role-transport tester=claude --tester-model claude-sonnet-5-5
 ```
+
+#### Codex for one role
+
+`codex` in `--role-transport` names a provider config AutoCode bundles
+(`tools/providers/configs/codex.toml`): `codex exec` on your ChatGPT login, with the
+`codex_artifacts` sandbox below ([Codex commands that write capture receipts](#codex-commands-that-write-capture-receipts)),
+so it needs Codex CLI 0.160.0 or newer. It reports through Codex's last message, and its
+checks are evidence through capture receipts. It only runs single roles of another
+tool's run: a run on Codex alone is `--engine codex`, and `--provider codex` or
+`AUTOCODE_PROVIDER=codex` is refused. A `~/.config/autocode/providers/codex.toml` of your
+own replaces the bundled one. A new run on Claude Code or Gemini CLI with Codex signed in
+hands Codex its checks by itself ([checks by a second vendor](models.md#checks-by-a-second-vendor)).
 
 The other roles retain their routes selected by the ordinary model flags and
 OpenCode defaults. Roles derived mid-run (such as the Design Reviewer's Architect,

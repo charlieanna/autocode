@@ -206,6 +206,18 @@ class SelectTestsTests(unittest.TestCase):
             self.select("docs/workflow.md", "scenarios/run.py"),
         )
 
+    def test_root_steps_leave_the_runtime_bytecode_to_the_runner(self):
+        # A step that runs Python as root before run_suite compiles the runtime must not write bytecode:
+        # root-owned tools/__pycache__ folders holding a few modules stop the runner's compile filling
+        # them, and every CLI call in the suite then compiled the rest from source (#4167, 2026-11-25).
+        lines = (run_suite.REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text().splitlines()
+        root_steps = [index for index, line in enumerate(lines) if "sudo" in line and ".venv/bin/python" in line]
+        self.assertTrue(root_steps)
+        for index in root_steps:
+            with self.subTest(line=index + 1):
+                self.assertIn("PYTHONDONTWRITEBYTECODE=1", lines[index])
+                self.assertIn("run_suite.compile_runtime()", lines[index - 1])
+
     def test_suite_and_workflow_changes_select_controls_instead_of_everything(self):
         sources = {**self.SOURCES, "tests.test_run_suite": "", "tests.test_ci_scope": ""}
         for path in (

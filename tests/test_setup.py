@@ -373,9 +373,10 @@ class SetupTests(unittest.TestCase):
     def test_new_runs_on_one_vendor_say_who_checks_and_where_a_second_vendor_is_explained(self):
         """Setup said only "New runs use Claude Code", so a person could not tell that its checks stay with
         one vendor's models or how to have a second vendor check the work."""
-        for engine, label in (("claude", "Claude Code"), ("codex", "Codex")):
+        codex_in = row("codex", "Codex", "credentials_present")
+        for engine, label, found in (("claude", "Claude Code", CLAUDE_IN), ("codex", "Codex", codex_in)):
             with self.subTest(engine=engine):
-                shown = setup.text([CLAUDE_IN], {"id": engine, "label": label, "reason": f"{label} is connected"})
+                shown = setup.text([found], {"id": engine, "label": label, "reason": f"{label} is connected"})
                 self.assertIn(f"{label}'s own models check each other's work (a model never checks itself)", shown)
                 self.assertIn("docs/models.md#checks-by-a-second-vendor", shown)
         on_a_hub = setup.text([CLAUDE_IN], {"id": "opencode", "label": "OpenCode", "reason": "signed in"})
@@ -387,8 +388,15 @@ class SetupTests(unittest.TestCase):
         shown = setup.text([CLAUDE_IN, gemini_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
         self.assertIn("Gemini CLI is signed in too, so it checks the work of new runs on Claude Code", shown)
         self.assertNotIn("own models check each other's work", shown)
-        codex = setup.text([gemini_in], {"id": "codex", "label": "Codex", "reason": "connected"})
-        self.assertIn("Codex's own models check each other's work", codex)
+        # Claude Code and Codex check each other: a Codex run's Tester and Completion Reviewer move to a signed-in
+        # Claude Code (it has no Plan Reviewer unless it plans jointly), and a Claude Code run's checks to Codex.
+        codex = setup.text([CLAUDE_IN, codex_in], {"id": "codex", "label": "Codex", "reason": "connected"})
+        self.assertIn(
+            "Claude Code is signed in too, so it checks the work of new runs on Codex (Tester, Completion Reviewer)",
+            codex,
+        )
+        claude = setup.text([CLAUDE_IN, codex_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
+        self.assertIn("Codex is signed in too, so it checks the work of new runs on Claude Code (Plan Reviewer", claude)
 
     def test_invalid_numeric_hub_choices_return_without_installing(self):
         found = [

@@ -49,8 +49,17 @@ TASK_PLANNER_STAGES = {
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
+if sys.argv[1:] == ["--version"]:
+    # Older than the bundled codex provider config needs (0.160.0), so a fixture Claude Code or Gemini CLI run
+    # keeps its checks on its own tool; tests/test_codex_transport_cli.py runs fake_codex_config.py for that.
+    print(os.environ.get("AUTOCODE_FIXTURE_CODEX_VERSION", "codex-cli 0.159.0"))
+    raise SystemExit(0)
 
 prompt = sys.stdin.read()
+if os.environ.get("AUTOCODE_FIXTURE_CODEX_LOG"):
+    # One line per stage call: its argv and the start of its prompt, never the environment's values.
+    with open(os.environ["AUTOCODE_FIXTURE_CODEX_LOG"], "a") as _log:
+        _log.write(json.dumps({"argv": sys.argv[1:], "prompt_head": prompt[:120]}) + "\n")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 schema = (
     json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())

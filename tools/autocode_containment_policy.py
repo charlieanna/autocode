@@ -45,14 +45,18 @@ def applies(settings, *, configured_tool=False) -> bool:
 
     Configured (TOML) providers never do; a native Codex run does only through an OpenCode
     route: a role on OpenCode, or a pinned --investigator-model provider/model, whose route
-    is saved outside ``roles`` until the Investigator runs.
+    is saved outside ``roles`` until the Investigator runs. A role bound to another tool
+    (``--role-transport``, a second vendor's checks) runs under that tool's own checks, not OpenCode's.
     """
     settings = settings or {}
     if configured_tool or settings.get("provider") not in (None, "opencode"):
         return False
     return (
         settings.get("engine") == "opencode"
-        or any(quota_route.engine(settings, role) == "opencode" for role in settings.get("roles") or {})
+        or any(
+            quota_route.engine(settings, role) == "opencode" and route.get("provider") in (None, "opencode", "openai")
+            for role, route in (settings.get("roles") or {}).items()
+        )
         or (stuck_job.pinned_route(settings) or {}).get("engine") == "opencode"
     )
 
