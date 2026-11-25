@@ -189,6 +189,10 @@ are two ways to get that:
 - **OpenCode or Kilo with two vendors' accounts**, for example a ChatGPT login and a Z.ai
   or Anthropic key. Each checker then runs on another family than what it checks, as in
   the defaults above. A signed-in OpenCode comes first when a run names no backend.
+- **Claude Code with its Tester on Gemini CLI**, signed in with Google:
+  `autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro`.
+  `autocode setup` prints this command when it finds both signed in
+  ([Gemini CLI provider](providers.md#gemini-cli-provider)).
 - **Claude Code with one stage on a Kilo account**:
   `autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL`,
   with `MODEL` from `autocode models --provider kilocode`

@@ -163,6 +163,7 @@ def source_identity():
         root / "autocode_util.py",
         *root.glob("providers/*.py"),
         *root.glob("prompts/fragments/provider-claude/*.md"),
+        *root.glob("prompts/fragments/provider-gemini/*.md"),
         root / "providers/configs/kilocode.toml",
     ]
     return {

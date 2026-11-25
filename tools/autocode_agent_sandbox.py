@@ -105,6 +105,7 @@ ENGINE_STATE = {
     "codex": (".codex",),
     "opencode": (".config/opencode", ".local/share/opencode", ".local/state/opencode"),
     "kilocode": (".config/kilo", ".local/share/kilo", ".local/state/kilo", ".kilocode"),
+    "gemini": (".gemini",),
 }
 # The login file of each engine, unreadable to a stage that another engine runs.
 ENGINE_LOGINS = {
@@ -112,6 +113,7 @@ ENGINE_LOGINS = {
     "codex": (".codex/auth.json",),
     "opencode": (".local/share/opencode/auth.json",),
     "kilocode": (".local/share/kilo/auth.json",),
+    "gemini": (".gemini/oauth_creds.json",),
 }
 # Package caches the project's own build and test commands write.
 CACHES = (

@@ -1,7 +1,8 @@
 """`autocode setup`: connect the backends AutoCode runs on, once, right after installing it (#2049).
 
-AutoCode offers four backends (owner decision 2026-10-30): Claude Code (a Claude subscription) and
-Codex (a ChatGPT login) as engines, and OpenCode and Kilo for every other account and API key.
+AutoCode offers five backends (owner decisions 2026-10-30 and 2026-11-25): Claude Code (a Claude
+subscription), Codex (a ChatGPT login) and Gemini CLI (a Google sign-in) as engines, and OpenCode and
+Kilo for every other account and API key.
 ``setup`` checks each one with its own login listing, the check ``autocode connections check``
 runs. In a terminal, when neither OpenCode nor Kilo is installed, it asks which of the two to install
 with npm (OpenCode, the pinned containment-qualified release, is the first choice), or neither: the
@@ -47,18 +48,19 @@ except ImportError:
 
 # The Kilo release setup installs: the first one qualified for this host's sandbox (Linux's where none is).
 KILO = (containment.kilo_versions() or containment.KILO_VERSIONS[containment.BUBBLEWRAP])[0]
-# The four backends, in the order setup shows them, with the install command for a missing one.
+# The backends, in the order setup shows them, with the install command for a missing one.
 BACKENDS = (
     ("claude", "npm install -g @anthropic-ai/claude-code"),
     ("codex", "npm install -g @openai/codex"),
     ("opencode", "npm install -g opencode-ai@1.18.33"),
     ("kilocode", f"npm install -g @kilocode/cli@{KILO}"),
+    ("gemini", "npm install -g @google/gemini-cli"),
 )
 INSTALL = dict(BACKENDS)
 # The hubs a person connects every other account and API key in; setup installs one when neither is present.
 HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": f"Kilo {KILO}"}
 # The backends that run tasks with no hub: a person signed in to one can start without OpenCode or Kilo.
-ENGINES = ("claude", "codex")
+ENGINES = ("claude", "codex", "gemini")
 # The command a hub installs; npm puts it in its own global bin, which may not be on PATH.
 EXECUTABLES = {"opencode": "opencode", "kilocode": "kilo"}
 NODE = "https://nodejs.org"
@@ -141,7 +143,7 @@ SAME_VENDOR_CHECKS = (
 
 
 def text(found, use) -> str:
-    lines = ["AutoCode runs on Claude Code, Codex, OpenCode or Kilo. What this machine has:"]
+    lines = ["AutoCode runs on Claude Code, Codex, Gemini CLI, OpenCode or Kilo. What this machine has:"]
     for row in found:
         state = str(row.get("connection_status") or "unknown")
         if row.get("install_command"):
@@ -149,6 +151,9 @@ def text(found, use) -> str:
             continue
         words = {"credentials_present": "signed in", "sign_in_required": "installed, not signed in"}
         lines.append(f"{MARKS.get(state, '✘')} {row['label']}: {words.get(state, state.replace('_', ' '))}")
+        if state not in CONNECTED and row["id"] in SAY_WHY and row.get("detail"):
+            # Gemini CLI's reason is the fix itself (an expired sign-in, a Workspace account's project).
+            lines.append(f"    {row['detail']}")
         if state not in CONNECTED:
             for action in row.get("actions") or []:
                 if action.get("id") == "login":
@@ -165,7 +170,32 @@ def text(found, use) -> str:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
         if use["id"] in ENGINES:
             lines.append(SAME_VENDOR_CHECKS.format(label=use["label"]))
+            second = second_vendor(found, use["id"])
+            if second:
+                lines.append(second)
     return "\n".join(lines)
+
+
+# The backends whose row says why it is not ready, not only how to sign in.
+SAY_WHY = frozenset({"gemini"})
+# A signed-in one-vendor backend that can check another's work, with the stage flags that move the Tester there.
+SECOND_VENDOR = {"gemini": ("Gemini CLI", "gemini-2.5-pro")}
+
+
+def second_vendor(found, engine) -> str | None:
+    """How to have a second signed-in vendor check the work of a run on ``engine``, or None."""
+    for row in found:
+        if row["id"] == engine or row["id"] not in SECOND_VENDOR or row.get("connection_status") not in CONNECTED:
+            continue
+        label, model = SECOND_VENDOR[row["id"]]
+        flag = "--engine claude" if engine == "claude" else f"--provider {engine}" if engine != "codex" else ""
+        if engine == "codex":
+            return None  # --role-transport binds roles on the OpenCode facade; Codex keeps its own transport
+        return (
+            f"{label} is signed in too, so it can check the work: "
+            f'autocode "your idea" {flag} --role-transport tester={row["id"]} --tester-model {model}'
+        )
+    return None
 
 
 # A hub's sign-in connects one of many accounts, in the hub's own picker; the offer says which, so
@@ -174,6 +204,10 @@ HUB_ACCOUNTS = {
     "opencode": "ChatGPT, Z.ai, MiMo or an API key",
     "kilocode": "ChatGPT, Z.ai, an API key or Kilo Gateway",
 }
+
+
+# What to do in a backend's own sign-in when it is the tool's ordinary start rather than a login command.
+SIGN_IN_HINTS = {"gemini": " (choose Sign in with Google, then type /quit)"}
 
 
 def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool:
@@ -192,7 +226,7 @@ def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool
         offer = (
             f"Connect an account in {row['label']} now ({HUB_ACCOUNTS[row['id']]})?"
             if row["id"] in HUB_ACCOUNTS
-            else f"Sign in to {row['label']} now?"
+            else f"Sign in to {row['label']} now{SIGN_IN_HINTS.get(row['id'], '')}?"
         )
         answer = ask(f"{offer} {'[Y/n]' if fresh else '[y/N]'} ").strip().lower()
         if answer not in (("", "y", "yes") if fresh else ("y", "yes")):

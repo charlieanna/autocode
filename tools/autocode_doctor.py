@@ -249,7 +249,33 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
                 "only for --engine codex: npm install -g @openai/codex, then `codex login`",
             )
         )
+    if which("gemini"):
+        # Optional, so a missing Gemini CLI adds no row; an installed one says whether it can run stages.
+        checks.append(gemini_check(runner))
     return checks
+
+
+GEMINI_FIX = "run `gemini` in a terminal and choose Sign in with Google; docs/providers.md#gemini-cli-provider"
+
+
+def gemini_check(runner=run) -> Check:
+    """Gemini CLI signed in with Google, by its own model listing (no model call): a run on it, or a role
+    moved to it with --role-transport, needs this. A Workspace account without GOOGLE_CLOUD_PROJECT is named
+    with the line that fixes it."""
+    try:
+        account = autocode_providers.resolve("gemini").login_check(None, run=None if runner is run else runner)
+    except captured.ProcessError:
+        raise
+    except (OSError, RuntimeError, ValueError) as error:
+        reason = str(error)
+        fix = (
+            'add `export GOOGLE_CLOUD_PROJECT="your-project-id"` to your shell profile, open a new terminal and run '
+            "`gemini` once; docs/providers.md#gemini-cli-provider"
+            if "GOOGLE_CLOUD_PROJECT" in reason
+            else GEMINI_FIX
+        )
+        return Check("engine:gemini", WARN, reason, fix)
+    return Check("engine:gemini", OK, f"Gemini CLI {account['version']}, signed in with Google")
 
 
 def codex_billing_check(*, environ=None, config_path=None) -> Check:
@@ -302,11 +328,16 @@ def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
     """A default provider other than the built-in OpenCode (docs/providers.md#add-a-tool) is
     ready when its config loads and its command answers: the check a run makes before launching it."""
     try:
-        settings = resolve(name).local_settings()
+        facade = resolve(name)
+        settings = facade.local_settings()
+        if name == "gemini":
+            # Built in like claude, but a run on it needs its Google sign-in before the first stage.
+            facade.login_check(None)
     except captured.ProcessError:
         raise
     except (OSError, RuntimeError, ValueError) as error:
-        return Check(f"provider:{name}", MISSING, str(error), "see docs/providers.md#add-a-tool")
+        fix = GEMINI_FIX if name == "gemini" else "see docs/providers.md#add-a-tool"
+        return Check(f"provider:{name}", MISSING, str(error), fix)
     if not settings.get("config_path"):
         return Check(f"provider:{name}", OK, f"provider {name} is built in")
     return Check(f"provider:{name}", OK, f"provider {name} answers (configured in {settings.get('config_path')})")

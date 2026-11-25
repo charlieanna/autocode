@@ -1,7 +1,7 @@
 # AutoCode Task Chat for VS Code
 
 Chat with [AutoCode](https://github.com/charlieanna/autocode) in the VS Code sidebar.
-AutoCode runs your coding agent (Claude Code, Codex, OpenCode or Kilo) through
+AutoCode runs your coding agent (Claude Code, Codex, Gemini CLI, OpenCode or Kilo) through
 Requirements, a reviewed plan you approve, the build and independent checks, and
 reports a task done only with evidence. Early preview.
 

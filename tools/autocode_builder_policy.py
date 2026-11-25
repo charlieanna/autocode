@@ -137,7 +137,9 @@ def configured(strong_model=None, provider=None, single_model=None):
         not single_model
         and config["strong_model"]
         and independence.may_share(
-            config["strong_model"], config["checker_model"], vendor_engine=getattr(provider, "NAME", None) == "claude"
+            config["strong_model"],
+            config["checker_model"],
+            vendor_engine=getattr(provider, "NAME", None) in independence.VENDOR_PROVIDERS,
         )
     ):
         # Refused here, at run creation: the same clash found at escalation would pause mid-run.

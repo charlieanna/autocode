@@ -18,7 +18,7 @@ this guide. WSL must meet the same Linux kernel requirements.
 
 If prerequisites are missing, on Ubuntu install `python3-venv`, `pipx` and `git`
 with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
-is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+is needed to install Claude Code, Codex, Gemini CLI, OpenCode or Kilo with npm. API keys go in
 OpenCode or Kilo; the built-in
 [API-key connection](providers.md#autocode-direct-connections-issue-1493) is retired.
 
@@ -57,7 +57,7 @@ offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.
 
 **Connect your accounts once.** Run `autocode setup` right after installing. It
-checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+checks Claude Code, Codex, Gemini CLI, OpenCode and Kilo. When neither OpenCode nor Kilo is
 installed it asks which of the two to install with npm, or neither (Enter takes
 OpenCode; `--install kilocode` installs Kilo without asking), then offers the sign-in of each installed one that is not signed in
 (Enter signs in to the hub it just installed), and says which backend your tasks will use. When

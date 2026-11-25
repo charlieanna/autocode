@@ -47,7 +47,7 @@ installation](docs/install.md#advanced-install-from-a-checkout). See the
 [release verification record](docs/bugs/2026-10-27-release-installation.md) for
 what was checked and the limits of that evidence.
 
-Run `autocode setup` once: it checks Claude Code, Codex, OpenCode and Kilo,
+Run `autocode setup` once: it checks Claude Code, Codex, Gemini CLI, OpenCode and Kilo,
 installs OpenCode if you have no hub yet, offers each one's own sign-in, and says
 which one your tasks will use. Then
 choose an engine you have connected, or pass none. For example, with a logged-in Codex CLI:

@@ -24,7 +24,7 @@ try:
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from . import autocode_tool_containment as tool_containment
-    from .providers import claude, command, env_prep
+    from .providers import claude, command, env_prep, gemini
 except ImportError:
     import autocode_captured_process as captured
     import autocode_codex_settings as codex_settings
@@ -33,7 +33,7 @@ except ImportError:
     import autocode_project_config as project_config
     import autocode_providers as providers
     import autocode_tool_containment as tool_containment
-    from providers import claude, command, env_prep
+    from providers import claude, command, env_prep, gemini
 
 BUILTINS = {
     # Codex is an engine (--engine codex), not a provider config; its row lets a client say it is installed
@@ -42,6 +42,9 @@ BUILTINS = {
     "kilocode": ("Kilo", "kilo", ["kilo", "auth", "login"], ["kilo", "auth", "list"]),
     "opencode": ("OpenCode", "opencode", ["opencode", "auth", "login"], ["opencode", "auth", "list"]),
     "claude": ("Claude Code", "claude", ["claude", "auth", "login"], ["claude", "auth", "status", "--json"]),
+    # Gemini CLI has no login subcommand: `gemini` itself offers Sign in with Google on its first start, and
+    # its check is providers.gemini.login_check (the sign-in it is set to, then its own model listing).
+    "gemini": ("Gemini CLI", "gemini", ["gemini"], ["gemini", "models", "list", "--output-format", "json"]),
 }
 
 
@@ -156,6 +159,8 @@ def connection_view(name, *, check=False):
             return row
         if not check:
             return row
+        if name == "gemini":
+            return _gemini_checked(row)
         try:
             result = captured.run_metadata(status, timeout=connected_engine.CHECK_TIMEOUT)
         except (OSError, subprocess.TimeoutExpired):
@@ -225,6 +230,42 @@ def connection_view(name, *, check=False):
         raise
     except (OSError, ValueError, RuntimeError):
         row["detail"] = "Provider configuration could not be loaded. Check its user-level TOML configuration."
+    return row
+
+
+GEMINI_SIGN_IN = (
+    "Run `gemini` in a terminal, choose Sign in with Google and finish in the browser, then type /quit and check again."
+)
+
+
+def _gemini_checked(row):
+    """The Gemini CLI row after its own check: the sign-in it is set to, then its model listing (no model call).
+
+    The reason is Gemini CLI's own or AutoCode's plain sentence for it, such as the Workspace account that needs
+    ``GOOGLE_CLOUD_PROJECT``; never the account's email or project.
+    """
+    try:
+        gemini.login_check(None)
+    except captured.ProcessError:
+        raise
+    except subprocess.TimeoutExpired:
+        row.update(connection_status="check_failed", detail="The connection check did not finish within its limit.")
+        return row
+    except (OSError, RuntimeError) as error:
+        reason = str(error).replace(" No provider request was launched.", "").replace("; no agent was launched", "")
+        if any(words in reason for words in ("version check", "model listing", "cannot list")):
+            row.update(connection_status="check_failed", detail=reason)
+        elif "not signed in" in reason or "no saved Google sign-in" in reason:
+            row.update(connection_status="sign_in_required", detail=f"Not signed in. {GEMINI_SIGN_IN}")
+        elif "bills per token" in reason:
+            row.update(connection_status="sign_in_required", detail=f"Signed in, but a run would refuse it. {reason}")
+        else:
+            row.update(connection_status="sign_in_required", detail=reason)
+        return row
+    row.update(
+        connection_status="credentials_present",
+        detail="Signed in with Google. Model access shows up when a run starts.",
+    )
     return row
 
 

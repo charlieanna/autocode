@@ -134,7 +134,13 @@ LABELS = {
     role: (roles.ROUTE_SCREEN["task_planner"] if role == "task_planner" else roles.SCREEN[job])
     for role, job, _does, _advice in STAGES
 }
-BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "kilocode": "Kilo"}
+BACKEND_LABELS = {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "kilocode": "Kilo",
+    "gemini": "Gemini CLI",
+}
 # Codex has no model listing. These are the bare GPT names AutoCode runs on it (autocode_configure
 # DEFAULT_ROLE_MODELS, whose joint planning copies the task_planner route into Requirements and the Planner
 # and gives the Plan Reviewer CODEX_PLAN_REVIEWER_MODELS[0]; tests keep them in step).
@@ -310,9 +316,11 @@ def _offers(backend, workspace, *, resolve, discover) -> list[dict]:
     listed = provider.available_models(workspace)
     if listed is None:
         raise RuntimeError(f"{BACKEND_LABELS.get(backend, backend)} cannot list its models")
-    billing = "subscription" if backend == "claude" else None
-    account = "Claude subscription" if backend == "claude" else None
-    return [_option(model, None, account=account, billing=billing) for model in sorted(listed)]
+    billing = "subscription" if backend in ("claude", "gemini") else None
+    account = {"claude": "Claude subscription", "gemini": "Google sign-in"}.get(backend)
+    # Gemini CLI takes no reasoning level, so its models offer only their own default.
+    levels = [] if backend == "gemini" else None
+    return [_option(model, levels, account=account, billing=billing) for model in sorted(listed)]
 
 
 def _option(model, levels, *, account=None, billing=None, facts=None) -> dict:
@@ -364,9 +372,9 @@ def unavailable(role, model, effective, *, backend) -> str | None:
 
     ``effective`` maps each other role to the model it will run (a choice, or a default the backend
     offers). A checker never runs the model whose work it checks (autocode_verifier_independence);
-    on Claude Code and Codex, which reach one vendor, two different models of that vendor may.
+    on Claude Code, Codex and Gemini CLI, which reach one vendor, two different models of that vendor may.
     """
-    vendor = backend in ("claude", "codex")
+    vendor = backend in ("claude", "codex", "gemini")
     checkers = []
     for producer, verifier, _label in independence.PAIRS:
         other = effective.get(producer if role == verifier else verifier)

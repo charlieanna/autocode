@@ -32,6 +32,7 @@ try:
     from .autocode_report_bounds import MAX_REPORT_BYTES
     from .autocode_util import read as read_json
     from .providers import claude as claude_provider
+    from .providers import gemini as gemini_provider
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_first_reply_budget as first_reply_budget
@@ -47,6 +48,7 @@ except ImportError:
     from autocode_report_bounds import MAX_REPORT_BYTES
     from autocode_util import read as read_json
     from providers import claude as claude_provider
+    from providers import gemini as gemini_provider
 
 # Complete reports can contain hundreds of required per-line decisions. Keep
 # the existing hard artifact ceiling for both exact text and parsed content.
@@ -74,6 +76,8 @@ def _event_facade(record):
         return opencode
     if mode == "codex_events" and record.get("provider") == "claude":
         return claude_provider
+    if mode == "codex_events" and record.get("provider") == "gemini":
+        return gemini_provider
     return None
 
 
