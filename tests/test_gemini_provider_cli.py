@@ -115,7 +115,9 @@ class GeminiProviderCliTests(unittest.TestCase):
             self.assertIn('"write_file"', policy)
 
     def test_a_run_with_no_engine_takes_a_signed_in_gemini(self):
+        # Gemini comes after Claude Code, Codex and Kilo: with none of them on PATH it is the one taken.
         (self.bin / "claude").unlink()
+        (self.bin / "codex").unlink()
         run = taskrun.TaskRun.start(self.project, BRIEF, options=(), start_options=START, env=self.env, timeout=300)
         self.assertEqual("gemini", run.status()["provider"])
 
