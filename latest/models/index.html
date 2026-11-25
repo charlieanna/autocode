@@ -2318,7 +2318,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2490,7 +2490,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2583,6 +2583,10 @@ are two ways to get that:</p>
 <li><strong>OpenCode or Kilo with two vendors' accounts</strong>, for example a ChatGPT login and a Z.ai
   or Anthropic key. Each checker then runs on another family than what it checks, as in
   the defaults above. A signed-in OpenCode comes first when a run names no backend.</li>
+<li><strong>Claude Code with its Tester on Gemini CLI</strong>, signed in with Google:
+  <code>autocode "…" --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro</code>.
+  <code>autocode setup</code> prints this command when it finds both signed in
+  (<a href="../providers/#gemini-cli-provider">Gemini CLI provider</a>).</li>
 <li><strong>Claude Code with one stage on a Kilo account</strong>:
   <code>autocode "…" --engine claude --role-transport tester=kilocode --tester-model MODEL</code>,
   with <code>MODEL</code> from <code>autocode models --provider kilocode</code>

@@ -578,6 +578,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gemini-cli-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gemini CLI provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#add-a-tool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2242,6 +2253,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gemini-cli-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gemini CLI provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#add-a-tool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2406,7 +2428,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -3002,7 +3024,99 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+<h2 id="gemini-cli-provider">Gemini CLI provider<a class="headerlink" href="#gemini-cli-provider" title="Permanent link">&para;</a></h2>
+<p><code>--provider gemini</code> runs every stage through Google's Gemini CLI (<code>gemini</code>) with your Google sign-in:
+a free Gemini account, Google AI Pro or Ultra, or a Gemini Code Assist license. No API key is used. It
+is built in (<code>tools/providers/gemini.py</code>) on the OpenCode engine's facade, as the Claude Code provider
+is. Its main use is the other way round: a Claude Code run that hands its checks to Gemini, so a
+second vendor checks the work (<a href="../models/#checks-by-a-second-vendor">checks by a second vendor</a>).</p>
+<pre><code class="language-sh">npm install -g @google/gemini-cli
+gemini                                 # once: choose Sign in with Google, then type /quit
+autocode doctor                        # engine:gemini says signed in, or what to fix
+autocode &quot;Add a --json flag&quot; --engine claude --role-transport tester=gemini --tester-model gemini-2.5-pro
+autocode &quot;Add a --json flag&quot; --provider gemini
+</code></pre>
+<p><code>autocode setup</code> lists a signed-in Gemini CLI, and when new runs use Claude Code it prints the
+command above. A run that names no backend takes Gemini CLI only when OpenCode, Claude Code, Codex
+and Kilo are all absent or signed out (<a href="#default-provider">default engine</a>).</p>
+<p>Default routes: Gemini 3.5 Flash (<code>gemini-3.5-flash</code>) writes requirements, plans and builds; Gemini
+2.5 Pro (<code>gemini-2.5-pro</code>) reviews plans, tests and completes. <code>--*-model</code> takes any id <code>gemini models
+list</code> shows for your account, except the <code>auto</code> routers, which pick a model per request. Gemini CLI
+takes no reasoning level on its command line, so a stage's level is not sent; there is no stronger
+Builder attempt.</p>
+<p><strong>How a stage runs.</strong> Each stage is one process:
+<code>python -I tools/providers/gemini_stream.py … -- gemini --model M --output-format stream-json …</code>
+with the stage prompt on standard input. The translator reads Gemini CLI's stream and writes
+Codex-shaped events to the stage log, so usage, command activity, the idle watchdog and the output cap
+work as for any stage. Gemini's raw rows are kept beside the log as <code>&lt;stage&gt;.gemini.jsonl</code>.</p>
+<ul>
+<li><strong>Sessions.</strong> Every stage, a correction included, starts a fresh Gemini session. A stage is finished
+  when Gemini CLI's turn completes; the translator then writes the stage's report file.</li>
+<li><strong>Reports.</strong> The report is the model's last message, when it is one JSON object, bare or as the
+  whole message in one fenced block. Any other last message is kept as text and goes to the bounded
+  report repair.</li>
+<li><strong>Evidence.</strong> Gemini CLI does not report a shell command's exit code: a command that exits 3 shows
+  as a success with its output. So every command is a <code>command_execution</code> event with exit code <code>null</code>
+  and is never evidence by itself, and the stage prompt asks the model to run each check it cites
+  through the handoff's <code>capture_command</code>, whose receipt records the exit code.</li>
+<li><strong>Tools and permissions.</strong> <code>--approval-mode yolo</code>, so a headless call can run its tools, inside a
+  policy file AutoCode writes to the run directory (<code>gemini-policy/</code>): <code>git commit</code>, <code>push</code>,
+  <code>checkout</code>, <code>reset</code>, <code>stash</code>, <code>branch</code>, <code>rebase</code> and <code>merge</code>, and the <code>gh</code> commands that change
+  GitHub (<code>autocode_publish_guard</code>), are denied on every stage; a read-only stage also loses
+  <code>write_file</code> and <code>replace</code>. No extensions (<code>-e none</code>) and no MCP servers. The after-stage snapshot
+  still catches a judge's source edit made through the shell.</li>
+<li><strong>Login.</strong> At run start, in doctor and in <code>autocode connections</code>, AutoCode reads which sign-in
+  Gemini CLI is set to (<code>security.auth.selectedType</code> in <code>~/.gemini/settings.json</code>, or
+  <code>$GEMINI_CLI_HOME/.gemini</code>) and asks Gemini CLI for the account's model listing, which refreshes the
+  login without a model call. Only Sign in with Google is taken: a Gemini API key, Vertex AI or Cloud
+  credentials bill per token, and the agent scrub withholds <code>GEMINI_API_KEY</code> and <code>GOOGLE_API_KEY</code>
+  anyway. An expired sign-in, and a Google Workspace account that needs a Google Cloud project, are
+  read from Gemini CLI's own debug log and named with their fix.</li>
+<li><strong>Workspace accounts.</strong> Gemini CLI bills a Google Workspace account to a Google Cloud project, and
+  without one its sign-in fails with "This account requires setting the GOOGLE_CLOUD_PROJECT or
+  GOOGLE_CLOUD_PROJECT_ID env var". Add <code>export GOOGLE_CLOUD_PROJECT="your-project-id"</code> to your shell
+  profile, open a new terminal and run <code>gemini</code> once to sign in. Doctor, setup and a stage that stops
+  on it all say this.</li>
+<li><strong>Environment.</strong> The agent environment, plus <code>GEMINI_CLI_NO_RELAUNCH=true</code> (one process per
+  stage), minus <code>GEMINI_DEBUG_LOG_FILE</code>, <code>GEMINI_SYSTEM_MD</code> and <code>GEMINI_CLI_SYSTEM_SETTINGS_PATH</code>.
+  <code>GOOGLE_CLOUD_PROJECT</code> passes through.</li>
+<li><strong>Identity.</strong> A saved run records the launch policy (hashed), the resolved <code>gemini</code> and its version.
+  A change pauses it with <code>PAUSED_TRANSPORT_CHANGED</code>; resume with <code>--accept-transport-change</code>.</li>
+<li><strong>Cost.</strong> Gemini CLI reports tokens, not prices; a stage's cost is the dated price estimate, which
+  for a Google sign-in is list price, not your plan's spend.</li>
+</ul>
+<p><strong>Stops.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Gemini CLI says</th>
+<th>The run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No usable login (exit 41), a Workspace account without a project</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code> with the fix; sign in with <code>gemini</code> and resume</td>
+</tr>
+<tr>
+<td>Quota (<code>quota</code>)</td>
+<td><code>PAUSED_BUDGET</code></td>
+</tr>
+<tr>
+<td>Rate limit (429)</td>
+<td><code>PAUSED_RATE_LIMIT</code></td>
+</tr>
+<tr>
+<td>Anything else, a cut stream, a start failure</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code>, no automatic replay</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Limits.</strong> No kernel tool containment (the policy file and the workspace snapshot checks apply); no
+session resume, so a report correction is a fresh call; no verified visual evidence; no hybrid split
+by stage; no replay of recorded Gemini runs. Gemini CLI loads <code>GEMINI.md</code> files of the workspace and
+its ancestors.</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -3064,7 +3178,7 @@ provider, or <code>--engine claude</code>), repeat <code>--role-transport ROLE=P
 only those roles on another connected tool. <code>ROLE</code> is the existing CLI code name,
 such as <code>tester</code> or <code>completion</code>; <code>PROVIDER</code> names a tool with its own identity: a
 registered TOML config such as <code>kilocode</code>, the built-in <code>claude</code> provider, or the
-<code>autocode</code> direct connection. It cannot name the run's own tool, and <code>--engine
+<code>autocode</code> direct connection, or the built-in <code>gemini</code> provider. It cannot name the run's own tool, and <code>--engine
 codex</code> keeps Codex's own transport for every role. Each selection requires an
 explicit corresponding model flag. Select its exact model ID from that tool's
 catalogue, including a bare ID when the tool publishes one:</p>
@@ -3077,6 +3191,9 @@ autocode &quot;Your task&quot; --engine opencode --provider opencode \
 # A run on Claude Code with the Tester on a Kilo account (#2049).
 autocode &quot;Your task&quot; --engine claude \
   --role-transport tester=kilocode --tester-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;'
+# A run on Claude Code with the Tester on Gemini CLI and a Google sign-in.
+autocode &quot;Your task&quot; --engine claude \
+  --role-transport tester=gemini --tester-model gemini-2.5-pro
 </code></pre>
 <p>The other roles retain their routes selected by the ordinary model flags and
 OpenCode defaults. Roles derived mid-run (such as the Design Reviewer's Architect,
@@ -3534,7 +3651,8 @@ cross-model guard is for.</p>
 installed and nothing chooses (no <code>--engine</code> or <code>--provider</code>, no
 <code>AUTOCODE_PROVIDER</code>, no <code>default_provider</code>, no project <code>engine</code>), a new run
 takes the first connected backend in this order: Claude Code signed in to a
-subscription, Codex signed in, then Kilo with a connected account (#2049; the order is the proposed
+subscription, Codex signed in, Kilo with a connected account, then Gemini CLI signed in with
+Google (#2049; the order is the proposed
 "default engine" answer in #2054). The run prints <code>Engine for this run: …</code> with
 the reason, <code>doctor</code> names the same choice in its <code>engine</code> row, and a saved run
 keeps the engine it started with. Each check is the backend's own login listing,
@@ -3552,7 +3670,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
@@ -3667,8 +3785,8 @@ no guessed sign-in command. Provider files are trusted user configuration; files
 in a project are never discovered as connection definitions.</p>
 <h3 id="autocode-direct-connections-issue-1493">AutoCode direct connections (issue #1493)<a class="headerlink" href="#autocode-direct-connections-issue-1493" title="Permanent link">&para;</a></h3>
 <p><strong>Retired (owner decision 2026-10-30, #2049); removed in the next release.</strong> AutoCode offers
-four backends: Claude Code and Codex as engines, and OpenCode and Kilo for every other account
-and API key. Add API keys there (<code>opencode auth login</code>, <code>kilo auth login</code>). A direct connection
+five backends: Claude Code and Codex as engines, Gemini CLI on a Google sign-in (owner decision
+2026-11-25), and OpenCode and Kilo for every other account and API key. Add API keys there (<code>opencode auth login</code>, <code>kilo auth login</code>). A direct connection
 that is already configured still appears in <code>autocode connections list</code>, and <code>--provider
 autocode</code> still runs on it until then; nothing offers it to a new user, and <code>connections setup</code>
 and <code>connections add</code> print that notice first. The rest of this section describes it until it

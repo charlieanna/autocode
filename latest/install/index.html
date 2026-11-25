@@ -2150,7 +2150,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/README.md">← Back to README</a></p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <p>For the shortest path, with the VS Code extension, see the one-page
 <a href="../quickstart/">quickstart</a>. This section covers the terminal and every option.</p>
@@ -2163,7 +2163,7 @@ process-ownership guarantee and for the provider-backed regression checks in
 this guide. WSL must meet the same Linux kernel requirements.</p>
 <p>If prerequisites are missing, on Ubuntu install <code>python3-venv</code>, <code>pipx</code> and <code>git</code>
 with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
-is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+is needed to install Claude Code, Codex, Gemini CLI, OpenCode or Kilo with npm. API keys go in
 OpenCode or Kilo; the built-in
 <a href="../providers/#autocode-direct-connections-issue-1493">API-key connection</a> is retired.</p>
 <p>On macOS, OpenCode and Kilo's contained tool commands also need Homebrew Bash
@@ -2187,13 +2187,13 @@ autocode demo
 not current master; this guide's
 <code>latest</code> documentation can describe newer features and fixes. Use the
 <a href="#advanced-install-from-a-checkout">advanced checkout/master installation</a>
-when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/3285c2fe9ccb6a1ba8e483a55d68bed5d7e67089/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
+when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/e2b498128a78c8915150b6a7a7564c82b5b153e3/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
 distinguishes distribution smoke checks from task/provider qualification.
 If pipx's Python is older than 3.11, add <code>--python python3.11</code>. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.</p>
 <p><strong>Connect your accounts once.</strong> Run <code>autocode setup</code> right after installing. It
-checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+checks Claude Code, Codex, Gemini CLI, OpenCode and Kilo. When neither OpenCode nor Kilo is
 installed it asks which of the two to install with npm, or neither (Enter takes
 OpenCode; <code>--install kilocode</code> installs Kilo without asking), then offers the sign-in of each installed one that is not signed in
 (Enter signs in to the hub it just installed), and says which backend your tasks will use. When
