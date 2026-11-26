@@ -109,13 +109,13 @@ class JoinedGraphCLI(unittest.TestCase):
                 self.build()
                 self.assertEqual(all_starts, self.events(), "Repeated build must retain successful sibling work")
                 self.assertEqual(completed, self.status()["view"]["progress"]["tasks"]["done"])
-                # The last review also proves the complete 21-node product. Its
-                # real subprocess checks exceed the small fixture's 90 s bound.
-                self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], timeout=300)
+                # The last review also proves the complete 21-node product, so its bound is
+                # the module's recorded one (tests.cli_budget), not a fixed 300 s (#4196).
+                self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
                 completed += len(wave)
                 self.assertEqual(completed, self.status()["view"]["progress"]["tasks"]["done"])
                 self.assertEqual(all_starts, self.events(), "Report repair must not replay a Builder")
-        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], timeout=300)
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         final = self.status()
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertTrue(final["completion_current"])
