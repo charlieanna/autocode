@@ -36,6 +36,15 @@ class BaselineIdentityTests(unittest.TestCase):
         after = verify.baseline_identity(project.root, command=self.command)
         self.assertNotEqual(before.get("dependencies"), after.get("dependencies"))
 
+    def test_several_dependency_trees_are_bound_in_path_order(self):
+        project = Project({"app.py": "x = 1\n", ".gitignore": "node_modules\nvenv\n"})
+        self.addCleanup(project.close)
+        project.write({"node_modules/left-pad/index.js": "1\n", "venv/lib/site.py": "2\n"})
+        identity = verify.baseline_identity(project.root, command=self.command)
+        paths = [row["path"] for row in identity["dependencies"]]
+        self.assertEqual(paths, sorted(paths))
+        self.assertEqual({Path(path).name for path in paths}, {"node_modules", "venv"})
+
     def test_global_interpreter_still_offers_reuse(self):
         project = Project({"app.py": "x = 1\n", "test_app.py": "import unittest\n"})
         self.addCleanup(project.close)
