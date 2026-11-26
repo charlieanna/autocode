@@ -28,7 +28,8 @@ the flag on a host that cannot provide it (``problem()``).
 The agent still reads its own engine's login (it needs it to call its model) and the
 environment AutoCode hands it, from which ``autocode_agent_env`` withholds credential variables.
 
-Imports nothing from AutoCode (its RunState annotation only while type checking).
+Imports nothing from AutoCode but autocode_userns, which imports nothing (its RunState annotation only
+while type checking).
 """
 
 from __future__ import annotations
@@ -42,6 +43,11 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+try:
+    from . import autocode_userns as userns
+except ImportError:
+    import autocode_userns as userns
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -131,8 +137,15 @@ CACHES = (
 )
 LINUX_TEMP = ("/tmp", "/var/tmp", "/dev/shm")
 # An explicit user namespace: the CLI drops CAP_SYS_ADMIN from a root runner, and bwrap run by root
-# without it creates no namespace of its own. Ordinary users get one anyway.
-_BWRAP_BASE = (BWRAP, "--unshare-user", "--die-with-parent", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev")
+# without it creates no namespace of its own. Ordinary users get one anyway. For root it maps every id
+# (autocode_userns), so the agent keeps root's access to files other users own.
+_BWRAP_TAIL = ("--die-with-parent", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev")
+
+
+def _bwrap_base():
+    return [*userns.bubblewrap(BWRAP), *_BWRAP_TAIL]
+
+
 MACOS_TEMP = ("/private/tmp", "/private/var/tmp", "/private/var/folders", "/dev")
 
 
@@ -154,7 +167,7 @@ def _bubblewrap_problem():
         return f"the agent sandbox needs Linux bubblewrap at {BWRAP} (install the bubblewrap package)"
     try:
         probe = subprocess.run(
-            [*_BWRAP_BASE, "/bin/sh", "-c", ":"],
+            [*_bwrap_base(), "/bin/sh", "-c", ":"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -244,7 +257,7 @@ def policy(*, workspace, run_dir, provider, home=None, environment=None, platfor
 def bubblewrap_arguments(writable, denied):
     """bwrap's arguments: the root read-only, each existing writable path bound back, then each existing
     credential store covered, last, so a writable cache never uncovers a credential file inside it."""
-    arguments = list(_BWRAP_BASE)
+    arguments = _bwrap_base()
     for path in writable:
         if path.exists() and str(path) != "/dev":
             arguments += ["--bind", str(path), str(path)]

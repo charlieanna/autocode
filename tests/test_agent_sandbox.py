@@ -85,9 +85,8 @@ class PolicyTests(unittest.TestCase):
     def test_bubblewrap_masks_existing_credentials_after_every_writable_bind(self):
         writable, denied = self.policy()
         arguments = agent_sandbox.bubblewrap_arguments(writable, denied)
-        self.assertEqual(
-            [agent_sandbox.BWRAP, "--unshare-user", "--die-with-parent", "--ro-bind", "/", "/"], arguments[:6]
-        )
+        prefix = agent_sandbox.userns.bubblewrap(agent_sandbox.BWRAP)
+        self.assertEqual([*prefix, "--die-with-parent", "--ro-bind", "/", "/"], arguments[: len(prefix) + 4])
         self.assertEqual("--", arguments[-1])
         binds = [arguments[i + 1] for i, part in enumerate(arguments) if part == "--bind"]
         self.assertIn(str(self.workspace), binds)
@@ -184,7 +183,8 @@ class LaunchTests(unittest.TestCase):
         with mock.patch.object(agent_sandbox, "problem", return_value=None):
             command, _, _, worker = launch.prepare(**self.options, settings={"agent_sandbox": True})
         self.assertEqual(plain, command[len(command) - len(plain) :])
-        self.assertIn(command[0], (agent_sandbox.BWRAP, agent_sandbox.SANDBOX_EXEC))
+        # Root starts bubblewrap through autocode_userns, so it keeps reading other users' files.
+        self.assertTrue({agent_sandbox.BWRAP, agent_sandbox.SANDBOX_EXEC} & set(command[:4]), command[:4])
         self.assertEqual(command, worker["command"])
         record = launch.stage_record(worker)["agent_sandbox"]
         self.assertEqual(agent_sandbox.backend(), record["backend"])
@@ -289,7 +289,7 @@ class SandboxedFakeCodexFlow(unittest.TestCase):
         launched = [record for record in state["stages"] if record.get("command")]
         self.assertTrue(launched)
         for record in launched:
-            self.assertEqual(agent_sandbox.BWRAP, record["command"][0], record["stage"])
+            self.assertIn(agent_sandbox.BWRAP, record["command"][:4], record["stage"])
             self.assertEqual("bubblewrap", record["agent_sandbox"]["backend"], record["stage"])
             self.assertIn(str(self.home / ".aws"), record["agent_sandbox"]["denied_reads"])
         resumed = self.launch(["--run-dir", str(run), "--status"], 0)

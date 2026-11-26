@@ -628,6 +628,16 @@ home directory) the command runs as before and `read_boundary` records why, owne
 AutoCode on such a host. A command run outside a proof copy (in the workspace itself, or a native
 check with its own owner) is not wrapped.
 
+Bubblewrap's own user namespace (`--unshare-user`) maps only the caller's id. For root that took
+away root's access to files other users own: inside, they belong to an unmapped id, so
+`CAP_DAC_OVERRIDE` no longer applies, and CI's demo, run under sudo, could not start its proof
+command's interpreter in the runner's 0750 home. So root starts bubblewrap through
+`autocode_userns`, which creates the namespace with every id mapped to itself and runs bubblewrap as
+root inside it; the command keeps only the capabilities in the CLI's bounding set (it drops
+`CAP_SYS_ADMIN` from a root runner), so it cannot undo the boundary's mounts. The opt-in agent sandbox
+(`autocode_agent_sandbox`) starts bubblewrap the same way. An ordinary user still gets
+`bwrap --unshare-user`.
+
 The saved-proof inventory found 180 retained verification receipts (168 unittest,
 5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are
 legacy compatibility evidence, not observations this detector made. The eligible

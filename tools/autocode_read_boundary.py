@@ -26,8 +26,12 @@ sandbox-exec, another platform), the command runs as before and its receipt reco
 decision 2026-11-25: phases 1 and 2 still hold or prevent the escapes they see, and holding every
 proof would stop AutoCode on such a host. ``record`` is what the receipt keeps.
 
-Imports only autocode_agent_sandbox, autocode_dependency_dirs and autocode_scratch_location, none of
-which imports AutoCode.
+Bubblewrap runs in a user namespace that keeps the caller's access to files (``autocode_userns``): for
+root, one that maps every id, since bubblewrap's own maps only root and so took away root's access to
+files other users own.
+
+Imports only autocode_agent_sandbox, autocode_dependency_dirs, autocode_scratch_location and
+autocode_userns, none of which imports AutoCode.
 """
 
 from __future__ import annotations
@@ -43,13 +47,16 @@ try:
     from . import autocode_agent_sandbox as agent_sandbox
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_scratch_location as scratch_location
+    from . import autocode_userns as userns
 except ImportError:
     import autocode_agent_sandbox as agent_sandbox
     import autocode_dependency_dirs as dependency_dirs
     import autocode_scratch_location as scratch_location
+    import autocode_userns as userns
 
 HIDE, SHOW = "hide", "show"
-_BWRAP = (agent_sandbox.BWRAP, "--unshare-user", "--die-with-parent", "--bind", "/", "/", "--dev-bind", "/dev", "/dev")
+# What follows the user namespace (autocode_userns), which keeps root's access to other users' files.
+_BWRAP = ("--die-with-parent", "--bind", "/", "/", "--dev-bind", "/dev", "/dev")
 _PROBE_PROFILE = "(version 1)(allow default)"
 
 
@@ -63,8 +70,7 @@ def problem(platform=None):
     if platform != sys.platform:
         return None
     if host == agent_sandbox.BUBBLEWRAP:
-        trouble = agent_sandbox._bubblewrap_problem()
-        return trouble.replace("the agent sandbox", "the read boundary") if trouble else None
+        return _bubblewrap_problem()
     if not Path(agent_sandbox.SANDBOX_EXEC).is_file():
         return f"the read boundary needs macOS sandbox-exec, which is missing at {agent_sandbox.SANDBOX_EXEC}"
     try:
@@ -80,6 +86,29 @@ def problem(platform=None):
         detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
         # A process already inside a Seatbelt sandbox (a Codex shell) cannot start another.
         return f"{agent_sandbox.SANDBOX_EXEC} cannot start a sandbox here (exit {probe.returncode}: {detail})"
+    return None
+
+
+def _bubblewrap_problem():
+    """Why bubblewrap cannot start the boundary's namespace here, probed with the command line a proof uses."""
+    if not Path(agent_sandbox.BWRAP).is_file():
+        return f"the read boundary needs Linux bubblewrap at {agent_sandbox.BWRAP} (install the bubblewrap package)"
+    try:
+        probe = subprocess.run(
+            [*bubblewrap_arguments([]), "/bin/sh", "-c", ":"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"the read boundary could not run {agent_sandbox.BWRAP}: {error}"
+    if probe.returncode:
+        detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
+        return (
+            f"{agent_sandbox.BWRAP} cannot create the namespace the read boundary needs (exit {probe.returncode}: "
+            f"{detail}); this host may deny user namespaces"
+        )
     return None
 
 
@@ -178,7 +207,7 @@ def for_command(cwd, *, outputs=(), platform=None):
 
 
 def bubblewrap_arguments(rules):
-    arguments = list(_BWRAP)
+    arguments = [*userns.bubblewrap(agent_sandbox.BWRAP), *_BWRAP]
     for rule, path in rules:
         arguments += ["--tmpfs", str(path)] if rule == HIDE else ["--bind", str(path), str(path)]
     return [*arguments, "--"]
