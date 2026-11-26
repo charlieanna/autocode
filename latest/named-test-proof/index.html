@@ -1184,6 +1184,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Source resolution belongs to the proof copy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linked-dependencies-keep-custody-of-the-copy-4152-phase-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linked dependencies keep custody of the copy (#4152, phase 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1984,6 +2001,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Source resolution belongs to the proof copy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linked-dependencies-keep-custody-of-the-copy-4152-phase-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linked dependencies keep custody of the copy (#4152, phase 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2624,12 +2658,36 @@ judgment. The same hold applies to the original code, stability repeats,
 first-suite repair, independent check replay, protected replay, compatibility and acceptance evidence,
 companion suites, guards, the plan-time guard check, flake rechecks, follow-up
 baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
-failure either. External dependency origins remain allowed in this phase; an
-interpreter-controlled <code>._pth</code> runtime stays phase-2 dependency custody unless one
-of its roots enters the live workspace, which is held now. Linked dependency
-custody and a kernel read boundary are separate work. Legacy receipts
+failure either. External dependency origins remain allowed; an
+interpreter-controlled <code>._pth</code> runtime is runtime custody unless one of its roots
+enters the live workspace, which is held. Legacy receipts
 without an observation remain readable and neutral; deleting a required binding,
 or retaining a malformed or changed one, fails closed.</p>
+<h3 id="linked-dependencies-keep-custody-of-the-copy-4152-phase-2">Linked dependencies keep custody of the copy (#4152, phase 2)<a class="headerlink" href="#linked-dependencies-keep-custody-of-the-copy-4152-phase-2" title="Permanent link">&para;</a></h3>
+<p>A proof copy uses the person's installed dependencies through a link, and an installed directory
+can lead back into the live tree: an editable install's <code>.pth</code> file or finder names the live
+<code>src/</code>, a script's <code>#!</code> line names the live <code>.venv</code>, and <code>npm link</code> or a workspace package makes
+<code>node_modules/&lt;name&gt;</code> a link to the live package. The original code's copy then imported the
+candidate's new module through it. Each copy now gets an environment of its own
+(<code>autocode_dependency_dirs.expose</code>): a <code>.venv</code> or <code>venv</code> view whose directories down to each
+<code>site-packages</code> and <code>bin</code> are its own and whose other entries link to the person's, with the files
+that name paths (<code>.pth</code>, editable finders and egg-links, top-level modules, <code>#!</code> scripts,
+<code>activate</code>, <code>pyvenv.cfg</code>) copied and re-pointed at the copy; and a <code>node_modules</code> view in which a
+package, a scope's package or a <code>.bin</code> command that links into live source links to the copy's own
+package. Python finds <code>pyvenv.cfg</code> beside the path it was started by, so the copy's interpreter
+reads the copy's <code>site-packages</code>. The person's environment is never written, and a package
+manager run in the copy changes only the view. The same view serves the regression proof's trees,
+a package's own <code>node_modules</code> and the Tester's clean copy.</p>
+<p>What a package manager installed is a dependency wherever it is installed. A file found in the
+interpreter's site directories is classified by where it was found, before links are followed, and
+an observed dependency inside the workspace's own <code>.venv</code>, <code>venv</code> or <code>node_modules</code> is not live
+source (<code>autocode_source_binding.assess</code>). Before, a project that kept its virtualenv or its
+<code>node_modules</code> in the project folder had every proof that imported an installed package held as
+<code>UNVERIFIED</code>, while the same package installed beside the main checkout passed. Live source
+reached through those directories resolves outside them and is still held: custody is what keeps
+it out, and the boundary still holds what custody missed (a link nested inside an installed
+package, a path a test names itself). Installed directories are shared by the original code's and
+the candidate's copies, as before; a kernel read boundary is phase 3.</p>
 <p>The saved-proof inventory found 180 retained verification receipts (168 unittest,
 5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are
 legacy compatibility evidence, not observations this detector made. The eligible
