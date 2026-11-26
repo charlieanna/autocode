@@ -165,6 +165,19 @@ arguments are checked against each tool's schema, and an argument it does not
 name, such as `options`, is refused. `autocode_respond` takes the same decisions as
 the steps above: `approve_plan`, `revise_plan`, `answer`, `continue` and `follow_up`.
 
+### Every project's runs
+
+The server has a fifth tool, `autocode_runs`, so you can ask the agent "what is AutoCode
+running?" from any project. It returns what `autocode runs --all --json` prints: `counts`
+of every run by bucket (`needs you`, `working`, `settled`, `unreadable`) and one row per
+run with its `workspace`, `title`, `status`, `pause_category_label`, `phase`, `updated_at`
+and `next_command`. `show` selects the rows: `active` (the default: runs that need you or
+are still working), `needs` (only runs that need you) or `all` (finished runs too).
+
+It reads only. The other four tools act on the server's own workspace, so a run of another
+project is yours to act on there, with the `next_command` its row names. With the skill,
+the agent runs `autocode runs --all --active --json` for the same rows.
+
 ## Verify a change you made
 
 To have AutoCode judge a change the agent already made, start a review run that
