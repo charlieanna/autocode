@@ -181,6 +181,11 @@ class ListScreenTests(unittest.TestCase):
         frame = board.frame(self.board, 100, 20, NOW)
         self.assertIn("read 7s ago", frame[0][0], "a failed reread leaves the list as old as it is")
         self.assertIn("Could not read the list", frame[1][0])
+        for width, first in (
+            (60, "0 needs you · 158 working · 0 settled   read 7s ago"),
+            (40, "read 7s ago   0 needs you · 158 working…"),
+        ):
+            self.assertEqual(first, board.frame(self.board, width, 20, NOW)[0][0], "the list's age is cut last")
         tiny = board.frame(self.board, 100, 5, NOW)
         self.assertEqual(5, len(tiny))
         self.assertIn("Task run000", text(tiny), "a window too short to keep them gives its lines to the rows")
@@ -264,6 +269,7 @@ class RunScreenTests(unittest.TestCase):
             board.targets(self.board),
             "the list is off screen: it is reread now and then, the open run every few seconds",
         )
+        self.assertEqual(self.key, board.onscreen(self.board), "opening a run reads that run, not the list again")
         self.assertIn("Reading the run", self.shown())
         board.apply(self.board, [(self.key, json.dumps({"view": VIEW}), "")])
         shown = self.shown()
@@ -342,6 +348,7 @@ class RunScreenTests(unittest.TestCase):
         self.assertEqual(text(first), text(board.frame(self.board, 100, 12, NOW)))
         self.assertIn("Esc back to the list", frame[-1][0])
         self.assertEqual("reread", board.press(self.board, "back"), "the list was off screen, so it is read again")
+        self.assertEqual(("/work", None), board.onscreen(self.board))
         self.assertIsNone(self.board.opened)
         self.assertEqual("Task build", board.picked(self.board)["title"])
         self.assertEqual({("/work", None): board.INTERVAL}, board.targets(self.board))
@@ -366,7 +373,9 @@ class ReaderLimitTests(unittest.TestCase):
             made.update(options, command=command)
             return mock.Mock()
 
-        terminal = mock.Mock(isatty=lambda: True)
+        # A terminal for the board's own check, with no file number: Python 3.14's argparse asks
+        # os.isatty(sys.stdout.fileno()) whether to colour its help, and is told no.
+        terminal = mock.Mock(isatty=lambda: True, fileno=lambda: -1)
         with (
             mock.patch.object(board.polling, "StatusPoller", reader),
             mock.patch("curses.wrapper") as drawn,

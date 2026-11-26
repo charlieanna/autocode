@@ -108,6 +108,11 @@ def targets(board: Board) -> dict:
     return {(board.home, None): INTERVAL}
 
 
+def onscreen(board: Board) -> tuple:
+    """The one read the screen in front of the person shows: what `r`, Enter and going back read again."""
+    return board.opened or (board.home, None)
+
+
 def apply(board: Board, results: list[tuple], now: float | None = None) -> None:
     """Take the reader's results. A failed read keeps what was last shown and says so."""
     for key, text, error in results:
@@ -219,8 +224,11 @@ def _list_head(board: Board, width: int, now: float) -> list[Line]:
     """The lines that stay at the top of the list screen: the counts, when they were read, a failed read."""
     title = "AutoCode runs"
     if board.loaded:
-        read = f"   read {_ago(now - board.read_at)} ago" if board.read_at is not None else ""
-        title = f"AutoCode runs   {_summary(board)}{read}"
+        counts = _summary(board)
+        read = f"read {_ago(now - board.read_at)} ago" if board.read_at is not None else ""
+        # What a narrow window drops first is the board's name, and last how old the list is.
+        fits = (f"AutoCode runs   {counts}   {read}".rstrip(), f"{counts}   {read}".rstrip(), f"{read}   {counts}")
+        title = next((text for text in fits if len(text) <= width), fits[-1] if read else fits[0])
     lines: list[Line] = [(_fit(title, width), TITLE)]
     if board.error:
         kept = " Showing the last one read." if board.loaded else ""
@@ -506,8 +514,7 @@ def run(stdscr, board: Board, poller, *, clock=time.time) -> None:
         if done == "quit":
             return
         if done == "reread":
-            for target in targets(board):
-                poller.refresh(target)
+            poller.refresh(onscreen(board))  # not the list behind an open run: it is read when it is shown
 
 
 def parser() -> argparse.ArgumentParser:
