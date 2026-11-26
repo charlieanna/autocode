@@ -122,7 +122,10 @@ class BoundaryTests(unittest.TestCase):
         )
         output = Path(receipt["output"]).read_text()
         self.assertEqual(0, receipt["exit_code"], output)
-        self.assertIn(f"copy 1 {tree / '.venv'}", output)
+        # The copy's own interpreter: its .venv, or on macOS the dependency view that .venv links to.
+        prefix = Path(output.splitlines()[0].removeprefix("copy 1 "))
+        self.assertTrue(output.startswith("copy 1 "), output)
+        self.assertTrue(prefix.is_relative_to(tree), output)
         self.assertIn("live hidden", output)
         self.assertEqual("<x/>", (evidence / "out.xml").read_text())
         self.assertEqual(str(live), receipt["read_boundary"]["hidden"][0])
