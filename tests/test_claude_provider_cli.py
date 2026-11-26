@@ -209,6 +209,23 @@ class ClaudeProviderCliTests(unittest.TestCase):
         self.assertEqual("ok", checks["engine"]["status"], started.stdout)
         self.assertIn("chosen from your connected accounts", checks["engine"]["detail"])
 
+    def test_full_report_repair_starts_a_fresh_session(self):
+        """A tools-off repair cannot reuse the stage's prompt cache, so it does not resend the stage conversation."""
+        self.env["AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE"] = "builder"
+        run = self.start()
+        view = self.finish(run, run.status())
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        repairs = [call for call in self.prints() if call["prompt_head"].startswith(REPAIR_PROMPT)]
+        self.assertEqual(1, len(repairs), [call["prompt_head"] for call in self.prints()])
+        argv = repairs[0]["argv"]
+        self.assertNotIn("--resume", argv)
+        self.assertEqual("", argv[argv.index("--tools") + 1])
+        state = json.loads((run.run_dir / "state.json").read_text())
+        (record,) = [row for row in state["stages"] if row["stage"] == "builder_report_repair"]
+        self.assertEqual(
+            ("fresh", "uncached_repair_resume"), (record["repair_session_mode"], record["repair_fresh_reason"])
+        )
+
     def test_format_correction_resumes_the_stage_session_and_bills_it_once(self):
         self.env["AUTOCODE_FIXTURE_CLAUDE_NO_REPORT_STAGE"] = "tester"
         run = self.start()
