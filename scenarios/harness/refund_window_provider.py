@@ -13,8 +13,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 import shutil
 from pathlib import Path
+
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
 
 
 def _fixed_file():
@@ -86,7 +89,8 @@ def report_for(stage, data, common, config, run_check, requirements):
     ]
     code = None
     if stage == "builder":
-        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
+        # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+        attempt = SCRIPTED["attempt"](stage, data, previous)
         if attempt == 1:
             scenario = _scenario(config["reference"])
             # Retain every complete reference test. Only implementation is planted.
@@ -226,6 +230,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                     "exit_code": code,
                     "status": result.get("status", result.get("verdict")),
                     "diagnosis": result.get("diagnosis"),
+                    "proof_round": SCRIPTED["proof_round"](stage, data),
                 }
             )
             + "\n"

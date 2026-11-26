@@ -16,8 +16,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shutil
 from pathlib import Path
+
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
 
 
 def _fixed_file():
@@ -88,8 +91,10 @@ def report_for(stage, data, common, config, run_check, requirements):
         {"id": ident, "disposition": "resolved", "evidence": "event:check"}
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
+    # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+    proof_round = SCRIPTED["proof_round"](stage, data)
     if stage == "builder":
-        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
+        attempt = SCRIPTED["attempt"](stage, data, previous)
         _apply(scenario / "broken" / "vacuous-refusal-tests" if attempt == 1 else reference, config["paths"])
         if attempt == 2 and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") in ("retry", "pause"):
             shutil.copy2(Path.cwd() / "stock.py", Path.cwd() / "stock_current.py")
@@ -215,6 +220,7 @@ def report_for(stage, data, common, config, run_check, requirements):
         "status": result.get("verdict", result.get("status")),
         "regression_verdict": proof.get("verdict"),
         "source_revision": data.get("source_revision"),
+        "proof_round": proof_round,
     }
     with trace.open("a") as handle:
         handle.write(json.dumps(row) + "\n")

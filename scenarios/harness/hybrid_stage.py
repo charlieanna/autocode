@@ -48,15 +48,30 @@ def stage_of(data: dict) -> tuple[str, bool]:
     return str(data.get("stage") or original.get("stage") or ""), False
 
 
-def side_for(route: dict, stage: str, repair: bool, trace: list[dict]) -> str:
-    """Which side serves this call. Pure: the route and the calls already served."""
+def proof_round(data: dict) -> bool:
+    """Whether a Builder handoff is the round a failing proof sends back before any review: its next_action says
+    so (autocode_proof_findings.BUILDER_NOTE)."""
+    return "the Tester has not been started" in str(data.get("next_action") or "")
+
+
+def side_for(route: dict, stage: str, repair: bool, trace: list[dict], resent: bool = False) -> str:
+    """Which side serves this call. Pure: the route and the calls already served.
+
+    A first attempt lasts until a review sends it back: the round its own failing proof sends back to the Builder
+    before any review (``resent``: a ``proof_round`` handoff, straight after a call of the same stage) stays on the
+    side that served it.
+    """
     if repair:
         served = [row for row in trace if row.get("stage") == stage]
         return served[-1]["side"] if served else "live"
     if stage in route.get("scripted", ()):
         return "scripted"
-    attempts = sum(1 for row in trace if row.get("stage") == stage and not row.get("repair"))
-    return "scripted" if stage in route.get("first_attempt", ()) and attempts == 0 else "live"
+    served = [row for row in trace if row.get("stage") == stage and not row.get("repair")]
+    calls = [row for row in trace if not row.get("repair")]
+    first = not served or (
+        resent and calls[-1].get("stage") == stage and all(row.get("side") == "scripted" for row in served)
+    )
+    return "scripted" if stage in route.get("first_attempt", ()) and first else "live"
 
 
 def fill(part: str, values: dict) -> str:
@@ -108,7 +123,7 @@ def main(argv: list[str]) -> int:
     trace_path = Path(route["trace"])
     with trace_path.open("a") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)  # parallel Builders: one decision at a time
-        side = side_for(route, stage, repair, read_trace(trace_path))
+        side = side_for(route, stage, repair, read_trace(trace_path), proof_round(handoff(prompt)))
         handle.write(
             json.dumps(
                 {

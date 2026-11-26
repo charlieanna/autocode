@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 import shutil
 import uuid
 from pathlib import Path
+
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
 
 
 def _fixed_file():
@@ -50,13 +53,10 @@ def report_for(stage, data, common, config, run_check, requirements):
         "evidence": "event:check",
     }
     code = None
-    # A round the runner's failing proof sent back before any Tester (its only findings are the runner's)
-    # repeats the attempt before it: the fault this fake scripts is the reviewers' to find.
-    findings = data.get("actionable_findings") or []
-    proof_round = stage == "builder" and bool(findings) and all(row.get("source") == "runner" for row in findings)
+    # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+    proof_round = SCRIPTED["proof_round"](stage, data)
     if stage == "builder":
-        attempt = sum(row["stage"] == "builder" and not row.get("proof_round") for row in previous)
-        attempt += 0 if proof_round and attempt else 1
+        attempt = SCRIPTED["attempt"](stage, data, previous)
         # "completion_rework_unowned_check" (scenarios/catalog/rework-same-failure): every attempt applies the
         # solution, and the check still fails on a file the task may not change.
         broken = (
