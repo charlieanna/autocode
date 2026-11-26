@@ -21,6 +21,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **The CLI and the GitHub bridge show what Requirements understood above its questions** ([status view](docs/task-run.md)): on a vague request Requirements restates what it understood, says what it found in the code and sketches the reading it recommends, then asks which reading you mean. Only the chat showed that; the CLI and a GitHub issue showed the questions alone, so the readings were offered without the understanding they came from. The status view names it once (`requirements.understood`), and both now show it above the questions.
+
 - **A Tester check run inside a longer command no longer costs a rejected answer** (#4165): a Tester that ran `pytest -q 2>&1 | tail -3` or `git diff --stat; git diff --name-only` as one call and cited one command was refused as "not supported by an exact executed Validator event", then a report-only repair that could not run anything was refused again. The check now takes the exit code the line shows under shell semantics (the last command of `a; b`, every command of an `&&` chain that exited 0); a command whose exit code the line hides (`cmd | tail`, the first of `a; b`) counts only in a passing report whose clean-copy replay runs it and sees exit 0 (`autocode_compound_exit`). Anything that could run the command differently (`|| `, `set -e`, `| head`, `grep -q`, a substitution, `cd` out of the workspace) is refused as before.
 
 ## [0.11.1] - 2026-11-25
