@@ -163,6 +163,10 @@ def questions_markdown(need: dict, view: dict | None = None) -> str:
     conflicts = [row for row in conflicts if row]
     is_review = len(questions) == 1 and str(questions[0].get("id") or "").startswith("requirements-review-")
     lines = ["**AutoCode needs your confirmation**" if is_review else "**AutoCode has questions for you**", ""]
+    # What Requirements understood, above the readings it offers; a confirmation restates it itself.
+    understood = str(req.get("understood") or "").strip() if isinstance(req, dict) and not is_review else ""
+    if understood:
+        lines += [understood, ""]
     for row in questions:
         lines.append(f"- **[{row.get('id')}]** {row.get('question')}")
         if row.get("why"):

@@ -811,11 +811,21 @@ def _no_contract_header(state: RunState, fallback: str) -> str:
     return f"No contract yet; the {roles.screen_name(stage, state)} works on it next."
 
 
+def _understood(state: RunState, questions) -> list[str]:
+    """What Requirements said it understood, above questions it asked: the readings it offers are read
+    against it. The runner's own confirmation question already restates the handoff, so alone it gets none."""
+    if not questions or all(str(q.get("id") or "").startswith(requirements_review.PREFIX) for q in questions):
+        return []
+    text = requirements_review.understood(state)
+    return ["Requirements: " + text.replace("\n", "\n  ")] if text else []
+
+
 def _render_no_contract(state: RunState) -> str:
     public = human.current(state)
     if roles.planning_flow(state) == "v2":
         questions = public["questions"] if public else human.internal_questions(state)
         lines = [_no_contract_header(state, "No contract yet; resume with Requirements.")]
+        lines += _understood(state, public["questions"] if public else ())
         for question in questions:
             if not public:
                 lines.append("  Unissued proposal (not an actionable question):")
@@ -828,7 +838,7 @@ def _render_no_contract(state: RunState) -> str:
     header = _no_contract_header(state, "No contract yet; resume to interview with the Requirements Gatherer.")
     if not public or not public.get("questions"):
         return header
-    lines = [header]
+    lines = [header, *_understood(state, public["questions"])]
     for question in public["questions"]:
         lines.append(f"Answer ID: {question['id']} - {question['question']}")
         if question.get("why"):

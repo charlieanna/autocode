@@ -1582,8 +1582,11 @@ modulo formatting (#1013). On a strict choice question, any other text is reject
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, `view.requirements`
-projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}`
-(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630),
+projects `{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity, understood}`
+(`null` otherwise; `job` and `clarity` are what that report named, each `null` when it named none, #3630;
+`understood` is what Requirements said it understood, in its own words: the chat reply, or the report's
+`summary` on a run without a chat, `""` when it said nothing. The terminal CLI and the channel bridge show it
+above Requirements' own questions, so the readings it offers are read against what it understood and found),
 and, when available for the current source, `suite_reports`. These bounded historical provider reports
 name their exact command, whether they report collection or execution, test count and reported paths;
 `omitted_paths` marks a truncated path list. They are explicitly not independently verified, and

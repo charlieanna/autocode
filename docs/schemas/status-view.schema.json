@@ -1190,10 +1190,11 @@
         "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."},
         "requirements": {
           "type": ["object", "null"],
-          "description": "Structured current-turn Requirements handoff (#3650): intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts and handoff_ref; job and clarity as this report named them (#3630), each null when it named none; null before the current turn has a Requirements handoff.",
-          "required": ["handoff_ref", "intended_outcome", "requirements", "proposed_assumptions", "acceptance_tests", "conflicts", "job", "clarity"],
+          "description": "Structured current-turn Requirements handoff (#3650): intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts and handoff_ref; job and clarity as this report named them (#3630), each null when it named none; understood, what Requirements said it understood in its own words (the chat reply, or the report's summary on a run without a chat), to show beside its open questions, \"\" when it said nothing; null before the current turn has a Requirements handoff.",
+          "required": ["handoff_ref", "intended_outcome", "requirements", "proposed_assumptions", "acceptance_tests", "conflicts", "job", "clarity", "understood"],
           "properties": {
             "handoff_ref": {"type": "string"},
+            "understood": {"type": "string"},
             "job": {"type": ["string", "null"], "enum": ["build", "bugfix", "review", "design", "discuss", "none", null]},
             "clarity": {"type": ["string", "null"], "enum": ["clear", "vague", null]},
             "intended_outcome": {"type": "string"},
