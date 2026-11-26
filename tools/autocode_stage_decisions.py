@@ -100,8 +100,8 @@ def _skips(state: RunState) -> list[tuple[str, str, str, tuple[str, ...]]]:
             )
         )
     if approved == FAST_LANE:
-        # The fast lane sent a small, clear first draft to the person without a review (autocode_fast_lane).
-        reason = "fast lane: the plan is small and clear, so it went to you without a Plan Reviewer call"
+        # The person chose the fast lane, so the first draft went to them without a review (autocode_fast_lane).
+        reason = "fast lane: you chose the fast lane, so the plan went to you without a Plan Reviewer call"
         found.extend(("draft_plan", stage, reason, ("draft_plan", APPROVAL)) for stage in FAST_LANE_SKIPPED)
     answer = _mapping(state.get("answer"))
     if state.get("status") == "TASK_COMPLETE" and answer.get("answered_by") == ANSWERED_BY:

@@ -377,7 +377,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         detail: mode.description,
         id: mode.id,
       })),
-      { placeHolder: `Run mode for new chats (current: ${current?.label ?? "Full"})` },
+      { placeHolder: `Run mode for new chats (current: ${current?.label ?? "Slow lane"})` },
     );
     if (picked) await this.storage.update(MODE_KEY, picked.id);
   }

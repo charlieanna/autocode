@@ -1,8 +1,9 @@
-"""The fast lane (``--fast-lane``): a small, clear task skips the Plan Reviewer and gets one combined review.
+"""The fast lane (``--fast-lane``): the person's choice skips the Plan Reviewer and gets one combined review.
 
 Through the real CLI with the offline fixture provider: the run completes with four model stages instead of six,
 the skipped stages are shown with their reason, and the evidence gates (regression proof, changed-code evidence,
-the combined independent review) still run. ``decide`` is pinned for each reason a draft takes the ordinary path.
+the combined independent review) still run. ``decide`` is pinned for each reason a draft takes the ordinary path,
+and for the size, clarity and ``sensitive-paths`` that no longer decide (owner decision 2026-11-26).
 """
 
 import argparse
@@ -91,12 +92,12 @@ class FastLaneCliTests(unittest.TestCase):
         self.assertIn("regression_proof", stages, "the regression proof still runs")
         self.assertEqual("PASS", state["validation"]["verdict"])
 
-    def test_a_request_requirements_did_not_judge_clear_is_reviewed_as_usual(self):
+    def test_a_request_requirements_did_not_judge_clear_still_skips_the_plan_review_the_person_chose_to_skip(self):
         shown = self.start("vague")
         self.assertEqual("approve_plan", shown["needs"]["kind"], shown["needs"])
-        self.assertIn("review_plan", self.stages())
+        self.assertNotIn("review_plan", self.stages())
         decision = json.loads((self.run_dir / "state.json").read_text())["planning"]["fast_lane"]
-        self.assertEqual((False, ["not_clear"]), (decision["skip_plan_review"], decision["reasons"]))
+        self.assertEqual((True, [], "vague"), (decision["skip_plan_review"], decision["reasons"], decision["clarity"]))
 
 
 def draft(paths=("greet.py",), milestones=1, **extra):
@@ -128,18 +129,28 @@ class DecideTests(unittest.TestCase):
         self.assertTrue(decision["skip_plan_review"])
         self.assertEqual(([], fast_lane.SKIP_TEXT, "small"), (decision["reasons"], decision["text"], decision["size"]))
 
+    def test_size_clarity_and_sensitive_paths_do_not_send_the_draft_to_the_plan_reviewer(self):
+        # The person chose the fast lane (owner decision 2026-11-26): AutoCode records the plan's size and the
+        # request's clarity but does not second-guess the choice with them.
+        self.state["workflow"]["clarity"] = "vague"
+        self.state["settings"]["sensitive_paths"] = ["*auth*"]
+        decision = fast_lane.decide(
+            self.state, draft(paths=["src/auth.py", *(f"f{n}.py" for n in range(5))], milestones=2)
+        )
+        self.assertEqual(
+            (True, [], fast_lane.SKIP_TEXT, "vague"),
+            (decision["skip_plan_review"], decision["reasons"], decision["text"], decision["clarity"]),
+        )
+        self.assertNotEqual("small", decision["size"])
+
     def test_each_reason_sends_the_draft_to_the_plan_reviewer(self):
-        self.assertEqual(["not_small"], self.reasons(draft(paths=[f"f{n}.py" for n in range(5)])))
-        self.assertEqual(["not_small"], self.reasons(draft(milestones=2)))
         self.assertEqual(["not_approvable"], self.reasons(draft(open_blocking_questions=[{"id": "Q1"}])))
         self.assertEqual(["not_approvable"], self.reasons({**draft(), "initial_task": {"kind": "investigate"}}))
-        self.state["settings"]["sensitive_paths"] = ["*auth*"]
-        self.assertEqual(["sensitive_paths"], self.reasons(draft(paths=["src/auth.py"])))
         self.state["settings"]["design_manifest"] = {"path": "design.md"}
-        self.assertIn("design", self.reasons(draft()))
+        self.assertEqual(["design"], self.reasons(draft()))
         self.state["settings"].pop("design_manifest")
-        self.state["workflow"]["clarity"] = "vague"
-        self.assertEqual(["not_clear"], self.reasons(draft()))
+        self.state["planning"] = {"progressive": True}
+        self.assertEqual(["progressive"], self.reasons(draft()))
 
     def test_a_draft_whose_citations_need_a_reviewer_s_judgment_is_reviewed(self):
         # A criterion cites the request but another does not: only a Plan Reviewer may excuse that, so the

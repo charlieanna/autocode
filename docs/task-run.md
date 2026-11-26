@@ -3578,7 +3578,7 @@ following the brief. A client shows the label and description and passes the
 chosen mode's `start_args` unchanged when it starts a run; it never builds its
 own list or adds flags to a mode. The flags apply only to the new run: a saved
 run keeps the flow it started with. Listing launches nothing and reads no run.
-Optional `spend_confirmation` is `"planning"` for both listed modes: start the Requirements
+Optional `spend_confirmation` is `"planning"` for every listed mode: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
 model allowance. A mode with `"start"` (none today) can plan immediately, so a
@@ -3587,7 +3587,8 @@ launch for older cores.
 
 | Mode | Start flags | What it changes |
 | --- | --- | --- |
-| `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
+| `full` (default, labeled "Slow lane") | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
+| `fast` ("Fast lane") | `--joint-planning --spec-first --fast-lane` | The same Requirements conversation; the Planner's first draft goes to the person without a Plan Reviewer call, and one combined review replaces the Tester and the Completion Reviewer. The person picks it; AutoCode does not size the plan to decide ([fast lane](adaptive-planning.md#fast-lane)). |
 | `plan` | `--joint-planning --spec-first --plan-only` | The same Requirements conversation, Planner and Plan Reviewer, then the run ends at the accepted plan: the Builder, the Tester and the Completion Reviewer never run and nothing is changed ([Plan-only runs](#plan-only-runs)). |
 
 Every chat starts with the Requirements conversation (owner decision,

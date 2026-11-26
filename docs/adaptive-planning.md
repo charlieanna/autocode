@@ -118,23 +118,26 @@ same revision carries the allowance as before. A total you chose with
 `--planning-review-call-limit` stays a total, and a correction to a plan you already
 approved keeps its own bounded review round.
 
-## Fast lane for small, clear tasks
+## Fast lane
 
 `--fast-lane` (new runs only, owner request 2026-11-23) removes the two model calls a small task gains least
-from, and no gate:
+from, and no gate. The person picks it: VS Code and the terminal chat offer it as the **Fast lane** run mode
+beside the **Slow lane** (the default, `full`), and AutoCode does not size the plan to second-guess the choice
+(owner decision 2026-11-26).
 
 - **One combined review.** The run uses `--review-routing combined`: the Completion Reviewer independently
   tests the Builder's work and judges completion in one call (`review_checkpoint`) instead of a Tester and
   then a Completion Reviewer. The policy is written into the plan you approve.
-- **No Plan Reviewer on a plan that qualifies.** The Planner's first draft goes straight to your exact-token
-  approval when, read from the run and never asked of a model: Requirements judged the request clear; the
-  draft is small (one milestone, at most four files); it can go to you as written (no open question, an
-  executable first task); it touches nothing `sensitive-paths` names; the brief holds no exact-output or API
-  risk declaration that needs the Plan Reviewer's observations; and, when criteria cite the request, they pass
-  the strictest source trace (every criterion cites, every sentence is covered, nothing excused), which only a
-  Plan Reviewer may loosen. Progressive and design-backed plans are always reviewed.
+- **No Plan Reviewer.** The Planner's first draft goes straight to your exact-token approval, whatever its
+  size, however clear Requirements judged the request and whatever `sensitive-paths` names. A draft is still
+  reviewed only when it cannot be approved without a review, read from the run and never asked of a model: it
+  cannot go to you as written (an open question, no executable first task); the brief holds an exact-output
+  or API risk declaration whose observations only the Plan Reviewer may seal; criteria cite the request but
+  fail the strictest source trace (every criterion cites, every sentence is covered, nothing excused), which
+  only a Plan Reviewer may loosen; or the plan is progressive or design-backed.
 
-Any other draft takes the ordinary path, and the reason is saved with the plan (`planning.fast_lane`). Feedback
+Such a draft takes the ordinary path, and the decision and its reason are saved with the plan
+(`planning.fast_lane`), with the plan's size and the request's clarity for the record. Feedback
 on a shown plan is revised by the Planner and reviewed as usual. The status view's `stage_decisions` shows the
 three skipped planning reviews with the reason, covered by the draft and your approval
 (`tools/autocode_fast_lane.py`).
@@ -143,7 +146,8 @@ After approval nothing changes: the Builder, the regression proof, the changed-c
 mutation check and per-line reasons, checked by the combined review), claim evidence and the completion gate
 decide whether the run may finish.
 
-**Measured, 2026-11-23.** On the offline fixture task (`tests/test_fast_lane.py`) the run completes with four
+**Measured, 2026-11-23**, under the earlier rule that also required a small plan, a clear request and no
+`sensitive-paths` match. On the offline fixture task (`tests/test_fast_lane.py`) the run completes with four
 model launches (Requirements, Planner, Builder, combined review) instead of six. Replaying the qualification
 over 149 completed live runs from the task survey (Claude Code, small real tasks in eleven languages), 112
 (75%) would have taken the fast lane; the 37 others were not small (18), needed the Plan Reviewer's
@@ -164,7 +168,7 @@ Tester's verdict PASS:
 | Total wall time | 117 s | 73 s (−38%) |
 | Cost | $1.07 | $0.54 (−50%) |
 
-The fast lane skipped the Plan Reviewer as designed (the draft was small and Requirements judged it clear) and
+The fast lane skipped the Plan Reviewer as designed and
 the plans were equivalent: the same two files and the same cases (31 → 4, 0 → 0, 1 → 1, 30 → 3, a zero page
 size refused). After approval the two runs took the same time: the combined review (15 s, plus a 7 s repair
 because a cited check matched no executed event) cost what the Tester and the Completion Reviewer (12 s and
