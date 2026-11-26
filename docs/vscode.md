@@ -22,14 +22,17 @@ change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
 New sidebar chats start in the run mode shown on the **Run mode** chip beside the
-engine chip. AutoCode lists one mode, **Full**: every chat starts with the
+engine chip. AutoCode lists **Slow lane** (the default: the Plan Reviewer, the
+Tester and the Completion Reviewer each check the work), **Fast lane** (for a
+task you know is small: the plan comes to you without a Plan Reviewer, and one
+combined review checks the build) and **Plan only**. Every chat starts with the
 Requirements conversation (the **Quick plan** mode that skipped it was removed
 on 2026-10-22). The list and each mode's flags come from
 `autocode modes list --json`
 ([Run modes for clients](task-run.md#run-modes-for-clients)); the extension
 passes the chosen mode's flags unchanged. A choice is remembered for new
 chats in this workspace; one the list no longer names, such as Quick plan,
-starts Full. A chat that has started keeps the flow it started with, so the
+starts in the slow lane. A chat that has started keeps the flow it started with, so the
 chip shows only on a new chat. An AutoCode without run modes shows no chip and
 starts the full flow.
 

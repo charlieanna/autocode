@@ -3,9 +3,12 @@
 A run mode is a named set of start flags for a new run. Clients (the VS Code
 extension, the terminal chat, the dashboard) offer these choices and pass the
 chosen mode's ``start_args`` unchanged when they start a run; they never build
-a list of their own. Every mode keeps the plan approval and the Plan Reviewer;
-a mode that builds also keeps the Tester and the Completion Reviewer. A mode
-never changes what counts as done. Listing launches nothing and reads no run.
+a list of their own. Every mode keeps the plan approval. ``full`` (shown as the
+slow lane) keeps the Plan Reviewer, the Tester and the Completion Reviewer;
+``fast`` (the fast lane the person picks, autocode_fast_lane) sends the plan to
+the person without a Plan Reviewer and checks the build with one combined
+review. A mode never changes what counts as done. Listing launches nothing and
+reads no run.
 
 Every chat starts with the Requirements conversation (owner decision,
 2026-10-22); the "quick" mode that let a clear request skip Requirements is
@@ -28,12 +31,25 @@ DEFAULT = "full"
 MODES = (
     {
         "id": "full",
-        "label": "Full",
+        "label": "Slow lane",
         "description": (
             "Requirements talks with you until it understands the request, then the plan is "
-            "prepared, reviewed and shown to you for approval before anything is built."
+            "prepared, reviewed and shown to you for approval before anything is built. After the build "
+            "a Tester and then a Completion Reviewer check the work."
         ),
         "start_args": ["--joint-planning", "--spec-first"],
+        "spend_confirmation": "planning",
+    },
+    {
+        # The person's choice for a task they know is small (owner decision 2026-11-26, autocode_fast_lane).
+        "id": "fast",
+        "label": "Fast lane",
+        "description": (
+            "The same Requirements conversation, then the plan comes to you for approval without a Plan Reviewer, "
+            "and one combined review checks the work after the build. The regression proof and the other "
+            "evidence checks still decide whether the task may finish."
+        ),
+        "start_args": ["--joint-planning", "--spec-first", "--fast-lane"],
         "spend_confirmation": "planning",
     },
     {

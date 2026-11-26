@@ -580,11 +580,13 @@ removed: a run saved at one of those stages is refused with a message to start a
 
 **A fast lane for small, clear tasks, owner request 2026-11-23.** `--fast-lane` is a new-run choice, off by
 default, that runs fewer model stages on a small task and keeps every gate: it implies `--review-routing combined`
-(one independent testing/completion call), and a Planner's first draft that qualifies (small, judged clear,
-approvable, outside `sensitive-paths`, needing no Plan Reviewer observation and passing the strictest source trace)
-goes to the person's exact-token approval without a Plan Reviewer call (`tools/autocode_fast_lane.py`,
-[fast lane](docs/adaptive-planning.md#fast-lane-for-small-clear-tasks)). Every other draft, and every revision,
-is reviewed as before. Do not widen what qualifies, or skip a later gate, without the owner's decision.
+(one independent testing/completion call), and the Planner's first draft goes to the person's exact-token approval
+without a Plan Reviewer call (`tools/autocode_fast_lane.py`, [fast lane](docs/adaptive-planning.md#fast-lane)).
+**The person chooses the lane, owner decision 2026-11-26:** the run modes offer a **Slow lane** (`full`, the
+default) and a **Fast lane** (`fast`), and AutoCode no longer second-guesses that choice by the plan's size, the
+request's clarity or `sensitive-paths` ("avoid this plan qualifies thing"). A draft is still reviewed when it cannot
+be approved without one (an open question, a record only the Plan Reviewer may seal, a progressive or design-backed
+plan), and every revision is reviewed as before. Do not skip a later gate without the owner's decision.
 
 Stages that belong to one workflow rather than to the build pipeline (`check_design`,
 `investigate_stuck`, `collect_design`, `write_acceptance_tests`) are listed in `tools/autocode_jobs.py`;

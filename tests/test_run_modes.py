@@ -29,14 +29,18 @@ class RunModeListTests(unittest.TestCase):
         self.assertEqual(1, listed["schema_version"])
         # Every chat starts with Requirements (owner decision 2026-10-22): "quick", which skipped it, is gone.
         # "plan" runs the same planning flow and ends at the accepted plan (autocode_plan_only).
-        self.assertEqual(["full", "plan"], [mode["id"] for mode in listed["modes"]])
+        # "fast" is the fast lane the person picks for a small task (owner decision 2026-11-26), beside the slow
+        # lane "full" (autocode_fast_lane).
+        self.assertEqual(["full", "fast", "plan"], [mode["id"] for mode in listed["modes"]])
+        self.assertEqual(["Slow lane", "Fast lane", "Plan only"], [mode["label"] for mode in listed["modes"]])
+        self.assertEqual(["--joint-planning", "--spec-first", "--fast-lane"], listed["modes"][1]["start_args"])
         self.assertEqual("full", listed["default"])
         for mode in listed["modes"]:
             self.assertEqual({"id", "label", "description", "start_args", "spend_confirmation"}, set(mode))
             self.assertTrue(all(word.startswith("--") for word in mode["start_args"]), mode)
             self.assertNotIn("--no-spec-first", mode["start_args"], "no mode skips the Requirements conversation")
         self.assertEqual(["--joint-planning", "--spec-first"], listed["modes"][0]["start_args"])
-        self.assertEqual(["planning", "planning"], [mode["spend_confirmation"] for mode in listed["modes"]])
+        self.assertEqual(["planning"] * 3, [mode["spend_confirmation"] for mode in listed["modes"]])
 
     def test_a_listed_mode_cannot_be_changed_through_the_view(self):
         self.listed()["modes"][0]["start_args"].append("--auto-approve")
@@ -117,6 +121,20 @@ class RunModeCliTests(unittest.TestCase):
             0,
             "The Completion Reviewer still checks the work",
         )
+
+    def test_fast_mode_shows_the_plan_without_a_plan_review_and_checks_the_build_with_one_review(self):
+        run, view = self.start("fast")
+        question = view["needs"]["questions"][-1]["id"]
+        self.assertTrue(question.startswith("requirements-review-"), view.get("needs"))
+        run.answer(question, "plan")
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("needs"))
+        self.assertEqual(0, self.count(run, "plan-challenge"), "The fast lane shows the plan without a Plan Reviewer")
+        run.approve_plan(view["needs"]["token"])
+        done = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", done["status"])
+        self.assertEqual(0, self.count(run, "validator"), "One combined review replaces the separate Tester")
+        self.assertEqual(1, self.count(run, "completion-checkpoint"), "The combined review checks the work")
 
     def test_plan_mode_confirms_requirements_plans_reviews_and_ends_at_the_accepted_plan(self):
         run, view = self.start("plan")

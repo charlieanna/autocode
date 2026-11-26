@@ -1,28 +1,25 @@
-"""Fast lane for a small, clear task: fewer model stages, the same evidence (owner request 2026-11-23).
+"""Fast lane: fewer model stages, the same evidence (owner request 2026-11-23, made the person's choice 2026-11-26).
 
-A small task spent most of its time on stages that add little to it: the Plan Reviewer read a one-file plan the
-person reads anyway before approving it, and after the Builder two read-only reviews (the Tester, then the
-Completion Reviewer) judged the same diff. ``--fast-lane`` is a new-run choice that removes those two calls and
-nothing else:
+The person picks the fast lane or the slow lane for a new task (the "Fast lane" run mode, autocode_run_modes).
+``--fast-lane`` removes two calls and nothing else:
 
 - **One combined review.** The run uses the combined review routing that already exists
   (autocode_review_routing, ``--review-routing combined``): the Completion Reviewer independently tests the
   Builder's work and judges completion in one read-only call. The policy is written into the plan the person
   approves, as it is for ``--review-routing combined``.
-- **No Plan Reviewer on a plan that qualifies.** When the Planner's first draft qualifies (``decide``), the draft
-  goes straight to the person's exact-token approval, recorded as the plan's final planning evidence. A draft
-  that does not qualify takes the ordinary path (Plan Reviewer, revision, final review), and the reason is
-  recorded either way. Feedback on the shown plan goes to the Planner and its revision is reviewed as usual.
+- **No Plan Reviewer.** The Planner's first draft goes straight to the person's exact-token approval, recorded as
+  the plan's final planning evidence. AutoCode does not second-guess the choice by sizing the plan, judging the
+  request's clarity or matching ``sensitive-paths`` (owner decision 2026-11-26: "avoid this plan qualifies
+  thing"). Feedback on the shown plan goes to the Planner and its revision is reviewed as usual.
 
-A draft qualifies only when everything below holds, each read from the run, never asked of a model:
+A draft is still reviewed only when approving it without a review is impossible, each read from the run, never
+asked of a model (``decide``):
 
-- Requirements judged the request clear (``workflow.clarity``);
-- the draft is small (one milestone at most, four files at most: autocode_adaptive_planning.plan_size);
-- it can go to the person as written (no open question, an executable first task: ``adaptive.approvable``);
-- it touches no file the run's ``sensitive-paths`` names (autocode_plan_difficulty.sensitive);
-- no original-brief, risk or source-trace observation needs the independent Plan Reviewer's record (the
-  reviewer-only sealing in autocode_brief_obligations and autocode_risk_obligations would leave the body as it is);
-- the run is not progressive, has no design manifest and plans on the default (v3) adaptive joint flow.
+- it cannot go to the person as written (an open question, no executable first task: ``adaptive.approvable``);
+- a record only the independent Plan Reviewer may seal is needed: an original-brief or API-risk observation
+  (autocode_brief_obligations, autocode_risk_obligations), or a source trace looser than the strictest one
+  (autocode_source_trace.strict_ready), which the later gates read;
+- the run is progressive, has a design manifest, or does not plan on the default (v3) adaptive joint flow.
 
 What does not change: the person approves the exact plan, the Builder builds it, and the regression proof, the
 changed-code evidence (diff coverage, mutation check, per-line reasons), claim evidence and the completion gate
@@ -45,7 +42,6 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_goals as goals
-    from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_progressive_state as progressive_state
     from . import autocode_review_routing as review_routing
     from . import autocode_risk_obligations as risk_obligations
@@ -56,7 +52,6 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_brief_obligations as brief_obligations
     import autocode_goals as goals
-    import autocode_plan_difficulty as plan_difficulty
     import autocode_progressive_state as progressive_state
     import autocode_review_routing as review_routing
     import autocode_risk_obligations as risk_obligations
@@ -69,12 +64,9 @@ SETTING = "fast_lane"
 STAGE = "draft_plan"
 APPROVED_AT = "draft_plan#fast_lane"  # planning.adaptive.approved_at for a draft the fast lane sent to the person
 SKIPPED = ("review_plan", "revise_plan", "finalize_plan")
-SKIP_TEXT = "fast lane: the plan is small and clear, so it went to you without a Plan Reviewer call"
+SKIP_TEXT = "fast lane: you chose the fast lane, so the plan went to you without a Plan Reviewer call"
 REASONS = {
-    "not_clear": "Requirements did not judge the request clear",
-    "not_small": "the plan is not small (one milestone and at most four files)",
     "not_approvable": "the draft cannot go to you as written",
-    "sensitive_paths": "the plan touches files the run's sensitive-paths names",
     "needs_reviewer_observations": "the brief or its risks need the independent Plan Reviewer's observations",
     "progressive": "a progressive plan needs its independent review",
     "design": "a design-backed plan needs its independent review",
@@ -86,9 +78,9 @@ def add_argument(parser) -> None:
         FLAG,
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="New runs: the fast lane for a small, clear task. A small first plan goes to you without a Plan "
-        "Reviewer call, and one combined review replaces the separate Tester and Completion Reviewer; every "
-        "evidence gate still applies. Disclosed in the plan you approve",
+        help="New runs: the fast lane. The first plan goes to you without a Plan Reviewer call, and one combined "
+        "review replaces the separate Tester and Completion Reviewer; every evidence gate still applies. "
+        "Disclosed in the plan you approve",
     )
 
 
@@ -144,19 +136,17 @@ def _reviewer_needed(state: RunState, body: dict) -> bool:
 
 
 def decide(state: RunState, body: dict) -> dict:
-    """Whether the Planner's first draft goes to the person without a Plan Reviewer call, with the reason."""
+    """Whether the Planner's first draft goes to the person without a Plan Reviewer call, with the reason.
+
+    The plan's size and the request's clarity are recorded but decide nothing, and ``sensitive-paths`` is not
+    consulted: the person chose the lane. Only a draft that cannot be approved without a review is reviewed.
+    """
     size = adaptive.plan_size(body)
     workflow = state.get("workflow") or {}
     settings = state.get("settings") or {}
     found = []
-    if workflow.get("clarity") != "clear":
-        found.append("not_clear")
-    if size["size"] != "small":
-        found.append("not_small")
     if not adaptive.approvable(body):
         found.append("not_approvable")
-    if plan_difficulty.sensitive(state, body):
-        found.append("sensitive_paths")
     if progressive_state.enabled(state) or (state.get("planning") or {}).get("progressive"):
         found.append("progressive")
     if settings.get("design_manifest"):
