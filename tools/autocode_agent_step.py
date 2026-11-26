@@ -4,7 +4,8 @@ A Claude Code, Codex or Cursor session starts an AutoCode run in its repository,
 reads where the run stands, passes on the person's plan approval or answer, and
 reports the evidence. The Claude Code skill (examples/agent-step) runs this
 module's command line; the MCP server (autocode_mcp) calls the same four
-operations: ``start``, ``status``, ``respond`` and ``evidence``. Both reach a run
+operations: ``start``, ``status``, ``respond`` and ``evidence``, and lists every
+project's runs with ``runs``. Both reach a run
 only through the task-run interface: ``TaskRun`` and the status view it returns
 (docs/task-run.md). Nothing here imports the runner or reads a run's saved state
 (AGENTS.md rule 5), and nothing outside the standard library is needed.
@@ -39,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,9 +49,11 @@ from typing import Any
 
 try:
     from . import autocode_agent_background as background
+    from . import autocode_taskrun as taskrun
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
     import autocode_agent_background as background
+    import autocode_taskrun as taskrun
     from autocode_taskrun import TaskRun, TaskRunError
 
 # The job kinds --workflow names (autocode_workflows.WORKFLOWS; a test keeps the two equal).
@@ -76,6 +80,10 @@ OPERATIONAL_SCOPES = ("blocker", "operational_exhaustion")
 # The variables a "-" token argument is read from: the same ones the view's next_command uses.
 APPROVE_TOKEN_VARIABLE = "AUTOCODE_APPROVE_GOAL_TOKEN"
 RESOLVER_TOKEN_VARIABLE = "AUTOCODE_RESOLVER_TOKEN"
+# Which runs runs() lists, and the `autocode runs` flag that selects them (docs/cli.md).
+SHOWN = {"active": ("--active",), "needs": ("--needs",), "all": ()}
+# How long the read-only `autocode runs --all --json` may take before runs() gives up.
+RUNS_TIMEOUT_SECONDS = 60
 # The longest wait one call takes; an agent asks for less than its own tool time limit.
 MAX_WAIT_SECONDS = 3600
 # The argument that runs this module as a launch's background process (autocode_agent_background).
@@ -202,6 +210,31 @@ class AgentStep:
             "markdown_path": report.get("markdown_path"),
             "json_path": report.get("json_path"),
         }
+
+    def runs(self, show: str = "active") -> dict:
+        """The runs of every project the person has used AutoCode in, as `autocode runs --all --json` prints them.
+
+        Reads only. ``show`` is ``active`` (waiting on the person or still working), ``needs`` (waiting on
+        the person) or ``all`` (settled and unreadable runs too); ``counts`` always covers every run. A run
+        of another project is the person's to act on there: its row names the workspace and the command.
+        """
+        if show not in SHOWN:
+            raise StepError(f"show must be one of {', '.join(SHOWN)}, not {show!r}")
+        argv = [*taskrun.AUTOCODE, "runs", "--all", "--json", *SHOWN[show]]
+        try:
+            proc = taskrun.run_process(
+                argv, env={**os.environ, **self._env()}, cwd=self.workspace, timeout=RUNS_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired:
+            raise StepError(f"could not list the runs: no answer in {RUNS_TIMEOUT_SECONDS} seconds") from None
+        try:
+            listed = json.loads(proc.stdout) if proc.returncode == 0 else None
+        except ValueError:
+            listed = None
+        if not isinstance(listed, dict) or not isinstance(listed.get("runs"), list):
+            detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no listing was printed"]
+            raise StepError(f"could not list the runs: {detail[0]}")
+        return listed
 
     def _named(self, run_dir: str | Path | None) -> Path:
         """The run a call means: a saved run, or one this step is still starting in the background."""

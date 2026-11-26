@@ -552,6 +552,32 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("waiting", out)
         self.assertNotIn("finished", out)
 
+    def test_active_shows_the_runs_not_yet_settled(self):
+        """A machine with many finished runs: the question is what is going on now, a person's or not."""
+        starting = self.root / ".autocode" / "runs" / "starting"
+        starting.mkdir()
+        launch_record.write(starting, "resolving_models", workspace=self.root)
+        code, out, _ = capture(["--workspace", str(self.root), "--active", "--json"])
+        self.assertEqual(0, code)
+        document = json.loads(out)
+        self.assertEqual(
+            {"starting": runs.WORKING, "waiting": runs.NEEDS},
+            {item["name"]: item["bucket"] for item in document["runs"]},
+        )
+        self.assertEqual(3, document["counts"]["total"], "the counts still cover the settled run")
+        code, out, _ = capture(["--workspace", str(self.root), "--active"])
+        self.assertEqual(0, code)
+        self.assertIn("starting", out)
+        self.assertNotIn("finished", out)
+        with self.assertRaises(SystemExit, msg="--needs is the narrower of the two, never both"):
+            capture(["--workspace", str(self.root), "--active", "--needs"])
+
+    def test_active_says_so_when_every_run_is_settled(self):
+        root = project(finished={"status": "TASK_COMPLETE"})
+        code, out, _ = capture(["--workspace", str(root), "--active"])
+        self.assertEqual(0, code)
+        self.assertIn("no run needs you or is working (1 run(s) listed)", out)
+
     def test_a_project_with_no_runs_is_a_refusal_not_an_empty_table(self):
         empty = Path(tempfile.mkdtemp()).resolve()
         code, _, err = capture(["--workspace", str(empty)])

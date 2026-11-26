@@ -21,7 +21,21 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVER = ROOT / "tools" / "autocode_mcp.py"
-TOOL_NAMES = ["autocode_start", "autocode_status", "autocode_respond", "autocode_evidence"]
+TOOL_NAMES = ["autocode_start", "autocode_status", "autocode_respond", "autocode_evidence", "autocode_runs"]
+
+
+def saved_run(root: Path, project: str, name: str, **state) -> tuple[Path, Path]:
+    """A project under ``root`` holding one saved run, registered as a real run registers itself."""
+    import autocode_registry as registry
+
+    workspace = root / project
+    run_dir = workspace / ".autocode" / "runs" / name
+    run_dir.mkdir(parents=True)
+    (workspace / ".git").mkdir(exist_ok=True)
+    saved = {"version": 3, "workspace": str(workspace), "task": f"{name} in {project}", **state}
+    (run_dir / "state.json").write_text(json.dumps(saved), encoding="utf-8")
+    registry.register_run(workspace, run_dir, saved)
+    return workspace, run_dir
 
 
 class ProtocolTests(unittest.TestCase):
@@ -85,7 +99,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual({"code": -32603, "message": "RuntimeError: boom"}, failed["error"])
         self.assertEqual((2, {}), (pinged["id"], pinged["result"]))
 
-    def test_the_four_operations_have_closed_schemas(self):
+    def test_the_tools_have_closed_schemas(self):
         (response,) = self.exchange(self.request("tools/list"))
         tools = {tool["name"]: tool for tool in response["result"]["tools"]}
         self.assertEqual(TOOL_NAMES, list(tools))
@@ -102,6 +116,58 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(
             list(agent_step.ACTIONS), tools["autocode_respond"]["inputSchema"]["properties"]["action"]["enum"]
         )
+        self.assertEqual(list(agent_step.SHOWN), tools["autocode_runs"]["inputSchema"]["properties"]["show"]["enum"])
+
+    def test_runs_lists_every_projects_runs_from_a_server_on_another_workspace(self):
+        """An agent asked "what is running?" could read one run of its own workspace and no other."""
+        home = self.workspace / "registry"
+        with mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(home)}):
+            api, waiting = saved_run(self.workspace, "api", "waiting", status="PAUSED_REQUESTED", stop_reason="paused")
+            web, finished = saved_run(self.workspace, "web", "finished", status="TASK_COMPLETE")
+        elsewhere = self.workspace / "elsewhere"
+        elsewhere.mkdir()
+        step = agent_step.AgentStep(elsewhere, caller="mcp", env={"AUTOCODE_HOME": str(home)})
+        self.server = mcp.Server(step, "test")
+
+        active = self.call("autocode_runs")
+        self.assertFalse(active["isError"], active)
+        listed = active["structuredContent"]
+        self.assertEqual(listed, json.loads(active["content"][0]["text"]))
+        self.assertEqual("registry", listed["scope"])
+        self.assertEqual((2, 1, 1), tuple(listed["counts"][key] for key in ("total", "needs you", "settled")))
+        (row,) = listed["runs"]
+        self.assertEqual((str(waiting), str(api), "needs you"), (row["run_dir"], row["workspace"], row["bucket"]))
+        self.assertEqual("waiting in api", row["title"])
+        self.assertIn("--resume-paused", row["next_command"])
+
+        self.assertEqual(listed["runs"], self.call("autocode_runs", show="needs")["structuredContent"]["runs"])
+        everything = self.call("autocode_runs", show="all")["structuredContent"]["runs"]
+        self.assertEqual(
+            [(str(waiting), str(api)), (str(finished), str(web))],
+            [(item["run_dir"], item["workspace"]) for item in everything],
+        )
+        before = sorted(path.relative_to(self.workspace) for path in self.workspace.rglob("*"))
+        self.call("autocode_runs", show="all")
+        self.assertEqual(before, sorted(path.relative_to(self.workspace) for path in self.workspace.rglob("*")))
+
+    def test_runs_refuses_a_filter_it_does_not_have_and_reports_a_failed_listing(self):
+        refused = self.call("autocode_runs", show="mine")
+        self.assertTrue(refused["isError"])
+        self.assertIn("show must be one of active, needs, all", refused["content"][0]["text"])
+        self.assertIn(
+            "autocode_runs takes no workspace", self.call("autocode_runs", workspace="/")["content"][0]["text"]
+        )
+        failed = subprocess.CompletedProcess([], 2, stdout="", stderr="autocode: the registry could not be read\n")
+        with mock.patch.object(agent_step.taskrun, "run_process", return_value=failed):
+            broken = self.call("autocode_runs")
+        self.assertTrue(broken["isError"])
+        self.assertEqual(
+            "could not list the runs: autocode: the registry could not be read", broken["content"][0]["text"]
+        )
+        with mock.patch.object(
+            agent_step.taskrun, "run_process", side_effect=subprocess.TimeoutExpired("autocode", 60)
+        ):
+            self.assertIn("no answer in 60 seconds", self.call("autocode_runs")["content"][0]["text"])
 
     def test_the_example_configuration_launches_this_server_with_the_persons_flags(self):
         example = json.loads((ROOT / "examples" / "agent-step" / "mcp.json").read_text(encoding="utf-8"))

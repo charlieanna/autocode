@@ -2,13 +2,14 @@
 
 It speaks the Model Context Protocol over standard input and output
 (newline-delimited JSON-RPC 2.0) with the standard library only, so it adds no
-dependency. Its four tools are autocode_agent_step's operations on one workspace,
-fixed when the server starts:
+dependency. Four of its tools are autocode_agent_step's operations on one workspace,
+fixed when the server starts, and the fifth lists the runs of every project:
 
     autocode_start     start a run; it works until it needs a person or completes
     autocode_status    where a run stands: the status view's next-step fields
     autocode_respond   pass on the person's plan approval or answer, or continue
     autocode_evidence  the completed run's canonical evidence report
+    autocode_runs      every project's runs, as `autocode runs --all --json` lists them
 
 Engine, model and budget flags come from the server's own command line, which
 the person configures, never from the agent's tool arguments:
@@ -52,7 +53,9 @@ INSTRUCTIONS = (
     "or answer a question only with the person's own decision, passing the token from the view they saw. Any "
     "other stop is the person's: give them next_command. The run works in the background: while working is "
     "true, nothing is needed yet; call autocode_status with wait_seconds below your tool time limit (for example "
-    "50) until working is false, then act on that stop."
+    "50) until working is false, then act on that stop. autocode_runs lists the runs of every project on this "
+    "machine and reads only: a run of another workspace is the person's to act on there, with the next_command "
+    "its row names."
 )
 _WAIT = {
     "type": "number",
@@ -135,6 +138,26 @@ TOOLS: tuple[dict[str, Any], ...] = (
         "returns the report it recorded.",
         "inputSchema": {"type": "object", "properties": {"run_dir": _RUN_DIR}, "additionalProperties": False},
     },
+    {
+        "name": "autocode_runs",
+        "description": "Every AutoCode run in every project on this machine, as `autocode runs --all --json` "
+        "lists them: counts of all runs by bucket (needs you, working, settled, unreadable) and one row per "
+        "run with its workspace, title, status, pause_category_label, phase, updated_at and next_command. "
+        "Reads only: it starts, approves and resumes nothing. A run of another workspace is the person's to "
+        "act on there.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "show": {
+                    "type": "string",
+                    "enum": list(agent_step.SHOWN),
+                    "description": "active (default): runs that need the person or are still working. "
+                    "needs: only runs that need the person. all: settled and unreadable runs too (can be long).",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
 )
 
 
@@ -164,11 +187,16 @@ def _evidence(step: agent_step.AgentStep, arguments: dict) -> dict:
     return step.evidence(_text(arguments, "run_dir"))
 
 
+def _runs(step: agent_step.AgentStep, arguments: dict) -> dict:
+    return step.runs(_text(arguments, "show") or "active")
+
+
 HANDLERS: dict[str, Callable[[agent_step.AgentStep, dict], dict]] = {
     "autocode_start": _start,
     "autocode_status": _status,
     "autocode_respond": _respond,
     "autocode_evidence": _evidence,
+    "autocode_runs": _runs,
 }
 
 

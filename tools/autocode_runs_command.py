@@ -289,6 +289,15 @@ def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = N
     )
 
 
+def select(entries: list[dict], *, needs: bool = False, active: bool = False) -> list[dict]:
+    """The rows a listing shows: all of them, those waiting on a person, or those not yet settled."""
+    if needs:
+        return [item for item in entries if item["bucket"] == NEEDS]
+    if active:
+        return [item for item in entries if item["bucket"] in (NEEDS, WORKING)]
+    return entries
+
+
 def counts(entries: list[dict]) -> dict:
     """How many runs sit in each bucket, empty buckets included."""
     return {
@@ -344,7 +353,9 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--workspace", default=".", help="project whose runs to list; refuse it with --all")
     result.add_argument("--all", action="store_true", help="list every registered run, not just this project's")
-    result.add_argument("--needs", action="store_true", help="show only the runs waiting on a person")
+    only = result.add_mutually_exclusive_group()
+    only.add_argument("--needs", action="store_true", help="show only the runs waiting on a person")
+    only.add_argument("--active", action="store_true", help="show only the runs waiting on a person or still working")
     result.add_argument("--json", action="store_true", help="print the rows as JSON")
     return result
 
@@ -360,7 +371,7 @@ def cli(argv: list[str] | None = None) -> int:
     if not entries and not args.json:
         print(f"No runs found for {scope}.", file=sys.stderr)
         return 2
-    selected = [item for item in entries if item["bucket"] == NEEDS] if args.needs else entries
+    selected = select(entries, needs=args.needs, active=args.active)
     if args.json:
         print(
             json.dumps(
@@ -376,7 +387,8 @@ def cli(argv: list[str] | None = None) -> int:
         )
         return 0
     if not selected:
-        print(f"{scope}: no run needs you ({len(entries)} run(s) listed).")
+        what = "no run needs you or is working" if args.active else "no run needs you"
+        print(f"{scope}: {what} ({len(entries)} run(s) listed).")
         return 0
     print(render(selected, scope, name_workspace=args.all))
     if not args.needs:
