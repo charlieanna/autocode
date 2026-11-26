@@ -1444,7 +1444,7 @@ def baseline_identity(
     if roots and (roots[0] / "vendor").exists() and ignored_inputs is None:
         dependencies.append(schedule.tree_identity((roots[0] / "vendor").resolve()))
     bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
-    bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
+    bound["dependencies"] = sorted(dependencies, key=lambda row: row["path"]) or identity.get("dependencies")
     bound["environment_hash"] = util.digest(environment)
     node_command = node_tests.parse(package_scope.within(command)) is not None  # a package's runs fresh too
     bound["cache_policy"] = "fresh_execution_only" if node_command else "baseline_runtime_identity"
