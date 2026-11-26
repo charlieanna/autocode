@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import autocode_acceptance_reference as acceptance_reference
+import autocode_changed_code_proof as changed_code_proof
 import autocode_check_outcome as check_outcome
 import autocode_command_guards as command_guards
 import autocode_companion_suites as companion_suites
@@ -430,6 +431,33 @@ class SourceBindingTests(unittest.TestCase):
         self.assertNotIn("no:cacheprovider", result["reason"])
 
     @unittest.skipUnless(shutil.which("node") and shutil.which("npm"), "Node and npm are required")
+    def test_a_stored_receipt_keeps_what_authenticates_its_binding(self):
+        # A mutation continuation re-authenticates the receipts an earlier window stored. Storing only the
+        # binding's verdict made every one of them unauthenticated, so earlier sites read as not run.
+        self.write(
+            self.tree,
+            {
+                "app.py": "VALUE = 1\n",
+                "tests/test_app.py": "import unittest\nimport app\n\n\nclass T(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(1, app.VALUE)\n",
+            },
+        )
+        evidence = self.base / "evidence"
+        receipt = verify.run_suite(
+            test_framework.Framework("unittest", f"{sys.executable} -m unittest discover -s tests -t ."),
+            f"{sys.executable} -m unittest -v tests.test_app",
+            self.tree,
+            evidence,
+            "mutant-01",
+            timeout=60,
+            source_workspace=self.workspace,
+        )
+        self.assertEqual("established", receipt["source_binding"]["status"], receipt["source_binding"])
+        self.assertTrue(intact(receipt, root=evidence))
+        stored = changed_code_proof.compact_receipt(receipt)
+        self.assertNotIn("observations", stored["source_binding"])
+        self.assertLess(len(json.dumps(stored)), len(json.dumps(receipt)))
+        self.assertTrue(intact(json.loads(json.dumps(stored)), root=evidence))
+
     def test_npm_build_step_cannot_hide_unobserved_source(self):
         self.write(self.workspace, {"app.js": "module.exports = 1;\n"})
         self.write(
@@ -750,6 +778,80 @@ class SourceBindingTests(unittest.TestCase):
         self.assertEqual("unverified", leaked["status"])
         self.assertIn("live workspace", leaked["reason"])
         self.assertTrue(any(row.get("name") == "leaked" for row in leaked["observations"]))
+
+    def test_installed_dependencies_inside_the_workspace_are_dependencies(self):
+        # A project's own .venv or node_modules sits in the workspace; what is installed there is
+        # third-party code, as it is beside the main checkout (#4152, phase 2).
+        site = self.workspace / ".venv/lib/python3.12/site-packages"
+        for kind, path, role, status in (
+            ("python_module", site / "requests/__init__.py", "dependency", "established"),
+            ("node_import", self.workspace / "node_modules/dep/index.js", "dependency", "established"),
+            ("node_import", self.workspace / "web/node_modules/dep/index.js", "dependency", "established"),
+            ("python_module", site / "requests/__init__.py", "source", "unverified"),
+            ("python_module", self.workspace / "src/app.py", "dependency", "unverified"),
+            ("node_import", self.workspace / "node_modules", "dependency", "unverified"),
+        ):
+            with self.subTest(path=path, role=role):
+                observations = [
+                    {"kind": "python_root", "path": str(self.tree), "role": "root"},
+                    {"kind": "python_test", "path": str(self.tree / "tests/test_a.py"), "role": "test"},
+                    {"kind": kind, "path": str(path), "role": role},
+                ]
+                result = source_binding.assess({"observations": observations, "errors": []}, self.tree, self.workspace)
+                self.assertEqual(status, result["status"], result)
+
+    def test_a_copys_custody_environment_holds_only_live_source(self):
+        # The proof copy's .venv is a view of the workspace's (autocode_dependency_dirs.expose): an
+        # installed package found in it is a dependency, and the editable install leads to the copy.
+        import autocode_dependency_dirs as dependency_dirs
+
+        environment = self.workspace / ".venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True)
+        site = next((environment / "lib").glob("python*/site-packages"))
+        (site / "installed").mkdir()
+        (site / "installed/__init__.py").write_text("")
+        (site / "__editable__.app.pth").write_text(str(self.workspace / "src") + "\n")
+        self.write(self.workspace, {"src/app.py": "VALUE = 2\n", "src/added.py": ""})
+        self.write(self.tree, {"src/app.py": "VALUE = 1\n", "tests/test_app.py": "import app, added, installed\n"})
+        for live, expected in (([], "unverified"), ([self.workspace], "established")):
+            with self.subTest(custody=bool(live)):
+                shutil.rmtree(self.tree / ".views", ignore_errors=True)
+                (self.tree / ".venv").unlink(missing_ok=True)
+                dependency_dirs.expose(
+                    environment, self.tree / ".venv", self.tree / ".views", live=live, tree=self.tree
+                )
+                request, capture = self.base / "request.json", self.base / "capture.json"
+                command = ".venv/bin/python -m unittest tests.test_app"
+                request.write_text(
+                    json.dumps(
+                        {
+                            "framework": "unittest",
+                            "command": command,
+                            "tree": str(self.tree),
+                            "root": str(self.tree),
+                            "workspace": str(self.workspace),
+                            "capture": str(capture),
+                        }
+                    )
+                )
+                environ = {**verify.test_environment(self.tree), "PYTHONDONTWRITEBYTECODE": "1"}
+                environ["PYTHONPATH"] = os.pathsep.join(
+                    [str(Path(source_probe.__file__).parent), environ["PYTHONPATH"]]
+                )
+                probe = subprocess.run(
+                    [str(self.tree / ".venv/bin/python"), source_probe.__file__, str(request)],
+                    cwd=self.tree,
+                    env=environ,
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                )
+                self.assertEqual(0, probe.returncode, probe.stderr)
+                result = source_binding.assess(json.loads(capture.read_text()), self.tree, self.workspace)
+                self.assertEqual(expected, result["status"], result)
+                if not live:
+                    self.assertIn(str(self.workspace / "src/added.py"), result["reason"])
+                self.assertNotIn("installed", result["reason"].replace(str(self.workspace / "src"), ""))
 
     def test_interpreter_installed_pth_startup_tooling_is_runtime_custody(self):
         # CI's own venv ships a coverage hook as a .pth; it is the interpreter environment's

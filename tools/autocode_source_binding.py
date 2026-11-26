@@ -12,6 +12,7 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_go_tests as go_tests
     from . import autocode_node_tests as node_tests
     from . import autocode_npm_scripts as npm_scripts
@@ -20,6 +21,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as command_receipt
+    import autocode_dependency_dirs as dependency_dirs
     import autocode_go_tests as go_tests
     import autocode_node_tests as node_tests
     import autocode_npm_scripts as npm_scripts
@@ -257,6 +259,16 @@ def merged(receipts):
     }
 
 
+def _installed(relative):
+    """Whether a path inside the workspace lies in an installed dependency directory (#4152, phase 2).
+
+    The workspace's own ``.venv`` or ``node_modules`` holds what a package manager installed, not
+    the task's source (autocode_dependency_dirs.NAMES): the same package installed beside the main
+    checkout, outside the workspace, was already a dependency. Live source those directories link
+    to resolves outside them and is still held."""
+    return any(part in dependency_dirs.NAMES for part in relative.parts[:-1])
+
+
 def _inside(path, root):
     return root is not None and path.is_relative_to(root)
 
@@ -327,6 +339,8 @@ def assess(result, tree, workspace):
         if _inside(path, tree):
             continue
         if workspace is not None and _inside(path, workspace):
+            if role == "dependency" and _installed(path.relative_to(workspace)):
+                continue  # installed third-party code is dependency custody wherever it is installed
             (errors if role != "root" else roots).append(f"{kind} resolved into the live workspace: {path}")
         elif role != "dependency":
             (errors if role != "root" else roots).append(f"{kind} resolved outside its owning copy: {path}")

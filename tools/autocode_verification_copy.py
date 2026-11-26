@@ -518,7 +518,8 @@ def create(
         original, target = root / name, tree / name
         if original.is_dir() and not target.exists() and not target.is_symlink():
             # Beside the copy, not in it: the manifest binds the link, and a check may rebuild what is behind it.
-            dependency_dirs.expose(original.resolve(), target, scratch / "dependencies" / name)
+            view = scratch / "dependencies" / name
+            dependency_dirs.expose(original.resolve(), target, view, live=[root], tree=tree)
     if source.snapshot(root, paths=source_paths) != before:
         raise ValueError("Source changed while preparing verification copy")
     _remaining(deadline, "Verification source authentication")

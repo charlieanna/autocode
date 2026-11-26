@@ -2450,6 +2450,11 @@ def handoff(state: RunState):
         **{k: proof.get(k) for k in SUMMARY_KEYS},
         # Only the changed lines' coverage: a proof saved before #3121 holds every measured file.
         "diff_coverage": diff_coverage.bounded(proof.get("diff_coverage")),
+        **(
+            {"changed_code_receipts": [changed_code.shown_receipt(row) for row in proof["changed_code_receipts"]]}
+            if isinstance(proof.get("changed_code_receipts"), list)
+            else {}
+        ),
         "checks": proof.get("checks", {}),
         "path": proof.get("path"),
         "meaning": "Executed by the runner in clean worktrees against this run's base commit: the new or "

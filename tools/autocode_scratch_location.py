@@ -19,9 +19,9 @@ preparation, recovery and every proof gate re-derive the same location without a
 admission field or a question for the person. A path that is not under a ``.autocode``
 store (for example a run directory already outside the workspace) is left where it is.
 
-This is physical relocation only. The kernel read boundary, editable-install fallthrough
-and dependency custody are later phases of #4057; absolute paths, symlinks and mutable
-dependencies are not yet denied here.
+This is physical relocation only. Installed dependencies keep custody of the copy
+(autocode_dependency_dirs.expose, #4152 phase 2); absolute paths a test names itself are
+not denied here, which a kernel read boundary would do.
 """
 
 from pathlib import Path

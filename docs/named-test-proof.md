@@ -570,12 +570,39 @@ judgment. The same hold applies to the original code, stability repeats,
 first-suite repair, independent check replay, protected replay, compatibility and acceptance evidence,
 companion suites, guards, the plan-time guard check, flake rechecks, follow-up
 baselines, original-reference checks and changed-line mutation evidence. Contaminated evidence cannot supply a
-failure either. External dependency origins remain allowed in this phase; an
-interpreter-controlled `._pth` runtime stays phase-2 dependency custody unless one
-of its roots enters the live workspace, which is held now. Linked dependency
-custody and a kernel read boundary are separate work. Legacy receipts
+failure either. External dependency origins remain allowed; an
+interpreter-controlled `._pth` runtime is runtime custody unless one of its roots
+enters the live workspace, which is held. Legacy receipts
 without an observation remain readable and neutral; deleting a required binding,
 or retaining a malformed or changed one, fails closed.
+
+### Linked dependencies keep custody of the copy (#4152, phase 2)
+
+A proof copy uses the person's installed dependencies through a link, and an installed directory
+can lead back into the live tree: an editable install's `.pth` file or finder names the live
+`src/`, a script's `#!` line names the live `.venv`, and `npm link` or a workspace package makes
+`node_modules/<name>` a link to the live package. The original code's copy then imported the
+candidate's new module through it. Each copy now gets an environment of its own
+(`autocode_dependency_dirs.expose`): a `.venv` or `venv` view whose directories down to each
+`site-packages` and `bin` are its own and whose other entries link to the person's, with the files
+that name paths (`.pth`, editable finders and egg-links, top-level modules, `#!` scripts,
+`activate`, `pyvenv.cfg`) copied and re-pointed at the copy; and a `node_modules` view in which a
+package, a scope's package or a `.bin` command that links into live source links to the copy's own
+package. Python finds `pyvenv.cfg` beside the path it was started by, so the copy's interpreter
+reads the copy's `site-packages`. The person's environment is never written, and a package
+manager run in the copy changes only the view. The same view serves the regression proof's trees,
+a package's own `node_modules` and the Tester's clean copy.
+
+What a package manager installed is a dependency wherever it is installed. A file found in the
+interpreter's site directories is classified by where it was found, before links are followed, and
+an observed dependency inside the workspace's own `.venv`, `venv` or `node_modules` is not live
+source (`autocode_source_binding.assess`). Before, a project that kept its virtualenv or its
+`node_modules` in the project folder had every proof that imported an installed package held as
+`UNVERIFIED`, while the same package installed beside the main checkout passed. Live source
+reached through those directories resolves outside them and is still held: custody is what keeps
+it out, and the boundary still holds what custody missed (a link nested inside an installed
+package, a path a test names itself). Installed directories are shared by the original code's and
+the candidate's copies, as before; a kernel read boundary is phase 3.
 
 The saved-proof inventory found 180 retained verification receipts (168 unittest,
 5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are
