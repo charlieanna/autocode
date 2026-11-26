@@ -48,7 +48,8 @@ def files(root: Path) -> dict[str, float]:
 class BoardCommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workspace, env = fixture_workspace(SimpleNamespace(addCleanup=cls.addClassCleanup))
+        workspace, env = fixture_workspace(SimpleNamespace(addCleanup=cls.addClassCleanup))
+        cls.workspace = workspace.resolve()  # the listing names canonical folders; on macOS /var is /private/var
         cls.env = {**os.environ, **env, "TERM": "xterm-256color"}
         cls.root = cls.workspace.parent
         run = TaskRun.start(cls.workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=180)
@@ -138,6 +139,11 @@ class BoardCommandTests(unittest.TestCase):
             screen.wait_for_all("Needs you", "--approve-goal")
             screen.keys("Escape")
             screen.wait_for_all("needs you (2)", "Enter open")
+            # Backspace as macOS Terminal and iTerm2 send it (DEL), which macOS's terminfo does not name.
+            screen.keys("Enter")
+            screen.wait_for_all("Pipeline", "Esc back to the list")
+            screen.keys("BSpace")
+            screen.wait_for_all("needs you (2)", "Enter open", "read ")
             screen.type("q")
             self.assertEqual(0, screen.exit_status())
 

@@ -39,9 +39,23 @@ class Read:
 
 
 class StatusPoller:
-    def __init__(self, command, env=None, *, clock=time.monotonic, launch=subprocess.Popen):
+    def __init__(
+        self,
+        command,
+        env=None,
+        *,
+        clock=time.monotonic,
+        launch=subprocess.Popen,
+        timeout=READ_TIMEOUT,
+        limit=MAX_READ_TIMEOUT,
+        rest=0.0,
+    ):
+        """``timeout`` is how long a read may take before it is stopped and tried again with twice the
+        time, up to ``limit``. ``rest`` keeps a slow read from running back to back: the next read of
+        the same identity starts no sooner than ``rest`` times how long the last one took."""
         self.command, self.env = tuple(command), env
         self.clock, self.launch = clock, launch
+        self.timeout, self.limit, self.rest = timeout, limit, rest
         self.active: dict[Key, Read] = {}
         self.due: dict[Key, float] = {}
         self.timeouts: dict[Key, float] = {}  # slow startup may need grace; never extends an action receipt
@@ -83,7 +97,7 @@ class StatusPoller:
                 self.timeouts.pop(key, None)
         for key, read in list(self.active.items()):
             code = read.child.poll()
-            timeout = self.timeouts.get(key, READ_TIMEOUT)
+            timeout = self.timeouts.get(key, self.timeout)
             if code is None and now - read.started < timeout:
                 continue
             self.active.pop(key)
@@ -91,9 +105,10 @@ class StatusPoller:
             self.due[key] = now + targets[key]
             if code is None:
                 self.stop(read)
-                self.timeouts[key] = min(MAX_READ_TIMEOUT, timeout * 2)
+                self.timeouts[key] = min(self.limit, timeout * 2)
                 results.append((key, "", f"status read timed out after {timeout:g}s"))
                 continue
+            self.due[key] = now + max(targets[key], self.rest * (now - read.started))
             read.child.wait()
             read.output.seek(0)
             raw = read.output.read()

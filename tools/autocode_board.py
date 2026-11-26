@@ -25,6 +25,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import sys
 import textwrap
 import time
@@ -37,9 +38,19 @@ except ImportError:
     import autocode_chat_polling as polling
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
-# Seconds between rereads of the list, and of the run that is open.
+# Seconds between rereads of the list, and of the run that is open. While a run is open its list is
+# off screen and is reread only now and then; going back to the list rereads it at once.
 INTERVAL = 5.0
 OPEN_INTERVAL = 3.0
+HIDDEN_INTERVAL = 30.0
+# The reader's limits (autocode_chat_polling). A listing of every project's runs takes as long as there
+# are runs to read (five seconds for 158 of them on the owner's laptop), and nothing waits on it: the
+# board draws and takes keys while it reads. So a read gets a long first limit, twice that after a
+# timeout, and a slow read is followed by a rest REST times its own length, so that rereading the list
+# never takes more than about a quarter of one processor.
+READ_TIMEOUT = 20.0
+MAX_READ_TIMEOUT = 120.0
+REST = 3.0
 # The buckets `autocode runs` sorts its rows into (docs/cli.md), in its order. The first two are the
 # runs not yet settled, which is what the board shows until the person asks for the rest.
 NEEDS, WORKING, SETTLED, UNREADABLE = "needs you", "working", "settled", "unreadable"
@@ -48,9 +59,11 @@ STAMP = "%Y-%m-%dT%H:%M:%S"  # a row's updated_at, in local time
 # How a line is drawn; curses maps each to an attribute.
 TITLE, HEAD, PLAIN, DIM, PICKED, ALERT = "title", "head", "plain", "dim", "picked", "alert"
 Line = tuple[str, str]
-LIST_KEYS = "Up/Down move · Enter open · n needs you only · a all runs · r reread · q quit"
+LIST_KEYS = "Up/Down/PgUp/PgDn move · Enter open · n needs you only · a all runs · r reread · q quit"
 RUN_KEYS = "Up/Down/PgUp/PgDn/End scroll · Esc back to the list · r reread · q quit"
 SCROLL = {"up": -1, "down": 1, "pageup": -1, "pagedown": 1}
+# The widest the status and project columns of the list get; each is as wide as the rows shown need.
+LABEL_WIDTH, PROJECT_WIDTH = 28, 24
 ESCAPED = re.compile(r"\\([^A-Za-z0-9\s])")  # Markdown's backslash before a punctuation mark, dropped for plain text
 NO_TERMINAL = "autocode board needs a terminal. For one listing, run: autocode runs --all --active"
 
@@ -72,6 +85,8 @@ class Board:
     view_error: str = ""
     scroll: int = 0
     page: int = 10  # the lines one screenful scrolls by; frame() sets it from the terminal's height
+    asked: float | None = None  # when the board began reading, for the wait it shows before the first list
+    read_at: float | None = None  # when the list on screen was read
 
 
 def shown(board: Board) -> list[dict]:
@@ -88,13 +103,17 @@ def picked(board: Board) -> dict | None:
 
 def targets(board: Board) -> dict:
     """What the reader keeps fresh: the list, and the open run's status."""
-    wanted: dict = {(board.home, None): INTERVAL}
     if board.opened:
-        wanted[board.opened] = OPEN_INTERVAL
-    return wanted
+        return {(board.home, None): HIDDEN_INTERVAL, board.opened: OPEN_INTERVAL}
+    return {(board.home, None): INTERVAL}
 
 
-def apply(board: Board, results: list[tuple]) -> None:
+def onscreen(board: Board) -> tuple:
+    """The one read the screen in front of the person shows: what `r`, Enter and going back read again."""
+    return board.opened or (board.home, None)
+
+
+def apply(board: Board, results: list[tuple], now: float | None = None) -> None:
     """Take the reader's results. A failed read keeps what was last shown and says so."""
     for key, text, error in results:
         listing = key[1] is None
@@ -107,7 +126,7 @@ def apply(board: Board, results: list[tuple]) -> None:
                 board.rows = [row for row in read["runs"] if isinstance(row, dict)]
                 counts = read.get("counts")
                 board.counts = counts if isinstance(counts, dict) else {}
-                board.loaded, board.error = True, ""
+                board.loaded, board.error, board.read_at = True, "", now
                 if board.picked is None and (first := picked(board)):
                     board.picked = first.get("run_dir")  # the highlight stays on its run when new runs appear
             else:
@@ -128,15 +147,17 @@ def press(board: Board, key: str) -> str | None:
     if board.opened:
         if key in ("back", "left"):
             board.opened, board.view, board.view_error, board.scroll = None, None, "", 0
-        elif key in SCROLL:
+            return "reread"  # the list was reread only now and then while it was off screen
+        if key in SCROLL:
             board.scroll = max(0, board.scroll + SCROLL[key] * (board.page if key.startswith("page") else 1))
         elif key in ("home", "end"):
             board.scroll = 0 if key == "home" else sys.maxsize  # frame() stops it at the last screenful
         return None
     rows = shown(board)
     current = picked(board)
-    if key in ("up", "down") and current is not None:
-        at = rows.index(current) + (1 if key == "down" else -1)
+    if (key in SCROLL or key in ("home", "end")) and current is not None:
+        step = len(rows) if key in ("home", "end") else board.page if key.startswith("page") else 1
+        at = rows.index(current) + (step if key in ("down", "pagedown", "end") else -step)
         board.picked = rows[min(max(at, 0), len(rows) - 1)].get("run_dir")
     elif key == "n":
         board.needs_only = not board.needs_only
@@ -156,10 +177,14 @@ def age(stamped, now: float) -> str:
         seconds = max(0.0, now - time.mktime(time.strptime(stamped, STAMP)))
     except (TypeError, ValueError):
         return ""
+    return _ago(seconds)
+
+
+def _ago(seconds: float) -> str:
     for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
         if seconds >= size:
             return f"{int(seconds // size)}{unit}"
-    return f"{int(seconds)}s"
+    return f"{int(max(0.0, seconds))}s"
 
 
 def _label(row: dict) -> str:
@@ -195,16 +220,28 @@ def _summary(board: Board) -> str:
     return " · ".join(parts)
 
 
-def list_lines(board: Board, width: int, now: float) -> tuple[list[Line], int | None]:
-    """The list screen, and the index of the highlighted row's line."""
-    lines: list[Line] = [
-        (_fit(f"AutoCode runs   {_summary(board)}" if board.loaded else "AutoCode runs", width), TITLE)
-    ]
+def _list_head(board: Board, width: int, now: float) -> list[Line]:
+    """The lines that stay at the top of the list screen: the counts, when they were read, a failed read."""
+    title = "AutoCode runs"
+    if board.loaded:
+        counts = _summary(board)
+        read = f"read {_ago(now - board.read_at)} ago" if board.read_at is not None else ""
+        # What a narrow window drops first is the board's name, and last how old the list is.
+        fits = (f"AutoCode runs   {counts}   {read}".rstrip(), f"{counts}   {read}".rstrip(), f"{read}   {counts}")
+        title = next((text for text in fits if len(text) <= width), fits[-1] if read else fits[0])
+    lines: list[Line] = [(_fit(title, width), TITLE)]
     if board.error:
         kept = " Showing the last one read." if board.loaded else ""
         lines.append((_fit(f"Could not read the list: {board.error}. Trying again.{kept}", width), ALERT))
+    return lines
+
+
+def list_lines(board: Board, width: int, now: float) -> tuple[list[Line], int | None]:
+    """The list screen, and the index of the highlighted row's line."""
+    lines = _list_head(board, width, now)
     if not board.loaded:
-        return [*lines, ("", PLAIN), ("Reading the runs…", DIM)], None
+        waited = int(now - board.asked) if board.asked is not None else 0
+        return [*lines, ("", PLAIN), ("Reading the runs…" + (f" {waited}s" if waited >= 2 else ""), DIM)], None
     rows, current, at = shown(board), picked(board), None
     if not rows:
         total = board.counts.get("total", len(board.rows))
@@ -215,30 +252,37 @@ def list_lines(board: Board, width: int, now: float) -> tuple[list[Line], int | 
             what = "No runs to show"
         hidden = "" if board.everything or not total else f" ({total} run(s) in all; press a to show them)"
         lines += [("", PLAIN), (_fit(what + hidden + ".", width), DIM)]
+    # One width per column for every row shown, as wide as those rows need: the project column lines up
+    # whatever the titles are, and a narrow terminal gives its room to the titles, not to padding.
+    labels = max((len(_one(_label(row))) for row in rows), default=0)
+    projects = max((len(_project(row)) for row in rows), default=0)
+    label_width = min(LABEL_WIDTH, labels, max(8, width // 4))
+    project_width = min(PROJECT_WIDTH, projects, max(8, width // 5))
     for bucket in BUCKETS:
         group = [row for row in rows if row.get("bucket") == bucket]
         if not group:
             continue
         lines += [("", PLAIN), (f"{bucket} ({len(group)})", HEAD)]
         for row in group:
-            project = Path(str(row.get("workspace") or "")).name
             title = _one(row.get("title") or row.get("name") or "")
-            head = f"{age(row.get('updated_at'), now):>4}  {_fit(_one(_label(row)), 28):<28}  "
-            tail = f"  {_fit(project, 24)}" if project else ""
-            text = head + _fit(title, max(8, width - len(head) - len(tail) - 2)) + tail
+            head = f"{age(row.get('updated_at'), now):>4}  {_fit(_one(_label(row)), label_width):<{label_width}}  "
+            room = max(8, width - 2 - len(head) - (project_width + 2 if project_width else 0))
+            text = f"{head}{_fit(title, room):<{room}}  {_fit(_project(row), project_width)}".rstrip()
             if row is current:
                 at = len(lines)
                 lines.append((_fit("> " + text, width), PICKED))
-                for detail in (
-                    _stage(row),
-                    row.get("workspace"),
-                    row.get("next_command") and f"-> {row['next_command']}",
-                ):
+                for detail in (_stage(row), row.get("needs_reason"), row.get("workspace")):
                     if detail:
                         lines += [(part, DIM) for part in _wrap(str(detail), width, indent=8)]
+                if row.get("next_command"):
+                    lines += [(part, DIM) for part in _command(str(row["next_command"]), width, indent=8)]
             else:
                 lines.append((_fit("  " + text, width), ALERT if bucket == NEEDS else PLAIN))
     return lines, at
+
+
+def _project(row: dict) -> str:
+    return Path(str(row.get("workspace") or "")).name
 
 
 def _wrap(text: str, width: int, *, indent: int = 2) -> list[str]:
@@ -247,6 +291,33 @@ def _wrap(text: str, width: int, *, indent: int = 2) -> list[str]:
         " ".join(text.split()), max(20, width), initial_indent=pad, subsequent_indent=pad, break_on_hyphens=False
     )
     return wrapped or [pad]
+
+
+def _command(command: str, width: int, *, indent: int = 2) -> list[str]:
+    """A command to copy and run, on as many lines as it needs and still one command when pasted.
+
+    A line ends between two arguments with the shell's own line continuation. An argument longer than a
+    line goes on from the first column of the next, where the shell joins the two halves. A quoted one
+    cannot be joined that way, so a command with one is wrapped as any long text is.
+    """
+    pad = " " * indent
+    try:
+        words = [shlex.quote(word) for word in shlex.split(command)]
+    except ValueError:
+        words = []
+    room = width - 2  # a line that is continued ends " \"
+    if not words or any(word.startswith("'") and indent + 3 + len(word) > room for word in words):
+        return _wrap(f"-> {command}", width, indent=indent)
+    lines, line = [], f"{pad}->"
+    for at, word in enumerate(words):
+        if at and len(line) + 1 + len(word) > room:
+            lines.append(line + " \\")
+            line = f"{pad}  "
+        line += " " + word
+        while len(line) > room:
+            lines.append(line[: width - 1] + "\\")
+            line = line[width - 1 :]
+    return [*lines, line]
 
 
 def _money(value) -> str:
@@ -343,28 +414,37 @@ def run_lines(board: Board, width: int) -> list[Line]:
         explained = (view.get("explanation") or {}).get("explanation")
         if explained:
             lines += [(part, PLAIN) for part in _wrap(str(explained), width)]
-        lines += [(part, ALERT) for part in _wrap(f"-> {command}", width)]
+        lines += [(part, ALERT) for part in _command(str(command), width)]
     elif command:
-        lines += [("", PLAIN), ("Next", HEAD)] + [(part, DIM) for part in _wrap(f"-> {command}", width)]
+        lines += [("", PLAIN), ("Next", HEAD)] + [(part, DIM) for part in _command(str(command), width)]
     return lines
 
 
 def frame(board: Board, width: int, height: int, now: float) -> list[Line]:
     """Exactly what the screen shows: the lines that fit, the highlighted row in view, the keys last."""
     body = max(1, height - 2)
-    board.page = max(1, body - 2)
     if board.opened:
-        lines, keys = run_lines(board, width), RUN_KEYS
-        board.scroll = min(board.scroll, max(0, len(lines) - body))
-        first = board.scroll
+        lines, at, keys = run_lines(board, width), None, RUN_KEYS
+        kept = 2 + bool(board.view is not None and board.view_error)  # the task, where it runs, a failed reread
     else:
         lines, at = list_lines(board, width, now)
-        keys = LIST_KEYS
-        first = 0 if at is None or at < body - 3 else min(at - body // 2, max(0, len(lines) - body))
-    window = lines[first : first + body]
+        keys, kept = LIST_KEYS, len(_list_head(board, width, now))
+    # The first lines say what is on screen and stay there; the rest scrolls under them. A window too
+    # short to spare them scrolls everything.
+    kept = kept if body >= kept + 4 else 0
+    top, lines = lines[:kept], lines[kept:]
+    room = body - len(top)
+    board.page = max(1, room - 2)
+    if board.opened:
+        board.scroll = min(board.scroll, max(0, len(lines) - room))
+        first = board.scroll
+    else:
+        at = None if at is None else at - kept
+        first = 0 if at is None or at < room - 3 else min(at - room // 2, max(0, len(lines) - room))
+    window = top + lines[first : first + room]
     window += [("", PLAIN)] * (body - len(window))
-    more = " · more below" if first + body < len(lines) else ""
-    return [*window, ("", PLAIN), (_fit(keys + more, width), DIM)]
+    more = "more below · " if first + room < len(lines) else ""  # first: a narrow window cuts the end of the line
+    return [*window, ("", PLAIN), (_fit(more + keys, width), DIM)]
 
 
 KEYS = {
@@ -380,6 +460,10 @@ KEYS = {
     "\n": "enter",
     "\r": "enter",
     "\x1b": "back",
+    # Backspace as the terminal sends it. curses names only the one its terminfo entry lists, and macOS's
+    # entries list Ctrl-H while Terminal and iTerm2 send DEL, so there it arrives as a plain character.
+    "\x7f": "back",
+    "\b": "back",
 }
 
 
@@ -410,8 +494,9 @@ def run(stdscr, board: Board, poller, *, clock=time.time) -> None:
         curses.curs_set(0)
     curses.set_escdelay(25)  # Esc goes back at once; an arrow key's sequence arrives well inside this
     stdscr.timeout(200)
+    board.asked = clock()
     while True:
-        apply(board, poller.tick(targets(board)))
+        apply(board, poller.tick(targets(board)), clock())
         height, width = stdscr.getmaxyx()
         stdscr.erase()
         for y, (text, style) in enumerate(frame(board, max(20, width - 1), height, clock())[:height]):
@@ -429,8 +514,7 @@ def run(stdscr, board: Board, poller, *, clock=time.time) -> None:
         if done == "quit":
             return
         if done == "reread":
-            for target in targets(board):
-                poller.refresh(target)
+            poller.refresh(onscreen(board))  # not the list behind an open run: it is read when it is shown
 
 
 def parser() -> argparse.ArgumentParser:
@@ -451,7 +535,9 @@ def cli(argv: list[str] | None = None) -> int:
     import curses
 
     board = Board(home=os.getcwd())
-    poller = polling.StatusPoller(AUTOCODE, env=dict(os.environ))
+    poller = polling.StatusPoller(
+        AUTOCODE, env=dict(os.environ), timeout=READ_TIMEOUT, limit=MAX_READ_TIMEOUT, rest=REST
+    )
     try:
         curses.wrapper(run, board, poller)
     except KeyboardInterrupt:
