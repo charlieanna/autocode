@@ -179,10 +179,13 @@ class AttemptSpecificSchemaLastTests(unittest.TestCase):
     def test_opencode_renders_the_attempt_specific_property_last(self):
         self.check_prompt_order(opencode.prompt_for_schema)
 
-    def test_claude_renders_the_attempt_specific_property_last(self):
+    def test_claude_leaves_the_schema_to_its_structured_output_tool(self):
         import providers.claude as claude
 
-        self.check_prompt_order(claude.prompt_for_schema)
+        schema = self.bound_schema()
+        prompt = claude.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
+        with self.assertRaises(AssertionError):
+            self.rendered_schema(prompt)
 
 
 class RequirementsPromptModeTests(unittest.TestCase):

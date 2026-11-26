@@ -21,7 +21,15 @@ import copy
 import json
 from collections import Counter
 
-LIMIT = 12288
+# A field over LIMIT moves when its summary is at least 2 KB smaller. 2 KB, not the 12 KB that first kept
+# overflowing handoffs readable: a one-file change's mutation and per-line detail was 15 to 20 KB of every
+# Tester and Completion Reviewer prompt, the largest part of what a small task's reviews cost.
+LIMIT = 2048
+# The changed lines the reviewer decides stay whole up to the old 12 KB: its decisions name their gap_id
+# rows, so a small change keeps them in the handoff and only bulk detail moves.
+DECISION_LIMIT = 12288
+# A changed_code_inputs entry at or under this size stays inline (the 12 KB limit's eighth before).
+INLINE_INPUT = 1536
 STAGES = ("tester", "review_completion", "review_checkpoint")
 FILES = "regression_proof_mutation_files"
 SURVIVORS = "regression_proof_mutation_survivors"
@@ -94,7 +102,7 @@ def _inputs(value):
         return None
     return {
         key: entry
-        if _size(entry) <= LIMIT // 8
+        if _size(entry) <= INLINE_INPUT
         else {
             "total": len(entry) if isinstance(entry, (list, dict)) else None,
             "details_artifact": {"field": INPUTS, "key": key},
@@ -164,7 +172,11 @@ def move(source, result, moved) -> None:
     )
     fields = []
     for field, holder, key, whole, summarize in plans:
-        if whole is None or key not in holder or _size(holder[key]) <= LIMIT:
+        if (
+            whole is None
+            or key not in holder
+            or _size(holder[key]) <= (DECISION_LIMIT if field == OBLIGATIONS else LIMIT)
+        ):
             continue
         summary = summarize(whole)
         if summary is None or _size(summary) + 2048 >= _size(holder[key]):

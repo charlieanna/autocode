@@ -6,6 +6,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import goal_fixtures
+
 from tests import test_changed_code_evidence_cli as fixtures
 
 
@@ -90,15 +92,17 @@ class MutationContinuationCliTests(unittest.TestCase):
         self.assertTrue(all(row["pending"] > 0 for row in deferred))
         testers = [row for row in self.attempts() if row["stage"] == "tester" and not row["repair"]]
         self.assertEqual(1, len(testers), self.diagnostic())
-        report = testers[0]["handoff"]["regression_proof"]["mutation_check"]
+        # The rows the Tester reads, with any summarized detail restored from its pinned context artifact.
+        handoff = goal_fixtures._review_data(testers[0]["handoff"])
+        report = handoff["regression_proof"]["mutation_check"]
         sites = [row for file in report["files"] for row in file["mutants"]]
         self.assertGreater(len(sites), 2)
         self.assertNotIn("not_run", {row["outcome"] for row in sites})
         # The evidence the Tester is shown keeps the sites an earlier window ran (#4152): their stored
         # receipts still authenticate, so none of them reads as not run.
-        evidence = testers[0]["handoff"]["regression_proof"]["changed_code_evidence"]["obligations"]
+        evidence = handoff["regression_proof"]["changed_code_evidence"]["obligations"]
         self.assertNotIn("not_run", {outcome for row in evidence for outcome in row["mutation_outcomes"]}, evidence)
-        if testers[0]["handoff"]["regression_proof"]["diff_coverage"].get("collected") is True:
+        if handoff["regression_proof"]["diff_coverage"].get("collected") is True:
             # Where the host measured coverage, a later window keeps it rather than reading a removed copy.
             self.assertTrue(all(row["executed"] for row in evidence), evidence)
         labels = [row["label"] for row in events if row["kind"] == "site"]
