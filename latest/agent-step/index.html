@@ -1590,6 +1590,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="MCP server">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#every-projects-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every project's runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1928,6 +1945,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="MCP server">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#every-projects-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every project's runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1962,7 +1996,7 @@
 
 
 <h1 id="autocode-inside-your-coding-agent">AutoCode inside your coding agent<a class="headerlink" href="#autocode-inside-your-coding-agent" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1a80b56868609a0fc32c37e6fbfc2640fc036518/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/338973df2fe97f9dbe20b04c33527536699d3983/README.md">← Back to README</a></p>
 <p>Most people already work in Claude Code, Codex or Cursor. AutoCode can run as one
 step inside that agent instead of replacing it: the agent starts an AutoCode run
 in the repository, tells you where it stands at each stop, passes on your plan
@@ -2062,7 +2096,7 @@ Claude Code, in the terminal or the desktop app:</p>
 claude plugin install autocode@autocode
 </code></pre>
 <p>The plugin adds the AutoCode skill
-(<a href="https://github.com/charlieanna/autocode/blob/1a80b56868609a0fc32c37e6fbfc2640fc036518/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>).
+(<a href="https://github.com/charlieanna/autocode/blob/338973df2fe97f9dbe20b04c33527536699d3983/examples/agent-step/skills/autocode/SKILL.md"><code>examples/agent-step/skills/autocode</code></a>).
 Ask for AutoCode in your own words in a Git repository, for example <em>"Use AutoCode to
 add a --json flag to the report command"</em>; Claude starts the run, shows you its
 questions and plan, and passes on only your answers and approval. Without the plugin,
@@ -2118,6 +2152,16 @@ a tool result with <code>isError</code> and the reason, so the agent can read it
 arguments are checked against each tool's schema, and an argument it does not
 name, such as <code>options</code>, is refused. <code>autocode_respond</code> takes the same decisions as
 the steps above: <code>approve_plan</code>, <code>revise_plan</code>, <code>answer</code>, <code>continue</code> and <code>follow_up</code>.</p>
+<h3 id="every-projects-runs">Every project's runs<a class="headerlink" href="#every-projects-runs" title="Permanent link">&para;</a></h3>
+<p>The server has a fifth tool, <code>autocode_runs</code>, so you can ask the agent "what is AutoCode
+running?" from any project. It returns what <code>autocode runs --all --json</code> prints: <code>counts</code>
+of every run by bucket (<code>needs you</code>, <code>working</code>, <code>settled</code>, <code>unreadable</code>) and one row per
+run with its <code>workspace</code>, <code>title</code>, <code>status</code>, <code>pause_category_label</code>, <code>phase</code>, <code>updated_at</code>
+and <code>next_command</code>. <code>show</code> selects the rows: <code>active</code> (the default: runs that need you or
+are still working), <code>needs</code> (only runs that need you) or <code>all</code> (finished runs too).</p>
+<p>It reads only. The other four tools act on the server's own workspace, so a run of another
+project is yours to act on there, with the <code>next_command</code> its row names. With the skill,
+the agent runs <code>autocode runs --all --active --json</code> for the same rows.</p>
 <h2 id="verify-a-change-you-made">Verify a change you made<a class="headerlink" href="#verify-a-change-you-made" title="Permanent link">&para;</a></h2>
 <p>To have AutoCode judge a change the agent already made, start a review run that
 names the change and what it should do, then read the evidence:</p>
