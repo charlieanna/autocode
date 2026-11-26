@@ -11,8 +11,9 @@ Codex stage's (``OUTPUT = "codex_events"``). The report is the StructuredOutput 
 accepted, kept as the ``structured_output`` item of the event log.
 
 - Sessions: every ordinary stage starts a fresh Claude session (``RESUME_ACROSS_STAGES = False``,
-  honoured by ``autocode_provider_launch.prepare``); only a same-stage correction and the
-  conformance resume phase pass ``--resume``.
+  honoured by ``autocode_provider_launch.prepare``); only a same-stage format correction and the
+  conformance resume phase pass ``--resume``. A full report repair starts fresh too
+  (``RESUME_REPORT_REPAIR = False``): its tools-off request cannot reuse the stage's cache.
 - Tools: the same ``--tools Bash,Read,Edit,Write,Glob,Grep`` on every stage, no MCP servers, no
   skills, project settings only; git history commands are denied. A stage that may write runs with
   ``--permission-mode acceptEdits``, which accepts Edit and Write inside the stage's own directory and
@@ -73,6 +74,11 @@ SUPPORTS_SESSIONS = True
 RESUME_ACROSS_STAGES = False
 PROMPT_MODE = "stdin"
 SUPPORTS_REPORT_RECOVERY = True
+# A full report repair starts a fresh session. It runs with ``--tools ""``, so its request prefix differs from the
+# stage's from the tool list on and Claude's prompt cache serves none of the resumed conversation: in 93 saved
+# resumed repairs every one re-sent it at the cache-write price, about twice a fresh repair's cost, with the same
+# success rate. The repair handoff already carries the rejected report and the exact refusals.
+RESUME_REPORT_REPAIR = False
 ADAPTER = "claude-stream-1"
 HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
 FABLE = "claude-fable-5-2"

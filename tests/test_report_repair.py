@@ -970,6 +970,20 @@ class RepairTests(unittest.TestCase):
                 (None, "provider_without_report_recovery"), fc.repair_session(self.state, custom_pending, "builder")
             )
 
+        uncached = types.SimpleNamespace(
+            SUPPORTS_SESSIONS=True, SUPPORTS_REPORT_RECOVERY=True, RESUME_REPORT_REPAIR=False
+        )
+        claude_pending = copy.deepcopy(pending)
+        claude_pending["original"].update(engine="opencode", provider="claude")
+        with patch.object(fc.providers, "resolve", return_value=uncached):
+            self.assertEqual((None, "uncached_repair_resume"), fc.repair_session(self.state, claude_pending, "builder"))
+            recorded_resume = copy.deepcopy(self.state)
+            recorded_resume["settings"]["replay_recording"] = {"path": "t.json"}
+            resume_tape = types.SimpleNamespace(document={"dispatches": [{"session": {"kind": "resume"}}]})
+            with patch("autocode_replay_transport.selected", return_value=resume_tape):
+                # A saved run's replay keeps the resume it recorded.
+                self.assertEqual(("t-session", None), fc.repair_session(recorded_resume, claude_pending, "builder"))
+
         replay_state = copy.deepcopy(self.state)
         replay_state["settings"]["replay_recording"] = {
             "path": "t.json",
