@@ -286,6 +286,8 @@ def requirements_view(state: RunState) -> dict | None:
         # workflow field reports the job only once it starts, and the model probe grades both.
         "job": report.get("job") if report.get("job") in (*workflows.WORKFLOWS, "none") else None,
         "clarity": report.get("clarity") if report.get("clarity") in adaptive_planning.CLARITY else None,
+        # What Requirements said it understood, to show beside its questions (requirements_review.understood).
+        "understood": requirements_review.understood(state),
     }
 
 

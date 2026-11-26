@@ -323,6 +323,41 @@ def _report(state: RunState) -> dict:
     return current_turn_handoff(state).get("report") or {}
 
 
+# A reply that opens by saying how Requirements classified the request ("This is a clear bugfix
+# request.") narrates machinery: the job and clarity only label the run, and every request takes the
+# same path (#3010). The prompt forbids it; models still say it (2026-11-11 run), so the one sentence
+# that does nothing else is dropped before a person sees the reply.
+_CLASSIFIED = re.compile(
+    r"^\s*(?:this|that|it)(?:\s+is|['’]s)\s+(?:an?\s+)?"
+    r"(?:(?:very|clear|clearly|vague|simple|small|straightforward|well[- ]defined|focused)[,\s]+)*"
+    r"(?:bug\s*-?\s*fix|build|review|design|discuss(?:ion)?)"
+    r"(?:\s+(?:request|task|job))?\s*[.!]\s*",
+    re.IGNORECASE,
+)
+
+
+def without_classification(text: str) -> str:
+    """``text`` without a leading sentence that only names the job or clarity Requirements chose."""
+    rest = _CLASSIFIED.sub("", text, count=1)
+    return rest if rest.strip() else text
+
+
+def understood(state: RunState) -> str:
+    """What Requirements told the person with the current turn's handoff, in its own words.
+
+    A chat run's report says it in assistant_reply; a run without a chat says it in summary, where the
+    prompt asks for the restatement of the request and the sketch of the reading it recommends. Before,
+    only a chat client showed it: the CLI and the channel bridge showed the questions alone, so a person
+    choosing between readings never saw what Requirements had understood or found in the code (live run,
+    2026-11-26). "" when the report says nothing."""
+    report = _report(state)
+    for key in ("assistant_reply", "summary"):
+        text = report.get(key)
+        if isinstance(text, str) and text.strip():
+            return without_classification(text.strip())[:12000]
+    return ""
+
+
 # The jobs that build nothing (autocode_workflows.WORKFLOWS), named here so this module imports only util.
 READ_ONLY_JOBS = ("review", "design", "discuss")
 JOBS = ("build", "bugfix", *READ_ONLY_JOBS)

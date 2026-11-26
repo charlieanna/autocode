@@ -202,23 +202,8 @@ def start_named_job(state: RunState, record: dict) -> bool:
     return True
 
 
-# A reply that opens by saying how Requirements classified the request ("This is a clear bugfix
-# request.") narrates machinery: the job and clarity only label the run, and every request takes the
-# same path (#3010). The prompt forbids it; models still say it (2026-11-11 run), so the one sentence
-# that does nothing else is dropped before a person sees the reply.
-_CLASSIFIED = re.compile(
-    r"^\s*(?:this|that|it)(?:\s+is|['’]s)\s+(?:an?\s+)?"
-    r"(?:(?:very|clear|clearly|vague|simple|small|straightforward|well[- ]defined|focused)[,\s]+)*"
-    r"(?:bug\s*-?\s*fix|build|review|design|discuss(?:ion)?)"
-    r"(?:\s+(?:request|task|job))?\s*[.!]\s*",
-    re.IGNORECASE,
-)
-
-
-def without_classification(text: str) -> str:
-    """``text`` without a leading sentence that only names the job or clarity Requirements chose."""
-    rest = _CLASSIFIED.sub("", text, count=1)
-    return rest if rest.strip() else text
+# Moved to requirements_review, which also shows the reply beside a run's questions (understood).
+without_classification = requirements_review.without_classification
 
 
 def reply(state: RunState):
