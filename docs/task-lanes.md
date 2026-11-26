@@ -410,6 +410,35 @@ never appear in `git status` or get staged by `git add -A` in your checkout or i
 task worktree. Your own `.gitignore` is not touched, and a `.gitignore` you already
 put in one of these directories is left as it is.
 
+### Watching every run
+
+Several tasks at once, in one project or in many, are watched from one place:
+
+```sh
+autocode board                      # a live screen of every run on this machine
+autocode runs --all --active        # the same rows once: runs that need you or are working
+autocode runs --all --needs         # only the runs that need you
+autocode runs --all --json          # every run, for a script
+```
+
+`autocode board` keeps the list on screen and rereads it every few seconds. Runs that need
+you come first, then the runs still working; `a` adds the finished ones and `n` keeps only
+those that need you. The highlighted row shows its stage, its folder and the command the run
+accepts next. Enter opens the run: its six-job pipeline with each job's model and spend, its
+tasks, a line for each agent working now (each parallel Builder has its own), its cost
+against the cap and what it needs from you. A run waiting for plan approval shows the whole
+plan above its approval command, so the command you run is for the plan you read. Esc goes
+back and `q` quits.
+
+The board reads only what `autocode runs --all --json` and `autocode --status` print, and it
+takes no action: it starts, approves and resumes nothing. From Claude Code or Codex, the MCP
+server's `autocode_runs` tool returns the same rows ([every project's
+runs](agent-step.md#every-projects-runs)).
+
+One request whose parts do not depend on each other needs no separate tasks: the Orchestrator
+builds independent milestones of one approved plan at the same time, two by default and more
+with `--max-parallel-builders N`, and the board's run screen shows each Builder.
+
 ### When a task finishes
 
 When a run in a task worktree completes, AutoCode commits the delivered source to the

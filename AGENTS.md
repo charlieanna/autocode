@@ -437,6 +437,17 @@ and the joint check (`verification.next_command`)
 group a change set's chats by the `changeset` of each `runs --json` row. Linking, the check
 command, waivers, reopening, the merge order and pull-request text stay the person's commands.
 
+**Runs board, decided 2026-11-25 on the owner's delegation, in `tools/autocode_board.py`.** The owner
+asked for one place to watch every running task, chose a dashboard over a smaller fix, and then
+delegated the open choices to the operating agent ("can u decide"), which decided: a read-only
+terminal screen, `autocode board`, and no revival of the browser dashboard, which stays retired. The
+board reads only `runs --all --json` and `--status`, through the terminal client's bounded reader
+(`autocode_chat_polling`), and draws them. It takes no action and names none: it shows a run's
+`next_command` as text for the person to run, and a plan waiting for approval in full above its
+approval command. It is its own command, not a screen of the frozen terminal chat. An action from
+the board, or another read, needs the owner's decision. For teams, the proposed single-host team
+service (`docs/team-service-contract.md`) is still the owner's to approve; this decision does not approve it.
+
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
 **Automatic multi-repository TUI delivery approved 2026-10-26 (#2155).** The owner

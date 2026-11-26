@@ -48,6 +48,7 @@ SUBCOMMANDS = {
     "output": "autocode_output",
     "tasks": "autocode_tasks",
     "runs": "autocode_runs_command",
+    "board": "autocode_board",
     "events": "autocode_events_command",
     "plan": "autocode_plan_command",
     "wait": "autocode_wait_command",
