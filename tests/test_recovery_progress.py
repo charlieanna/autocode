@@ -2,6 +2,7 @@
 
 import copy
 import unittest
+from unittest import mock
 
 import autocode_recovery_progress as progress
 
@@ -90,3 +91,32 @@ class RecoveryProgressTests(unittest.TestCase):
         before = copy.deepcopy(state)
         self.assertFalse(self.reconcile(state))
         self.assertEqual(before, state)
+
+
+class PendingOfferTests(unittest.TestCase):
+    """What a status view and a row of `autocode runs` ask of every run they show."""
+
+    ISSUED = {"request_id": "request", "scope": "operational_exhaustion"}
+
+    def pending(self, state, *, issued, approved=True):
+        with (
+            mock.patch.object(progress.human, "retained", return_value=issued),
+            mock.patch.object(progress.contracts, "approved", return_value=approved),
+        ):
+            return progress.pending(state)
+
+    def test_a_run_with_nothing_to_retire_is_refused_without_copying_its_saved_state(self):
+        """A listing of 158 runs copied every run's whole state, twice, to be refused on the first line."""
+        state = RecoveryProgressTests.state(self)
+        with mock.patch.object(progress, "deepcopy", side_effect=AssertionError("the state was copied")):
+            self.assertFalse(progress.pending(state), "a state no resolver request was published for")
+            self.assertFalse(self.pending(state, issued=None))
+            self.assertFalse(self.pending(state, issued={**self.ISSUED, "scope": "product_decision"}))
+            self.assertFalse(self.pending(state, issued=self.ISSUED, approved=False))
+
+    def test_a_hold_that_retained_progress_disproves_is_offered_and_the_state_stays_as_saved(self):
+        state = RecoveryProgressTests.state(self)
+        before = copy.deepcopy(state)
+        self.assertTrue(self.pending(state, issued=self.ISSUED))
+        self.assertEqual(before, state, "the offer is read from a copy")
+        self.assertFalse(self.pending({**state, "pause_requested": True}, issued=self.ISSUED))

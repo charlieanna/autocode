@@ -142,10 +142,16 @@ def pending(state: RunState):
     """One pure offer for readers and admission, using the correction owner's policy."""
     if state.get("active_runner_check") or state.get("pause_requested"):
         return False
+    issued, approved = human.retained(state), contracts.approved(state)
+    if not issued or issued.get("scope") != "operational_exhaustion" or not approved:
+        # reconcile's own first refusal, taken before the copy: a status view and a row of `autocode
+        # runs` ask this of every run, and copying each run's whole saved state to be told no was a
+        # fifth of the time a listing of 158 runs took.
+        return False
     return reconcile(
         deepcopy(state),
-        issued=human.retained(state),
-        approved=contracts.approved(state),
+        issued=issued,
+        approved=approved,
         supersede=lambda *_: True,
         now=lambda: "observation",
     )

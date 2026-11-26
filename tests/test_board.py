@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_board as board
 
@@ -66,10 +68,10 @@ class ListScreenTests(unittest.TestCase):
         shown = self.shown()
         self.assertIn("AutoCode runs   1 needs you · 1 working · 1 settled · 1 unreadable", shown)
         self.assertIn("needs you (1)", shown)
-        self.assertIn(">   3m  Waiting for your approval     Task plan", shown)
+        self.assertIn(">   3m  Waiting for your approval  Task plan", shown)
         self.assertIn("-> autocode --workspace /work/api --approve-goal TOKEN", shown)
         self.assertIn("working (1)", shown)
-        self.assertIn("    3m  RUNNING                       Task build", shown)
+        self.assertIn("    3m  RUNNING                    Task build", shown)
         self.assertRegex(shown, r"Task build +web")
         self.assertNotIn("Task old", shown, "a finished run stays out of the way until asked for")
         self.assertNotIn("Task lost", shown)
@@ -123,6 +125,77 @@ class ListScreenTests(unittest.TestCase):
         for width in (40, 60, 200):
             lines, _ = board.list_lines(self.board, width, NOW)
             self.assertLessEqual(max(len(line) for line, _ in lines), width, width)
+
+    def test_the_project_column_lines_up_whatever_the_titles_and_labels_are(self):
+        """On a laptop with 158 runs a short title pulled its project left, and a fixed 28-column label
+        left an 80-column terminal 14 characters of each title."""
+        rows = (
+            row("a", board.NEEDS, title="hi", pause_category_label="AutoCode"),
+            row("b", board.NEEDS, title="x" * 300, project="a-much-longer-project-name-than-the-column"),
+            row("c", board.WORKING, title="a middling title", project="web"),
+        )
+        board.apply(self.board, [(("/work", None), listing(*rows), "")])
+        for width in (140, 80, 60):
+            lines = [line for line in self.shown(width).splitlines() if "3m  " in line]
+            self.assertEqual(3, len(lines), lines)
+            starts = {max(line.rfind("  api"), line.rfind("  web"), line.rfind("  a-much")) for line in lines}
+            self.assertEqual(1, len(starts), f"the project column starts at {starts} at width {width}: {lines}")
+            self.assertTrue(all(len(line) <= width for line in lines))
+        self.assertIn("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", self.shown(80), "the room goes to the title")
+
+    def test_the_picked_row_says_why_it_needs_a_person(self):
+        old = "An older AutoCode version saved this chat. Start a new chat for the task."
+        board.apply(self.board, [(("/work", None), listing(row("old", board.NEEDS, needs_reason=old)), "")])
+        self.assertIn(f"        {old}", self.shown(), "a row labelled only RUNNING said nothing more")
+
+    def test_a_long_command_is_still_one_command_when_copied_from_the_screen(self):
+        """The approval command of a real run was wrapped in the middle of a path, so pasting it failed."""
+        command = (
+            "AUTOCODE_APPROVE_GOAL_TOKEN=abc autocode --run-dir /Users/someone/Documents/workspace/"
+            "idlecampus-ui-impl/.autocode/runs/20260922-152402-implement-the-refined-idlecampus-learning-catalog"
+            " --workspace /Users/someone/Documents/workspace/idlecampus-ui-impl --approve-goal"
+        )
+        board.apply(self.board, [(("/work", None), listing(row("plan", board.NEEDS, next_command=command)), "")])
+        for width in (200, 120, 80, 40):
+            lines = self.shown(width).splitlines()
+            copied = "\n".join(lines[next(n for n, line in enumerate(lines) if "-> " in line) :])
+            self.assertLessEqual(max(map(len, lines)), width)
+            # What a shell makes of the pasted lines: a backslash at the end of a line joins it to the next.
+            self.assertEqual(shlex.split(command), shlex.split(copied.replace("\\\n", ""))[1:], width)
+        quoted = "autocode --workspace '/work/my project/" + "c" * 60 + "' --status"
+        board.apply(self.board, [(("/work", None), listing(row("plan", board.NEEDS, next_command=quoted)), "")])
+        self.assertNotIn("\\", self.shown(40), "a quoted argument cannot be continued, so none is")
+        self.assertLessEqual(max(map(len, self.shown(40).splitlines())), 40)
+
+    def test_the_counts_and_when_they_were_read_stay_on_screen_far_down_a_long_list(self):
+        many = [row(f"run{n:03}", board.WORKING) for n in range(158)]
+        board.apply(self.board, [(("/work", None), listing(*many), "")], NOW - 7)
+        board.frame(self.board, 100, 20, NOW)  # a page is what the window holds: 15 rows under the counts
+        for key, picked in (("pagedown", "run015"), ("end", "run157"), ("pageup", "run142"), ("home", "run000")):
+            board.press(self.board, key)
+            frame = board.frame(self.board, 100, 20, NOW)
+            self.assertEqual("AutoCode runs   0 needs you · 158 working · 0 settled   read 7s ago", frame[0][0])
+            self.assertEqual(f"Task {picked}", board.picked(self.board)["title"], key)
+            self.assertIn(f"Task {picked}", text(frame), "the highlighted row is on screen")
+        board.apply(self.board, [(("/work", None), "", "status read timed out after 20s")], NOW)
+        frame = board.frame(self.board, 100, 20, NOW)
+        self.assertIn("read 7s ago", frame[0][0], "a failed reread leaves the list as old as it is")
+        self.assertIn("Could not read the list", frame[1][0])
+        tiny = board.frame(self.board, 100, 5, NOW)
+        self.assertEqual(5, len(tiny))
+        self.assertIn("Task run000", text(tiny), "a window too short to keep them gives its lines to the rows")
+
+    def test_a_slow_first_read_says_how_long_it_has_taken_and_is_not_an_error(self):
+        fresh = board.Board(home="/work", asked=NOW - 9)
+        shown = text(board.list_lines(fresh, 80, NOW)[0])
+        self.assertIn("Reading the runs… 9s", shown)
+        self.assertNotIn("Could not read", shown)
+        self.assertGreaterEqual(board.READ_TIMEOUT, 20, "five seconds was less than a real machine's listing takes")
+
+    def test_backspace_goes_back_as_each_terminal_sends_it(self):
+        """macOS's terminfo names Ctrl-H as Backspace while Terminal and iTerm2 send DEL, so there curses
+        hands the board a plain character."""
+        self.assertEqual(("back", "back", "back"), (board.KEYS["\x7f"], board.KEYS["\b"], board.KEYS["\x1b"]))
 
 
 VIEW = {
@@ -186,7 +259,11 @@ class RunScreenTests(unittest.TestCase):
         return text(board.run_lines(self.board, width))
 
     def test_opening_a_run_reads_its_status_and_shows_each_parallel_builder(self):
-        self.assertEqual({("/work", None): board.INTERVAL, self.key: board.OPEN_INTERVAL}, board.targets(self.board))
+        self.assertEqual(
+            {("/work", None): board.HIDDEN_INTERVAL, self.key: board.OPEN_INTERVAL},
+            board.targets(self.board),
+            "the list is off screen: it is reread now and then, the open run every few seconds",
+        )
         self.assertIn("Reading the run", self.shown())
         board.apply(self.board, [(self.key, json.dumps({"view": VIEW}), "")])
         shown = self.shown()
@@ -246,8 +323,14 @@ class RunScreenTests(unittest.TestCase):
         self.assertIn("Add billing history", text(first))
         self.assertIn("more below", first[-1][0])
         board.press(self.board, "pagedown")
-        self.assertEqual(8, self.board.scroll, "a page keeps two lines of the one before")
-        self.assertNotIn("Add billing history", text(board.frame(self.board, 100, 12, NOW)))
+        self.assertEqual(6, self.board.scroll, "a page keeps two lines of the one before")
+        paged = board.frame(self.board, 100, 12, NOW)
+        self.assertEqual(
+            ["Add billing history", "/work/api · Its own worktree · branch autocode/billing"],
+            [line for line, _ in paged[:2]],
+            "the task and where it runs stay at the top",
+        )
+        self.assertNotIn("Building · 1 of 3 tasks done", text(paged))
         for key in ("end", "down", "down"):
             board.press(self.board, key)
         frame = board.frame(self.board, 100, 12, NOW)
@@ -258,7 +341,7 @@ class RunScreenTests(unittest.TestCase):
         board.press(self.board, "home")
         self.assertEqual(text(first), text(board.frame(self.board, 100, 12, NOW)))
         self.assertIn("Esc back to the list", frame[-1][0])
-        board.press(self.board, "back")
+        self.assertEqual("reread", board.press(self.board, "back"), "the list was off screen, so it is read again")
         self.assertIsNone(self.board.opened)
         self.assertEqual("Task build", board.picked(self.board)["title"])
         self.assertEqual({("/work", None): board.INTERVAL}, board.targets(self.board))
@@ -272,6 +355,31 @@ class RunScreenTests(unittest.TestCase):
         self.assertIn("Add billing history", shown)
         board.apply(self.board, [(("/work/other", "/work/other/run"), json.dumps({"view": {"task": "Other"}}), "")])
         self.assertNotIn("Other", self.shown(), "a read of a run that is no longer open is dropped")
+
+
+class ReaderLimitTests(unittest.TestCase):
+    def test_the_board_reads_with_its_own_limits_not_the_chats(self):
+        """The chat stops a status read at five seconds, which is less than a listing of 158 runs takes."""
+        made = {}
+
+        def reader(command, **options):
+            made.update(options, command=command)
+            return mock.Mock()
+
+        terminal = mock.Mock(isatty=lambda: True)
+        with (
+            mock.patch.object(board.polling, "StatusPoller", reader),
+            mock.patch("curses.wrapper") as drawn,
+            mock.patch.object(board.sys, "stdin", terminal),
+            mock.patch.object(board.sys, "stdout", terminal),
+        ):
+            self.assertEqual(0, board.cli([]))
+        self.assertEqual(1, drawn.call_count)
+        self.assertEqual(board.AUTOCODE, made["command"])
+        self.assertEqual(
+            (board.READ_TIMEOUT, board.MAX_READ_TIMEOUT, board.REST), (made["timeout"], made["limit"], made["rest"])
+        )
+        self.assertGreater(board.MAX_READ_TIMEOUT, board.READ_TIMEOUT)
 
 
 class NoTerminalTests(unittest.TestCase):

@@ -430,6 +430,14 @@ against the cap and what it needs from you. A run waiting for plan approval show
 plan above its approval command, so the command you run is for the plan you read. Esc goes
 back and `q` quits.
 
+The first line stays on screen: how many runs need you, are working and are settled, and how
+long ago that list was read. With many runs, PgUp, PgDn, Home and End move a screenful or to
+either end. A command too long for one line is continued with the shell's own `\` at the end
+of each line, so the lines copied from the screen paste as one command. The list of every
+project's runs takes longer to read the more runs there are (about five seconds for 150 of
+them); the board shows how long the first read has taken, and then rereads no more often than
+keeps it to about a quarter of one processor.
+
 The board reads only what `autocode runs --all --json` and `autocode --status` print, and it
 takes no action: it starts, approves and resumes nothing. From Claude Code or Codex, the MCP
 server's `autocode_runs` tool returns the same rows ([every project's

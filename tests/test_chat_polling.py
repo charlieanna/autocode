@@ -132,6 +132,43 @@ class Reads(unittest.TestCase):
             self.assertTrue(child.reaped)
             self.assertTrue(child.output.closed)
 
+    def test_a_reader_may_allow_long_reads_and_rest_after_a_slow_one(self):
+        """The runs board reads every project's runs, which took 5.5 s on a laptop with 158 of them:
+        just over the chat's limit, so its first list was an error and then took 17 s, and rereading
+        every 5 s kept half a processor busy."""
+        children = []
+
+        def launch(argv, **kw):
+            children.append(Child(kw["stdout"], len(children)))
+            return children[-1]
+
+        poller = polling.StatusPoller(
+            ("autocode",), clock=lambda: self.now, launch=launch, timeout=20, limit=60, rest=3
+        )
+        self.addCleanup(poller.close)
+        key = ("/p", None)
+        poller.tick({key: 5})
+        self.now += 6
+        self.assertEqual([], poller.tick({key: 5}), "a six-second read is still reading")
+        children[-1].finish({"runs": []})
+        self.assertEqual("", poller.tick({key: 5})[0][2])
+        self.now += 17.9
+        poller.tick({key: 5})
+        self.assertEqual(1, len(children), "three times the six seconds it took, not the five asked for")
+        self.now += 0.2
+        poller.tick({key: 5})
+        self.assertEqual(2, len(children))
+        children[-1].finish({"runs": []})
+        self.now += 1
+        poller.tick({key: 5})
+        self.now += 5
+        poller.tick({key: 5})
+        self.assertEqual(3, len(children), "a quick read is followed at the interval asked for")
+        for budget in (20, 40, 60, 60):
+            self.now += budget
+            self.assertIn(f"after {budget}s", poller.tick({key: 0})[0][2])
+            poller.tick({key: 0})
+
     def test_startup_grace_is_per_identity_and_does_not_survive_removal(self):
         first, other = list(self.keys)[:2]
         self.poller.tick({first: 0})
