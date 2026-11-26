@@ -13,7 +13,11 @@ def report_for(stage, data, common, config, run_check, requirements):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "rework-trace.jsonl"
     if nonpython and stage == "builder":
         previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-        count = sum(row["stage"] == "builder" for row in previous) + 1
+        # A round the runner's failing proof sent back before any Tester repeats the attempt before it.
+        findings = data.get("actionable_findings") or []
+        proof_round = bool(findings) and all(row.get("source") == "runner" for row in findings)
+        count = sum(row["stage"] == "builder" and not row.get("proof_round") for row in previous)
+        count += 0 if proof_round and count else 1
         root = Path(config["reference"]).parent
         source = root / ("seed" if count <= 2 else "reference") / "greet.js"
         Path("greet.js").write_text(source.read_text() + f"\n// controlled attempt {count}\n")
@@ -27,6 +31,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                         "source_revision": data["source_revision"],
                         "source_sha256": hashlib.sha256(Path("greet.js").read_bytes()).hexdigest(),
                         "exit_code": code,
+                        "proof_round": proof_round,
                     }
                 )
                 + "\n"
@@ -49,7 +54,7 @@ def report_for(stage, data, common, config, run_check, requirements):
     if nonpython and result.get("next_task"):
         result["plan"] = [line.replace("greet.py", "greet.js") for line in result.get("plan", [])]
     rows = [json.loads(line) for line in trace.read_text().splitlines()]
-    builds = sum(row["stage"] == "builder" for row in rows)
+    builds = sum(row["stage"] == "builder" and not row.get("proof_round") for row in rows)
     if (
         config["fault"] != "recovery_novelty_hold"
         and builds >= 2

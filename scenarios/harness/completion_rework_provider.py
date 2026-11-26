@@ -50,8 +50,13 @@ def report_for(stage, data, common, config, run_check, requirements):
         "evidence": "event:check",
     }
     code = None
+    # A round the runner's failing proof sent back before any Tester (its only findings are the runner's)
+    # repeats the attempt before it: the fault this fake scripts is the reviewers' to find.
+    findings = data.get("actionable_findings") or []
+    proof_round = stage == "builder" and bool(findings) and all(row.get("source") == "runner" for row in findings)
     if stage == "builder":
-        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
+        attempt = sum(row["stage"] == "builder" and not row.get("proof_round") for row in previous)
+        attempt += 0 if proof_round and attempt else 1
         # "completion_rework_unowned_check" (scenarios/catalog/rework-same-failure): every attempt applies the
         # solution, and the check still fails on a file the task may not change.
         broken = (
@@ -222,6 +227,7 @@ def report_for(stage, data, common, config, run_check, requirements):
         "regression_verdict": (data.get("regression_proof") or {}).get("verdict"),
         "next_task": result.get("next_task"),
         "next_objective": result.get("next_objective"),
+        "proof_round": proof_round,
     }
     with trace.open("a") as handle:
         handle.write(json.dumps(row) + "\n")

@@ -20,6 +20,7 @@ try:
     from . import autocode_builder_failure as builder_failure
     from . import autocode_check_refs as check_refs
     from . import autocode_failure_classification as classification
+    from . import autocode_proof_findings as proof_findings
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
     from . import autocode_visual_evidence as visual
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_builder_failure as builder_failure
     import autocode_check_refs as check_refs
     import autocode_failure_classification as classification
+    import autocode_proof_findings as proof_findings
     import autocode_tool_containment as containment
     import autocode_util as util
     import autocode_visual_evidence as visual
@@ -267,12 +269,17 @@ def _eligible(state: RunState, decision, record, previous_criteria, prior_reques
             for row in stages
         )
         or any(row.get("needs_replan") for row in state.get("milestone_progress", {}).values())
-        or len(builders) != 1
-        or builders[0].get("rejected")
-        or builders[0].get("batch_id")
-        or builders[0].get("task_id") != task.get("id")
-        or builders[0].get("exit_code") != 0
-        or builders[0].get("role") != "builder"
+        # The one build a review sent back, plus any round the failing proof sent back before the Tester
+        # (proof_findings.builder_round): that round was no review's rework, so it leaves this first repair.
+        or len(builders) != 1 + proof_findings.builder_rounds_taken(state)
+        or any(
+            row.get("rejected")
+            or row.get("batch_id")
+            or row.get("task_id") != task.get("id")
+            or row.get("exit_code") != 0
+            or row.get("role") != "builder"
+            for row in builders
+        )
         or _repaired(record)
         or record.get("timed_out")
         or record.get("interrupted")

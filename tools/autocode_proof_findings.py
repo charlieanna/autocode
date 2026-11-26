@@ -245,6 +245,15 @@ def builder_round(state: RunState, revision) -> bool:
     return True
 
 
+def builder_rounds_taken(state: RunState) -> int:
+    """How many Builder stages of this run were builder_round's, which no review sent back."""
+    return sum(
+        len(row.get("builder_rounds") or [])
+        for row in state.get("findings_ledger", [])
+        if row.get("source") == SOURCE and row.get(MARK)
+    )
+
+
 def send_back(state: RunState, revision, note=SEND_BACK_NOTE):
     """The fields for a completion request refused while the proof finding is open.
 

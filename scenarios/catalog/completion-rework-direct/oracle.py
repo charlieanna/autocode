@@ -50,7 +50,9 @@ def check(project, scenario, run=None):
         checks.append(
             Check(
                 "first_direct_repair_route",
-                stages == ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+                # The first build's failing proof sends it back to the Builder once before any Tester.
+                stages
+                == ["builder", "builder", "tester", "review_completion", "builder", "tester", "review_completion"],
                 repr(stages),
             )
         )

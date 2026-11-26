@@ -654,9 +654,10 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         # At the no-progress hold AutoCode takes the one scoped retry of each action itself (#2485):
         # diagnosis first, then the retained correction, with no retry asked of a person. Neither
-        # increases the Builder lane cap.
+        # increases the Builder lane cap. The first build's failing proof sends it back to the same Builder
+        # once before any Tester, which is no retry either.
         self.assertEqual(
-            ["gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
+            ["gpt-6-luna", "gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
             [row["model"] for row in self.trace("builder")],
             status["view"]["stop_reason"],
         )
