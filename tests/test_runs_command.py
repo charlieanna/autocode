@@ -57,6 +57,15 @@ class FleetRowsTests(unittest.TestCase):
         self.assertIn("--resume-paused", rows[0]["next_command"])
         self.assertIn(str(rows[0]["run_dir"]), rows[0]["next_command"])
 
+    def test_each_row_carries_the_core_words_for_its_status_and_next_stage(self):
+        """A client (the VS Code Tasks board) shows these rather than turning codes into words itself."""
+        import autocode_status_label as status_label
+
+        by_name = {item["name"]: item for item in runs.rows(self.root)}
+        self.assertEqual(status_label.label("TASK_COMPLETE"), by_name["finished"]["status_label"])
+        self.assertEqual(status_label.label(by_name["waiting"]["status"]), by_name["waiting"]["status_label"])
+        self.assertEqual("Builder", by_name["working"]["next_stage_label"])
+
     def test_working_settled_and_unreadable_runs_stay_apart(self):
         self.assertEqual(
             {"waiting": runs.NEEDS, "working": runs.NEEDS, "finished": runs.SETTLED, "broken": runs.UNREADABLE},
@@ -402,6 +411,8 @@ class FleetRowsTests(unittest.TestCase):
             "ready_to_continue",
             "availability",
             "status",
+            "status_label",  # added for the VS Code Tasks board (2026-11-26), not by #3287
+            "next_stage_label",
             "needs",
             "attention",
             "needs_reason",

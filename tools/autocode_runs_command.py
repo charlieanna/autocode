@@ -41,6 +41,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_run_finder as run_finder
     from . import autocode_run_view as run_view
+    from . import autocode_status_label as status_label
 except ImportError:
     import autocode_attention as attention
     import autocode_attention_status as attention_status
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
     import autocode_run_view as run_view
+    import autocode_status_label as status_label
 
 SCHEMA = 1
 # Buckets in display order; what a run needs decides which one it is in.
@@ -228,6 +230,9 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
         "ready_to_continue": ready,
         "availability": availability,
         "status": shown_status,
+        # The person's words for the status and the next stage, as `registry list` gives them.
+        "status_label": status_label.label(shown_status),
+        "next_stage_label": registry._stage_label(state),
         "needs": need.get("kind"),
         "attention": attention_status.observed(projected),
         "needs_reason": need.get("reason"),

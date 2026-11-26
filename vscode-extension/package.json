@@ -158,10 +158,21 @@
         "title": "Archived Chats",
         "category": "AutoCode",
         "icon": "$(archive)"
+      },
+      {
+        "command": "autocode.showBoard",
+        "title": "Open Tasks Board",
+        "category": "AutoCode",
+        "icon": "$(checklist)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "autocode.showBoard",
+          "when": "view == autocode.runs",
+          "group": "navigation@0"
+        },
         {
           "command": "autocode.showChat",
           "when": "view == autocode.runs",
@@ -181,6 +192,11 @@
           "command": "autocode.toggleArchived",
           "when": "view == autocode.runs",
           "group": "navigation@3"
+        },
+        {
+          "command": "autocode.showBoard",
+          "when": "view == autocode.chat",
+          "group": "navigation@0"
         }
       ],
       "view/item/context": [

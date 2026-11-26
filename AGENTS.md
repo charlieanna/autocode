@@ -448,6 +448,18 @@ approval command. It is its own command, not a screen of the frozen terminal cha
 the board, or another read, needs the owner's decision. For teams, the proposed single-host team
 service (`docs/team-service-contract.md`) is still the owner's to approve; this decision does not approve it.
 
+**Tasks board and issue launcher in VS Code, owner decision 2026-11-26.** The owner asked where a person
+sees every task, acts on it, tracks it and runs many GitHub issues of one project in parallel, and chose to
+extend the VS Code client over a local web dashboard or the bridge. Many issues start through the core's
+queue (`autocode issue queue`, `tools/autocode_issue_queue.py`), which owns the limit on how many issue runs
+work at once and which issue starts next. The VS Code client may read `runs --json` (and `runs --all
+--json`), `issue list --json` and `issue queue status --json`; act on a run only by opening its chat or by the
+named action of that run's own `--status`, as the Runs list does; and take `issue list`'s
+`queue_add.next_command` filled with the issues the person ticked and the limit they chose (followed by `--`
+and a new chat's start arguments), the queue's `next_command`, and an issue's `actions.open_pr.next_command`
+when the person presses it. Every issue keeps its own Requirements, exact-plan approval and pull request, and
+nothing merges automatically.
+
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
 **Automatic multi-repository TUI delivery approved 2026-10-26 (#2155).** The owner
