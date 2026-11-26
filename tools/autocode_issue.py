@@ -8,6 +8,9 @@
                                           its own and write the PR body; --open also pushes and opens it
     autocode issue pr ISSUE [--open]      commit the finished run's change and write the PR body;
                                           --open also pushes the branch and opens a draft PR
+    autocode issue list [--json]          the repository's open issues and what AutoCode is doing on each
+    autocode issue queue add|run|status|remove
+                                          start many issues, a few working at a time (autocode_issue_queue)
 
 ISSUE is an issue URL, OWNER/REPO#N, or N (a quoted '#N') for the project's own GitHub remote.
 OPTS are AutoCode options (engine, models, --test-command), saved and reused.
@@ -35,6 +38,7 @@ try:
     from . import autocode_github as github
     from . import autocode_issue_delivery as delivery
     from . import autocode_issue_plan as issue_plan
+    from . import autocode_issue_queue as issue_queue
     from . import autocode_linked_issues as linked_issues
     from . import autocode_run_finder as run_finder
     from . import autocode_util as util
@@ -43,6 +47,7 @@ except ImportError:
     import autocode_github as github
     import autocode_issue_delivery as delivery
     import autocode_issue_plan as issue_plan
+    import autocode_issue_queue as issue_queue
     import autocode_linked_issues as linked_issues
     import autocode_run_finder as run_finder
     import autocode_util as util
@@ -336,7 +341,7 @@ def report(record: dict, view: dict) -> str:
 def _fetch(args, ref: github.IssueRef) -> dict:
     if args.issue_file:
         return json.loads(Path(args.issue_file).read_text())
-    return github.Client().issue(ref)
+    return github.signed_in().issue(ref)
 
 
 def _ref(args, project: Path) -> github.IssueRef:
@@ -500,7 +505,7 @@ def cmd_plan(args) -> int:
         if not pushed_to or pushed_to[0].lower() == record["owner"].lower()
         else f"{pushed_to[0]}:{entry['branch']}"
     )
-    pull = github.Client().open_pull_request(
+    pull = github.signed_in().open_pull_request(
         record["owner"],
         record["repo"],
         head=head_ref,
@@ -607,7 +612,7 @@ def cmd_pr(args) -> int:
         if not pushed_to or pushed_to[0].lower() == record["owner"].lower()
         else f"{pushed_to[0]}:{record['branch']}"
     )
-    pull = github.Client().open_pull_request(
+    pull = github.signed_in().open_pull_request(
         record["owner"],
         record["repo"],
         head=head_ref,
@@ -631,11 +636,14 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = top.add_subparsers(dest="command", required=True)
 
+    def common(sub):
+        sub.add_argument("--project", help="the Git checkout to work in (default: the current directory's)")
+        sub.add_argument("--remote", default="origin", help="the remote to infer the repository from and push to")
+
     def command(name, handler, help_text):
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument("issue", help="issue URL, OWNER/REPO#N, or N for the project's remote")
-        sub.add_argument("--project", help="the Git checkout to work in (default: the current directory's)")
-        sub.add_argument("--remote", default="origin", help="the remote to infer the repository from and push to")
+        common(sub)
         sub.set_defaults(handler=handler)
         return sub
 
@@ -668,7 +676,14 @@ def parser() -> argparse.ArgumentParser:
         sub.add_argument("--base", help="branch the PR targets (default: the one recorded at start)")
         if name == "plan":
             sub.add_argument("--path", help="where the plan file goes in the repository (default: plans/issue-N.md)")
+    issue_queue.add_parsers(commands, common)
     return top
+
+
+def queued(args) -> int:
+    """`list` and `queue`, with the project and its GitHub repository resolved here (autocode_issue_queue)."""
+    project = project_root(args.project)
+    return args.queue_handler(args, project, default_repo(project, args.remote))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -678,12 +693,15 @@ def main(argv: list[str] | None = None) -> int:
         argv, options = argv[: argv.index("--")], argv[argv.index("--") + 1 :]
     args = parser().parse_args(argv)
     args.autocode_options = options
-    if options and args.command != "start":
-        print("autocode issue: AutoCode options are saved at start and reused; pass them to start", file=sys.stderr)
+    if options and args.command != "start" and getattr(args, "queue_command", None) != "add":
+        print(
+            "autocode issue: AutoCode options are saved at start and reused; pass them to start or queue add",
+            file=sys.stderr,
+        )
         return 2
     try:
-        return args.handler(args)
-    except (IssueError, github.GitHubError, TaskRunError) as error:
+        return queued(args) if hasattr(args, "queue_handler") else args.handler(args)
+    except (IssueError, issue_queue.QueueError, github.GitHubError, TaskRunError) as error:
         print(f"autocode issue: {error}", file=sys.stderr)
         return 1
 

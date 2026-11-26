@@ -1,7 +1,8 @@
 """A minimal GitHub REST client: read one issue, open one pull request.
 
 Standard library only, and imports nothing from AutoCode. The token comes from
-GITHUB_TOKEN or GH_TOKEN; reading a public issue works without one. Set
+GITHUB_TOKEN or GH_TOKEN; reading a public issue works without one. `signed_in()` also
+takes the GitHub CLI's own sign-in (`gh auth token`) when neither is set. Set
 AUTOCODE_GITHUB_API for GitHub Enterprise (https://HOST/api/v3).
 """
 
@@ -10,6 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -201,9 +204,10 @@ class Client:
             page -= 1
         return comments[-max_comments:]
 
-    def open_issues(self, owner: str, repo: str, label: str) -> list[dict]:
-        """Open, non-PR issues carrying one label, newest first."""
-        rows = self._call("GET", f"/repos/{owner}/{repo}/issues?labels={label}&state=open&per_page=100")
+    def open_issues(self, owner: str, repo: str, label: str | None) -> list[dict]:
+        """Open, non-PR issues carrying one label (any label when None), newest first: at most 100."""
+        query = urlencode({**({"labels": label} if label else {}), "state": "open", "per_page": 100})
+        rows = self._call("GET", f"/repos/{owner}/{repo}/issues?{query}")
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise GitHubError("GitHub returned an invalid issue list")
         return [row for row in rows if "pull_request" not in row]
@@ -315,3 +319,30 @@ class Client:
                 f"{method} {path} returned {status}: {message or 'no message'}" + (f" ({detail})" if detail else "")
             )
         return data
+
+
+def signed_in(api: str | None = None, transport: Transport = _urllib) -> Client:
+    """A client with GITHUB_TOKEN or GH_TOKEN, else the GitHub CLI's sign-in for the API's host.
+
+    A person who signed in with `gh auth login` and set no token reads their private issues too. A
+    loopback fixture API never asks the GitHub CLI, so tests see only the token they set.
+    """
+    client = Client(api=api, transport=transport)
+    if client.token or not shutil.which("gh"):
+        return client
+    try:
+        if urlsplit(client.api).hostname in {"127.0.0.1", "localhost", "::1"}:
+            return client
+        host, _ = web_authority(client.api)
+        reply = subprocess.run(
+            ["gh", "auth", "token", "--hostname", host],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError, GitHubError):
+        return client
+    if reply.returncode == 0:
+        client.token = reply.stdout.strip() or None
+    return client

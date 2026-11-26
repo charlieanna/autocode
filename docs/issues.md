@@ -153,9 +153,54 @@ changed plan reviewed again, `plan` starts a new pull request, on branch
 `autocode/issue-N-<title>-plan-2` (then `-plan-3`) made from the base branch
 that holds the merged file, so it shows only what changed since.
 
+## Many issues at once
+
+`autocode issue queue` starts several issues for you, a few working at a time,
+and `autocode issue list` shows what AutoCode is doing on each open issue:
+
+```sh
+autocode issue list                                   # open issues, each with its run or its place in the queue
+autocode issue queue add 812 813 814 815 --max-active 3 -- --engine claude
+autocode issue queue run                              # starts them; returns once every one has started
+autocode issue queue status                           # the queue, and the command that resumes it
+autocode issue queue remove 815                       # take an issue that has not started off the queue
+```
+
+- **Each issue is an ordinary issue run.** `queue run` starts each one with
+  `autocode issue start ISSUE --no-chat` and the options given to `queue add`
+  (after `--`), so each gets its own branch, worktree, conversation and pull
+  request, and every step after the start (`issue status`, `continue`, `plan`,
+  `pr`) works as above.
+- **What the limit counts.** `--max-active K` (default 3) bounds how many of the
+  project's issue runs are working at once: using a model now, as
+  `autocode runs` counts its working bucket. A run waiting for your answer or
+  your approval uses no model, so it does not hold a slot. Ten issues can all
+  be waiting for their plans to be approved while at most three plan, build or
+  check. Your answer or approval continues its own run whatever the limit:
+  the queue only decides when a new issue starts. (The GitHub
+  [channel bridge](channels.md#many-issues-at-once), which serves a team over
+  issue comments, keeps a waiting run's slot instead, to bound how many issues
+  ask people at once.)
+- **One scheduler per project.** `queue run` holds a lock in `.autocode/`; a
+  second one steps aside. If it stops before every issue has started (the
+  terminal closed, VS Code quit), `queue status --json` names
+  `queue run` as its `next_command`, so any client resumes it.
+- **A start that fails** stays on the queue as `failed` with its output (the
+  full log is under `.autocode/issue-queue/`). `queue add` puts it back.
+- **For clients.** `issue list --json` gives each open issue (the newest 100,
+  `--label` to narrow) with its run (`bucket`, `status` and `needs` from
+  `autocode runs`, its branch and pull request), its `queue_state`, and named
+  `actions`: `open_pr` once its run has completed and has no pull request yet.
+  Its `queue_add.next_command` holds `LIMIT`, a whole number from 1, and
+  `ISSUES`, one or more of the listing's `issues[].ref`, and may be followed by
+  `--` and the AutoCode options a new chat starts with.
+
 ## Credentials
 
-- **Token:** reads `GITHUB_TOKEN`, or `GH_TOKEN` if that is unset.
+- **Token:** reads `GITHUB_TOKEN`, or `GH_TOKEN` if that is unset. With
+  neither set, it asks the GitHub CLI for the sign-in you made with
+  `gh auth login` (`gh auth token`), so a private repository works without
+  exporting a token.
 - **Reading issues:** a public issue needs no token. A private issue needs one
   with read access.
 - **Opening a pull request:** needs a token with pull-request write access to
@@ -308,6 +353,6 @@ The normal CI suite discovers it on every PR through `--all-fast` and on master.
 - **You still review and merge.** The pull request is a draft by default.
   "Complete" means AutoCode's completion gate passed. It does not mean the
   change is safe to merge.
-- **One issue at a time.** Several issues can run at once, each in its own
-  worktree, but nothing schedules them. Each one still stops for your
-  approval.
+- **Each issue still stops for you.** `queue` starts many issues at once
+  ([above](#many-issues-at-once)), but each one still asks its own questions
+  and waits for its own plan approval.

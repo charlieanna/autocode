@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -212,30 +211,7 @@ def origin_repo(workspace: str | Path, *, api: str | None = None) -> tuple[str, 
 
 def _client(api: str | None = None, transport=None) -> github.Client:
     selected_api = (api or os.environ.get("AUTOCODE_GITHUB_API") or github.API).rstrip("/")
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if transport is None:
-        client = github.Client(token=token, api=selected_api)
-    else:
-        client = github.Client(token=token, api=selected_api, transport=transport)
-    try:
-        server = urlsplit(client.api)
-    except ValueError:
-        return client
-    if not client.token and server.hostname not in {"127.0.0.1", "localhost", "::1"} and shutil.which("gh"):
-        try:
-            host, _ = github.web_authority(client.api)
-            reply = subprocess.run(
-                ["gh", "auth", "token", "--hostname", host],
-                capture_output=True,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                timeout=5,
-            )
-            if reply.returncode == 0:
-                client.token = reply.stdout.strip() or None
-        except (OSError, subprocess.SubprocessError, github.GitHubError):
-            pass
-    return client
+    return github.signed_in(selected_api) if transport is None else github.signed_in(selected_api, transport)
 
 
 def fetch_linked_records(
