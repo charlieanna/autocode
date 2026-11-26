@@ -49,36 +49,44 @@ class CommandLineTests(unittest.TestCase):
 class LostAccessTests(unittest.TestCase):
     """Whether a sandboxed command keeps root's access is observed from what a probe holds."""
 
-    def probe(self, caller, stdout, returncode=0):
+    def probe(self, stdout, returncode=0, euid=0):
         from unittest import mock
 
         calls = []
 
         def run(argv, **options):
             calls.append(argv)
-            return subprocess.CompletedProcess(argv, returncode, stdout, "bwrap: denied\n")
+            self.assertEqual(userns.PROBE_TEXT, Path(argv[-1]).read_text())  # the file exists while it runs
+            return subprocess.CompletedProcess(argv, returncode, stdout, "cat: Permission denied\n")
 
+        # The file stays this process's, so the check runs unprivileged too; RootTests run it for real.
         with (
-            mock.patch.object(userns, "bounding", return_value=caller),
+            mock.patch.object(userns.os, "chown"),
             mock.patch.object(userns.subprocess, "run", side_effect=run),
         ):
-            return userns.lost_access(["bwrap", "--"]), calls
+            found = userns.lost_access(["bwrap", "--"], euid=euid)
+        for argv in calls:
+            self.assertFalse(Path(argv[-1]).parent.exists(), "the probe's file is removed")
+        return found, calls
 
-    def test_a_caller_without_root_access_needs_no_probe(self):
-        self.assertEqual((None, []), self.probe(0, ""))
+    def test_a_caller_that_is_not_root_needs_no_probe(self):
+        self.assertEqual((None, []), self.probe("", euid=1000))
 
     def test_a_command_that_keeps_root_access(self):
-        found, calls = self.probe(0x1FFFFDFFFFF, "Name:\tsh\nCapEff:\t000001ffffdfffff\n")
+        found, calls = self.probe(userns.PROBE_TEXT)
         self.assertIsNone(found)
-        self.assertEqual(["bwrap", "--", "/bin/sh", "-c", "cat /proc/self/status"], calls[0])
+        self.assertEqual(["bwrap", "--", "/bin/cat"], calls[0][:3])
 
-    def test_a_command_a_host_policy_strips_of_capabilities(self):
-        found, _ = self.probe(0x1FFFFDFFFFF, "Name:\tsh\nCapEff:\t0000000000000000\n")
+    def test_a_command_a_host_policy_denies_the_read(self):
+        found, _ = self.probe("", returncode=1)
         self.assertIn("would not keep root's access to files other users own", found)
+        self.assertIn("exit 1: cat: Permission denied", found)
 
-    def test_a_probe_that_does_not_start(self):
-        found, _ = self.probe(0x1FFFFDFFFFF, "", returncode=1)
-        self.assertEqual("could not start its command here (exit 1: bwrap: denied)", found)
+    def test_a_root_that_cannot_make_another_users_file_loses_nothing(self):
+        from unittest import mock
+
+        with mock.patch.object(userns.os, "chown", side_effect=PermissionError("no CAP_CHOWN")):
+            self.assertIsNone(userns.lost_access(["bwrap", "--"], euid=0))
 
     def test_the_read_boundary_is_not_used_where_root_would_lose_access(self):
         from unittest import mock
@@ -166,6 +174,10 @@ class RootTests(unittest.TestCase):
             self.skipTest(f"this host takes root's access away inside bubblewrap: {lost}")
         result = self.run_inside(agent_sandbox.bubblewrap_arguments([], []), f"cat '{self.home}/tool'")
         self.assertEqual((0, "readable by its owner's group only\n"), (result.returncode, result.stdout), result.stderr)
+
+    def test_the_probe_sees_bubblewraps_own_namespace_take_roots_access(self):
+        own = [agent_sandbox.BWRAP, "--unshare-user", "--die-with-parent", "--bind", "/", "/", "--"]
+        self.assertIn("would not keep root's access", userns.lost_access(own))
 
     def test_a_command_that_cannot_be_run(self):
         result = subprocess.run(

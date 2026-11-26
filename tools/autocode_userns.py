@@ -18,8 +18,8 @@ user still gets ``bwrap --unshare-user``.
 
 A host's own policy can still take root's access away whatever the namespace maps: Ubuntu's AppArmor
 runs bubblewrap's command under a profile that denies every capability, as on CI's runners.
-``lost_access`` observes that, by asking a probe started the same way which capabilities it holds, so
-a caller can leave the command outside the sandbox and record why.
+``lost_access`` observes that, by asking a probe started the same way to read a file only another
+user may read, so a caller can leave the command outside the sandbox and record why.
 
 Imports nothing from AutoCode.
 """
@@ -28,11 +28,16 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 CLONE_NEWUSER = 0x10000000
-DAC = (1 << 1) | (1 << 2)  # CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH
+# The owner of the file lost_access asks a probe to read: nobody, an id no file of the host needs.
+PROBE_ID = 65534
+PROBE_TEXT = "readable by its owner only\n"
 # Every id the initial namespace has, mapped to itself.
 IDENTITY = "0 0 4294967295\n"
 # The capabilities bubblewrap knows by name. A capability numbered above these that this process lacks
@@ -98,37 +103,48 @@ def bounding(status="/proc/self/status", field="CapBnd"):
         return None
 
 
-def lost_access(prefix):
+def lost_access(prefix, *, euid=None):
     """Why a command started with ``prefix`` would read less than this process can, or None.
 
-    Observed, not assumed: the probe reports the capabilities its command holds, and a root caller's
-    CAP_DAC_OVERRIDE or CAP_DAC_READ_SEARCH must survive. A host's own policy can take them away
-    whatever the namespace maps: Ubuntu's AppArmor puts bubblewrap's command under ``unpriv_bwrap``,
-    which denies every capability, so root there cannot read another user's 0750 home inside it.
+    Observed, not assumed: root writes a file only another user may read and asks a probe started
+    with ``prefix`` to read it back. A host's own policy can deny root's override inside the sandbox
+    whatever the namespace maps and whatever capabilities the command lists: Ubuntu's AppArmor runs
+    bubblewrap's command under ``unpriv_bwrap``, which denies their use, so root there cannot read
+    another user's 0750 home inside it. Nothing is probed for a caller that is not root.
     """
-    wanted = (bounding(field="CapEff") or 0) & DAC
-    if not wanted:
+    if (os.geteuid() if euid is None else euid) != 0:
         return None
+    folder = tempfile.mkdtemp(prefix="autocode-userns-probe-")
     try:
-        probe = subprocess.run(
-            [*prefix, "/bin/sh", "-c", "cat /proc/self/status"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env={"PATH": "/usr/bin:/bin"},
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        return f"could not run {prefix[0]}: {error}"
-    held = _capabilities(probe.stdout, "CapEff") if probe.returncode == 0 else None
-    if held is None:
-        detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
-        return f"could not start its command here (exit {probe.returncode}: {detail})"
-    if held & wanted != wanted:
-        return (
-            "its command would not keep root's access to files other users own here (it holds no "
-            "CAP_DAC_OVERRIDE; a host policy such as AppArmor's unpriv_bwrap denies it)"
-        )
-    return None
+        probe = Path(folder) / "probe"
+        probe.write_text(PROBE_TEXT)
+        for path, mode in ((probe, 0o600), (Path(folder), 0o700)):
+            os.chown(path, PROBE_ID, PROBE_ID)
+            os.chmod(path, mode)
+        if probe.read_text() != PROBE_TEXT:
+            return None  # this root reads no other user's file either, so nothing is lost
+        try:
+            result = subprocess.run(
+                [*prefix, "/bin/cat", str(probe)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                env={"PATH": "/usr/bin:/bin"},
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            return f"could not run {prefix[0]}: {error}"
+    except OSError:
+        return None  # this root cannot make another user's file, so it reads none either
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    if result.returncode == 0 and result.stdout == PROBE_TEXT:
+        return None
+    detail = (result.stderr.strip().splitlines() or ["no message"])[-1][:300]
+    return (
+        "its command would not keep root's access to files other users own here "
+        f"(reading one failed: exit {result.returncode}: {detail}; a host policy such as AppArmor's "
+        "unpriv_bwrap denies it)"
+    )
 
 
 def capability_flags(mask):
