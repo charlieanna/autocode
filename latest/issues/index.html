@@ -1055,6 +1055,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-issues-at-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many issues at once
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1992,6 +2003,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#many-issues-at-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Many issues at once
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2084,7 +2106,7 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/README.md">← Back to README</a></p>
 <p><code>autocode issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
@@ -2244,9 +2266,51 @@ printing it: loading the file again would replace the newer plan. To have the
 changed plan reviewed again, <code>plan</code> starts a new pull request, on branch
 <code>autocode/issue-N-&lt;title&gt;-plan-2</code> (then <code>-plan-3</code>) made from the base branch
 that holds the merged file, so it shows only what changed since.</p>
+<h2 id="many-issues-at-once">Many issues at once<a class="headerlink" href="#many-issues-at-once" title="Permanent link">&para;</a></h2>
+<p><code>autocode issue queue</code> starts several issues for you, a few working at a time,
+and <code>autocode issue list</code> shows what AutoCode is doing on each open issue:</p>
+<pre><code class="language-sh">autocode issue list                                   # open issues, each with its run or its place in the queue
+autocode issue queue add 812 813 814 815 --max-active 3 -- --engine claude
+autocode issue queue run                              # starts them; returns once every one has started
+autocode issue queue status                           # the queue, and the command that resumes it
+autocode issue queue remove 815                       # take an issue that has not started off the queue
+</code></pre>
+<ul>
+<li><strong>Each issue is an ordinary issue run.</strong> <code>queue run</code> starts each one with
+  <code>autocode issue start ISSUE --no-chat</code> and the options given to <code>queue add</code>
+  (after <code>--</code>), so each gets its own branch, worktree, conversation and pull
+  request, and every step after the start (<code>issue status</code>, <code>continue</code>, <code>plan</code>,
+  <code>pr</code>) works as above.</li>
+<li><strong>What the limit counts.</strong> <code>--max-active K</code> (default 3) bounds how many of the
+  project's issue runs are working at once: using a model now, as
+  <code>autocode runs</code> counts its working bucket. A run waiting for your answer or
+  your approval uses no model, so it does not hold a slot. Ten issues can all
+  be waiting for their plans to be approved while at most three plan, build or
+  check. Your answer or approval continues its own run whatever the limit:
+  the queue only decides when a new issue starts. (The GitHub
+  <a href="../channels/#many-issues-at-once">channel bridge</a>, which serves a team over
+  issue comments, keeps a waiting run's slot instead, to bound how many issues
+  ask people at once.)</li>
+<li><strong>One scheduler per project.</strong> <code>queue run</code> holds a lock in <code>.autocode/</code>; a
+  second one steps aside. If it stops before every issue has started (the
+  terminal closed, VS Code quit), <code>queue status --json</code> names
+  <code>queue run</code> as its <code>next_command</code>, so any client resumes it.</li>
+<li><strong>A start that fails</strong> stays on the queue as <code>failed</code> with its output (the
+  full log is under <code>.autocode/issue-queue/</code>). <code>queue add</code> puts it back.</li>
+<li><strong>For clients.</strong> <code>issue list --json</code> gives each open issue (the newest 100,
+  <code>--label</code> to narrow) with its run (<code>bucket</code>, <code>status</code> and <code>needs</code> from
+  <code>autocode runs</code>, its branch and pull request), its <code>queue_state</code>, and named
+  <code>actions</code>: <code>open_pr</code> once its run has completed and has no pull request yet.
+  Its <code>queue_add.next_command</code> holds <code>LIMIT</code>, a whole number from 1, and
+  <code>ISSUES</code>, one or more of the listing's <code>issues[].ref</code>, and may be followed by
+  <code>--</code> and the AutoCode options a new chat starts with.</li>
+</ul>
 <h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Token:</strong> reads <code>GITHUB_TOKEN</code>, or <code>GH_TOKEN</code> if that is unset.</li>
+<li><strong>Token:</strong> reads <code>GITHUB_TOKEN</code>, or <code>GH_TOKEN</code> if that is unset. With
+  neither set, it asks the GitHub CLI for the sign-in you made with
+  <code>gh auth login</code> (<code>gh auth token</code>), so a private repository works without
+  exporting a token.</li>
 <li><strong>Reading issues:</strong> a public issue needs no token. A private issue needs one
   with read access.</li>
 <li><strong>Opening a pull request:</strong> needs a token with pull-request write access to
@@ -2255,8 +2319,8 @@ that holds the merged file, so it shows only what changed since.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
@@ -2405,9 +2469,9 @@ The normal CI suite discovers it on every PR through <code>--all-fast</code> and
 <li><strong>You still review and merge.</strong> The pull request is a draft by default.
   "Complete" means AutoCode's completion gate passed. It does not mean the
   change is safe to merge.</li>
-<li><strong>One issue at a time.</strong> Several issues can run at once, each in its own
-  worktree, but nothing schedules them. Each one still stops for your
-  approval.</li>
+<li><strong>Each issue still stops for you.</strong> <code>queue</code> starts many issues at once
+  (<a href="#many-issues-at-once">above</a>), but each one still asks its own questions
+  and waits for its own plan approval.</li>
 </ul>
 
 

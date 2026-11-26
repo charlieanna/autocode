@@ -2472,7 +2472,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2555,8 +2555,8 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 <td>Agent wrapper that refuses operator decisions and reports a stop (see <a href="#unattended-callers-agents">Unattended callers</a>).</td>
 </tr>
 <tr>
-<td><code>autocode issue brief\|start\|status\|continue\|plan\|pr</code></td>
-<td>Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (<code>plan</code>), and prepare a pull request (see <a href="../issues/">GitHub issues</a>).</td>
+<td><code>autocode issue brief\|start\|status\|continue\|plan\|pr\|list\|queue</code></td>
+<td>Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (<code>plan</code>), and prepare a pull request (see <a href="../issues/">GitHub issues</a>). <code>list</code> shows the repository's open issues with what AutoCode is doing on each; <code>queue add\|run\|status\|remove</code> starts many issues, at most <code>--max-active</code> working at once (<a href="../issues/#many-issues-at-once">Many issues at once</a>).</td>
 </tr>
 <tr>
 <td><code>autocode bridge run\|check\|status</code></td>
@@ -2676,7 +2676,7 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 </tr>
 <tr>
 <td><code>autocode runs [--all] [--needs \| --active] [--json]</code></td>
-<td>Every run of this project, including those in its task worktrees under <code>.autocode/worktrees</code> and its issue worktrees (or, with <code>--all</code>, of every registered project, each row then naming its workspace), in one read-only table, each JSON row titled with the first line of its task (<code>title</code>): what each run's own status view says it needs, and the command that answers it. Needs-first order, then working, then settled, then runs whose checkpoint cannot be read; the row shows how long since the checkpoint was written. A <code>RUNNING</code> checkpoint whose controller left a <code>ready</code> receipt for it (saved by an answer, approval or follow-up, left for the person to continue) is listed under needs you as <code>Ready to continue</code>, with <code>ready_to_continue: true</code> in its JSON row; its status stays <code>RUNNING</code>, as in <code>autocode --run-dir RUN --status</code>. Nothing here starts, resumes or changes a run. Where a saved run's status alone cannot tell an uncertain attempt from one whose retained report only needs repair, the row points at <code>autocode --run-dir RUN --status</code> instead of offering a command that could set accepted work aside. Each saved <code>RUNNING</code> row also inspects, read-only, whether its controller is gone: one positively gone shows status <code>PAUSED_CONTROLLER_EXIT</code> under needs you with its <code>--resume-paused</code> command, as <code>autocode --run-dir RUN --status</code> does. Ownership it cannot settle (unknown or busy) keeps the saved claim, where <code>--status</code> may show a process-check pause. <code>--needs</code> shows only the runs waiting on you and <code>--active</code> those plus the runs still working, so a long history of finished runs stays out of the way; <code>counts</code> in the JSON still covers every run. <code>registry list</code> is the pointer index with each pointer's availability; <code>runs</code> is what each run now wants from you.</td>
+<td>Every run of this project, including those in its task worktrees under <code>.autocode/worktrees</code> and its issue worktrees (or, with <code>--all</code>, of every registered project, each row then naming its workspace), in one read-only table, each JSON row titled with the first line of its task (<code>title</code>): what each run's own status view says it needs, and the command that answers it. Needs-first order, then working, then settled, then runs whose checkpoint cannot be read; the row shows how long since the checkpoint was written. A <code>RUNNING</code> checkpoint whose controller left a <code>ready</code> receipt for it (saved by an answer, approval or follow-up, left for the person to continue) is listed under needs you as <code>Ready to continue</code>, with <code>ready_to_continue: true</code> in its JSON row (each JSON row also carries <code>status_label</code> and <code>next_stage_label</code>, the person's words for its status and next stage, as <code>registry list</code> gives them); its status stays <code>RUNNING</code>, as in <code>autocode --run-dir RUN --status</code>. Nothing here starts, resumes or changes a run. Where a saved run's status alone cannot tell an uncertain attempt from one whose retained report only needs repair, the row points at <code>autocode --run-dir RUN --status</code> instead of offering a command that could set accepted work aside. Each saved <code>RUNNING</code> row also inspects, read-only, whether its controller is gone: one positively gone shows status <code>PAUSED_CONTROLLER_EXIT</code> under needs you with its <code>--resume-paused</code> command, as <code>autocode --run-dir RUN --status</code> does. Ownership it cannot settle (unknown or busy) keeps the saved claim, where <code>--status</code> may show a process-check pause. <code>--needs</code> shows only the runs waiting on you and <code>--active</code> those plus the runs still working, so a long history of finished runs stays out of the way; <code>counts</code> in the JSON still covers every run. <code>registry list</code> is the pointer index with each pointer's availability; <code>runs</code> is what each run now wants from you.</td>
 </tr>
 <tr>
 <td><code>autocode board</code></td>
@@ -2741,7 +2741,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3381,7 +3381,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4086,8 +4086,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode issue</code></td>
-<td><code>--project</code>, <code>--remote</code>, <code>--issue-file</code>, <code>--note</code>, <code>--base</code>, <code>--pr-base</code>, <code>--open</code>, <code>--ready</code>, <code>--path</code>, <code>--chat</code>, <code>--no-chat</code></td>
-<td>Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with <code>plan</code>, where the plan file goes in the repository (default <code>plans/issue-N.md</code>). For <code>start</code> and <code>continue</code>, <code>--chat</code> enters terminal chat when input is needed (default with terminal stdin/stdout); <code>--no-chat</code> returns the status and next action instead. See <a href="../issues/">GitHub issues</a>.</td>
+<td><code>--project</code>, <code>--remote</code>, <code>--issue-file</code>, <code>--note</code>, <code>--base</code>, <code>--pr-base</code>, <code>--open</code>, <code>--ready</code>, <code>--path</code>, <code>--chat</code>, <code>--no-chat</code>, <code>--label</code>, <code>--json</code>, <code>--max-active</code></td>
+<td>Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with <code>plan</code>, where the plan file goes in the repository (default <code>plans/issue-N.md</code>). For <code>start</code> and <code>continue</code>, <code>--chat</code> enters terminal chat when input is needed (default with terminal stdin/stdout); <code>--no-chat</code> returns the status and next action instead. See <a href="../issues/">GitHub issues</a>. <code>list --label</code> narrows the open issues to one label and <code>--json</code> prints them for a client; <code>queue add --max-active K</code> sets how many issue runs work at once (default 3), and <code>queue status --json</code> prints the queue.</td>
 </tr>
 <tr>
 <td><code>autocode arena</code></td>
@@ -4561,7 +4561,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/3fd75245e700d3d93b0fc552a18db6381cb963c8/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/18f3e74f8477a0d1bcd8d5add2cc15aaaf5d8bd0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
