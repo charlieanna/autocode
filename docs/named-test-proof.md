@@ -636,7 +636,11 @@ command's interpreter in the runner's 0750 home. So root starts bubblewrap throu
 root inside it; the command keeps only the capabilities in the CLI's bounding set (it drops
 `CAP_SYS_ADMIN` from a root runner), so it cannot undo the boundary's mounts. The opt-in agent sandbox
 (`autocode_agent_sandbox`) starts bubblewrap the same way. An ordinary user still gets
-`bwrap --unshare-user`.
+`bwrap --unshare-user`. A host's own policy can still take root's access away: Ubuntu's AppArmor runs
+bubblewrap's command under `unpriv_bwrap`, which denies every capability, as on CI's runners. So the
+boundary's probe also asks a command started the same way which capabilities it holds
+(`autocode_userns.lost_access`); where a root caller's `CAP_DAC_OVERRIDE` would not survive, the command
+runs without the boundary and `read_boundary` records why.
 
 The saved-proof inventory found 180 retained verification receipts (168 unittest,
 5 pytest, 3 Node, 2 Vitest and 2 Go), with zero source-binding fields. Those are

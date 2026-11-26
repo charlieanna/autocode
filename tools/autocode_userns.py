@@ -16,6 +16,11 @@ process's bounding set: AutoCode's CLI drops CAP_SYS_PTRACE and CAP_SYS_ADMIN fr
 (``autocode_capability_startup``), so the command cannot undo the namespace's mounts. An ordinary
 user still gets ``bwrap --unshare-user``.
 
+A host's own policy can still take root's access away whatever the namespace maps: Ubuntu's AppArmor
+runs bubblewrap's command under a profile that denies every capability, as on CI's runners.
+``lost_access`` observes that, by asking a probe started the same way which capabilities it holds, so
+a caller can leave the command outside the sandbox and record why.
+
 Imports nothing from AutoCode.
 """
 
@@ -23,9 +28,11 @@ from __future__ import annotations
 
 import ctypes
 import os
+import subprocess
 import sys
 
 CLONE_NEWUSER = 0x10000000
+DAC = (1 << 1) | (1 << 2)  # CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH
 # Every id the initial namespace has, mapped to itself.
 IDENTITY = "0 0 4294967295\n"
 # The capabilities bubblewrap knows by name. A capability numbered above these that this process lacks
@@ -72,15 +79,55 @@ CAPABILITIES = [
 ]
 
 
-def bounding(status="/proc/self/status"):
-    """This process's capability bounding set, as a bit mask, or None when it cannot be read."""
+def _capabilities(text, field):
+    for line in text.splitlines():
+        if line.startswith(field + ":"):
+            try:
+                return int(line.partition(":")[2].strip(), 16)
+            except ValueError:
+                return None
+    return None
+
+
+def bounding(status="/proc/self/status", field="CapBnd"):
+    """This process's capability bounding set (or another ``field``), as a bit mask, or None when unreadable."""
     try:
         with open(status, encoding="ascii") as lines:
-            for line in lines:
-                if line.startswith("CapBnd:"):
-                    return int(line.partition(":")[2].strip(), 16)
-    except (OSError, ValueError):
+            return _capabilities(lines.read(), field)
+    except OSError:
         return None
+
+
+def lost_access(prefix):
+    """Why a command started with ``prefix`` would read less than this process can, or None.
+
+    Observed, not assumed: the probe reports the capabilities its command holds, and a root caller's
+    CAP_DAC_OVERRIDE or CAP_DAC_READ_SEARCH must survive. A host's own policy can take them away
+    whatever the namespace maps: Ubuntu's AppArmor puts bubblewrap's command under ``unpriv_bwrap``,
+    which denies every capability, so root there cannot read another user's 0750 home inside it.
+    """
+    wanted = (bounding(field="CapEff") or 0) & DAC
+    if not wanted:
+        return None
+    try:
+        probe = subprocess.run(
+            [*prefix, "/bin/sh", "-c", "cat /proc/self/status"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"could not run {prefix[0]}: {error}"
+    held = _capabilities(probe.stdout, "CapEff") if probe.returncode == 0 else None
+    if held is None:
+        detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
+        return f"could not start its command here (exit {probe.returncode}: {detail})"
+    if held & wanted != wanted:
+        return (
+            "its command would not keep root's access to files other users own here (it holds no "
+            "CAP_DAC_OVERRIDE; a host policy such as AppArmor's unpriv_bwrap denies it)"
+        )
     return None
 
 

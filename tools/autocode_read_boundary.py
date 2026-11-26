@@ -21,8 +21,9 @@ are the command's as before.
 The backends are the agent sandbox's (``autocode_agent_sandbox``): Linux bubblewrap, the hidden
 paths covered by an empty tmpfs and the visible ones bound back from the host; macOS Seatbelt,
 denying file reads under each hidden path and allowing them again under each visible one, in the
-same order. Where no boundary can be set up (no bubblewrap able to create its namespaces, no
-sandbox-exec, another platform), the command runs as before and its receipt records why, owner
+same order. Where no boundary can be set up (no bubblewrap able to create its namespaces, a
+bubblewrap whose command would not keep root's access to other users' files, no sandbox-exec,
+another platform), the command runs as before and its receipt records why, owner
 decision 2026-11-25: phases 1 and 2 still hold or prevent the escapes they see, and holding every
 proof would stop AutoCode on such a host. ``record`` is what the receipt keeps.
 
@@ -109,7 +110,8 @@ def _bubblewrap_problem():
             f"{agent_sandbox.BWRAP} cannot create the namespace the read boundary needs (exit {probe.returncode}: "
             f"{detail}); this host may deny user namespaces"
         )
-    return None
+    lost = userns.lost_access(bubblewrap_arguments([]))
+    return f"the read boundary is not used here: {lost}" if lost else None
 
 
 def _real(path) -> Path:

@@ -46,6 +46,52 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(start, agent_sandbox.bubblewrap_arguments([], [])[: len(start)])
 
 
+class LostAccessTests(unittest.TestCase):
+    """Whether a sandboxed command keeps root's access is observed from what a probe holds."""
+
+    def probe(self, caller, stdout, returncode=0):
+        from unittest import mock
+
+        calls = []
+
+        def run(argv, **options):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, returncode, stdout, "bwrap: denied\n")
+
+        with (
+            mock.patch.object(userns, "bounding", return_value=caller),
+            mock.patch.object(userns.subprocess, "run", side_effect=run),
+        ):
+            return userns.lost_access(["bwrap", "--"]), calls
+
+    def test_a_caller_without_root_access_needs_no_probe(self):
+        self.assertEqual((None, []), self.probe(0, ""))
+
+    def test_a_command_that_keeps_root_access(self):
+        found, calls = self.probe(0x1FFFFDFFFFF, "Name:\tsh\nCapEff:\t000001ffffdfffff\n")
+        self.assertIsNone(found)
+        self.assertEqual(["bwrap", "--", "/bin/sh", "-c", "cat /proc/self/status"], calls[0])
+
+    def test_a_command_a_host_policy_strips_of_capabilities(self):
+        found, _ = self.probe(0x1FFFFDFFFFF, "Name:\tsh\nCapEff:\t0000000000000000\n")
+        self.assertIn("would not keep root's access to files other users own", found)
+
+    def test_a_probe_that_does_not_start(self):
+        found, _ = self.probe(0x1FFFFDFFFFF, "", returncode=1)
+        self.assertEqual("could not start its command here (exit 1: bwrap: denied)", found)
+
+    def test_the_read_boundary_is_not_used_where_root_would_lose_access(self):
+        from unittest import mock
+
+        with (
+            mock.patch.object(read_boundary.Path, "is_file", return_value=True),
+            mock.patch.object(read_boundary.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")),
+            mock.patch.object(userns, "lost_access", return_value="its command holds no CAP_DAC_OVERRIDE"),
+        ):
+            found = read_boundary._bubblewrap_problem()
+        self.assertEqual("the read boundary is not used here: its command holds no CAP_DAC_OVERRIDE", found)
+
+
 @unittest.skipUnless(sys.platform == "linux", "Linux user namespaces")
 class LauncherFailureTests(unittest.TestCase):
     """The launcher runs nothing when it cannot set the namespace up, and says why on stderr."""
@@ -115,6 +161,9 @@ class RootTests(unittest.TestCase):
         self.assertEqual(["readable by its owner's group only", "0"], result.stdout.split("\n")[:2])
 
     def test_the_agent_sandbox_keeps_roots_access(self):
+        lost = userns.lost_access(agent_sandbox.bubblewrap_arguments([], []))
+        if lost:
+            self.skipTest(f"this host takes root's access away inside bubblewrap: {lost}")
         result = self.run_inside(agent_sandbox.bubblewrap_arguments([], []), f"cat '{self.home}/tool'")
         self.assertEqual((0, "readable by its owner's group only\n"), (result.returncode, result.stdout), result.stderr)
 
