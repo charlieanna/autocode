@@ -269,6 +269,12 @@ def _reconcile_proof_finding(state: RunState, workspace):
             and (row.get("scope") or {}).get("milestone_id") == current_milestone
             and infrastructure.disk_collection_failure(state, row, revision)
         )
+        # A refusal only because what the proof ran on changed while it ran: it judged nothing.
+        settle_same_revision_ids.extend(
+            row["id"]
+            for row in proof_findings.open_rows(state)
+            if row["id"] not in settle_same_revision_ids and infrastructure.disturbed_refusal(state, row, revision)
+        )
         # A pre-existing suite test that failed once, then passed every rerun and this proof (#2942).
         for row in proof_findings.open_rows(state):
             if row["id"] not in settle_same_revision_ids and (
