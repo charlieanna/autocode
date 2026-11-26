@@ -4843,6 +4843,9 @@ class StockRefusalsRunTests(unittest.TestCase):
                 "draft_plan",
                 "review_plan",
                 "builder",
+                # The trap's failing proof sends it back to the Builder once before any Tester; the fake
+                # keeps the trap, so the reviewers and AutoResolver still see it.
+                "builder",
                 "tester",
                 # The trap's PASS leaves changed lines with no mutation outcome undecided: one bounded
                 # Tester report repair asks for those decisions (#2621). This fixture's Tester has no
@@ -4981,6 +4984,24 @@ class HybridRouteTests(unittest.TestCase):
                 serve(""),
             ],
         )
+
+        # The round a first attempt's failing proof sends back before any review (its handoff's next_action
+        # says so, straight after it) is still that attempt; any other later call is not.
+        def resend(stage):
+            side = stage_script.side_for(route, stage, False, trace, resent=True)
+            trace.append({"stage": stage, "repair": False, "side": side})
+            return side
+
+        trace.clear()
+        self.assertEqual(
+            ["scripted", "scripted", "live", "live", "live"],
+            [serve("builder"), resend("builder"), serve("tester"), resend("builder"), resend("builder")],
+        )
+        trace.clear()
+        self.assertEqual(["scripted", "live"], [serve("builder"), serve("builder")])
+        self.assertTrue(stage_script.proof_round({"next_action": "... so the Tester has not been started. ..."}))
+        self.assertFalse(stage_script.proof_round({"next_action": "Repair the failing check."}))
+        self.assertFalse(stage_script.proof_round({}))
         self.assertEqual(
             ("resolve", True),
             stage_script.stage_of(
@@ -5131,7 +5152,8 @@ class HybridRunTests(unittest.TestCase):
     which here is the fake provider standing in. They prove the routing, the labels and that the diagnosis
     counts only calls the live side served; nothing about how a model diagnoses."""
 
-    SCRIPTED = ["requirements_gather", "draft_plan", "review_plan", "builder"]
+    # The first Builder and the round its failing proof sends back before any review are the scripted trap.
+    SCRIPTED = ["requirements_gather", "draft_plan", "review_plan", "builder", "builder"]
     # The trap's PASS leaves changed lines with no mutation outcome undecided, so the Tester gets one
     # bounded report repair to decide them (#2621) before the Completion Reviewer runs.
     LIVE = [
@@ -6375,7 +6397,9 @@ class RefundWindowRunTests(unittest.TestCase):
             (verdict.CORRECT, 1), (result["diagnosis"]["verdict"], result["diagnosis"]["resolver_calls_on_failure"])
         )
         stages = result["metrics"]["model_stage_names"]
-        self.assertEqual(2, stages.count("builder"))
+        # The planted first build's failing proof sends it back to the Builder once before any Tester.
+        self.assertEqual(3, stages.count("builder"))
+        self.assertEqual(["builder", "builder", "tester"], [s for s in stages if s in ("builder", "tester")][:3])
         self.assertEqual(2, stages.count("tester"))
         self.assertEqual(1, stages.count("resolve"))
         self.assertLess(stages.index("tester"), stages.index("resolve"))

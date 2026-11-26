@@ -144,3 +144,63 @@ class PreservationReviewRefreshTests(unittest.TestCase):
                 before = copy.deepcopy(state)
                 self.review(state)
                 self.assertEqual(before, state)
+
+
+class BuilderFirstTests(unittest.TestCase):
+    """Before the Tester, which runs only when the proof of this source passes or its Builder round is spent."""
+
+    def state(self, **settings):
+        return {
+            "version": 3,
+            "iteration": 1,
+            "status": "RUNNING",
+            "next_stage": "tester",
+            "settings": settings,
+            "regression_proof": {
+                "verdict": "FAIL",
+                "failures": ["No regression test"],
+                "source_revision": "r1",
+                "path": "/run/verification.json",
+            },
+        }
+
+    def open_finding(self, state):
+        import autocode_proof_findings as proof_findings
+
+        return proof_findings.reconcile(
+            state, "r1", required=True, proved=False, reason="Completion rejected (No regression test)"
+        )
+
+    def test_a_failing_proof_returns_to_the_builder_and_no_tester_launches(self):
+        state = self.state()
+        self.open_finding(state)
+        self.assertTrue(completion._builder_first(state, "r1"))
+        self.assertEqual("builder", state["next_stage"])
+
+    def test_tests_the_tester_wrote_or_a_disturbed_proof_keep_the_tester(self):
+        state = self.state(spec_first=True)
+        self.open_finding(state)
+        self.assertFalse(completion._builder_first(state, "r1"))
+        import autocode_proof_infrastructure as infrastructure
+
+        state = self.state()
+        state["regression_proof"].update(
+            verdict="UNVERIFIED", failures=[], unverified=[infrastructure.DISTURBED[0] + " x"]
+        )
+        self.open_finding(state)
+        self.assertFalse(completion._builder_first(state, "r1"))
+        self.assertEqual("tester", state["next_stage"])
+
+    def test_the_tester_hook_sends_the_run_to_the_builder_before_the_study(self):
+        state = self.state()
+        with (
+            patch.object(completion, "_before_review", side_effect=lambda st, *_: self.open_finding(st) and None),
+            patch.object(source_scope, "snapshot", return_value={"revision": "r1"}),
+        ):
+            self.assertTrue(completion.before_review(state, "tester", self.run_dir(), self.run_dir()))
+        self.assertEqual("builder", state["next_stage"])
+
+    def run_dir(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        return Path(temp.name)

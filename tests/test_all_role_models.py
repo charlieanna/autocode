@@ -194,6 +194,8 @@ class AllRoleSubprocessTests(unittest.TestCase):
         stages = [
             "orchestrator",
             "builder",
+            # The unproven change goes back to the Builder once at the Tester's boundary; the Tester follows.
+            "tester",
             "tester",
             "review_completion",
             "resolve",
@@ -232,7 +234,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
             self.assertEqual(expected_models[route], stage["command"][stage["command"].index("--model") + 1])
         builds = [row for row in final["stages"] if row["stage"] == "builder"]
         audits = [row for row in final["stages"] if row["stage"] == "tester"]
-        self.assertEqual(2, len(builds))
+        self.assertEqual(3, len(builds))
         self.assertEqual(2, len(audits))
         self.assertNotEqual(final["sessions"]["tester"], final["sessions"]["builder"])
         for stage in final["stages"]:

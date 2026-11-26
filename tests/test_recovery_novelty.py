@@ -2464,6 +2464,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         )
 
     def trace(self):
+        # The fake's first build keeps its defect, so its failing proof sends it back to the Builder once
+        # before any Tester (proof_findings.builder_round): each flow starts "builder", "builder".
         return [json.loads(line) for line in (self.root / "rework-trace.jsonl").read_text().splitlines()]
 
     def assert_autocodes_own_retries(self, driver, view, stages):
@@ -2472,7 +2474,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         retried repair delivered. No stop asked the person for a flag, a token or a packet."""
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            ["builder", "builder", "tester", "review_completion", "builder", "tester", "review_completion"]
+            + ["resolve", "builder", "tester", "review_completion"],
             stages,
         )
         state = driver.state()
@@ -2504,7 +2507,10 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         )
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
-        self.assertEqual(["builder", "tester", "review_completion"] * 3, [row["stage"] for row in self.trace()])
+        self.assertEqual(
+            ["builder", "builder", "tester", "review_completion"] + ["builder", "tester", "review_completion"] * 2,
+            [row["stage"] for row in self.trace()],
+        )
         validators = [row for row in self.trace() if row["stage"] == "tester"]
         self.assertEqual([1, 1, 0], [row["exit_code"] for row in validators])
         self.assertEqual(3, len({row["task_id"] for row in validators}))
@@ -2530,7 +2536,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         stages = [row["stage"] for row in self.trace()]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            ["builder", "builder", "tester", "review_completion", "builder", "tester", "review_completion"]
+            + ["resolve", "builder", "tester", "review_completion"],
             stages,
         )
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
@@ -2543,11 +2550,12 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         stages = [row["stage"] for row in trace]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            ["builder", "builder", "tester", "review_completion", "builder", "tester", "review_completion"]
+            + ["resolve", "builder", "tester", "review_completion"],
             stages,
         )
         # The first Builder owned both criteria; the Builder after the Resolver owned only C2.
-        self.assertEqual([["C1", "C2"], ["C2"]], [row["task_criteria"] for row in (trace[0], trace[7])])
+        self.assertEqual([["C1", "C2"], ["C2"]], [row["task_criteria"] for row in (trace[0], trace[8])])
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
 
     @unittest.skipUnless(shutil.which("node"), "JavaScript public control requires Node")

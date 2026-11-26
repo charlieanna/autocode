@@ -6,6 +6,8 @@ import os
 import runpy
 from pathlib import Path
 
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
+
 
 def report_for(stage, data, common, config, run_check, requirements):
     helper = runpy.run_path(str(Path(__file__).with_name("completion_rework_provider.py")))
@@ -13,7 +15,9 @@ def report_for(stage, data, common, config, run_check, requirements):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "rework-trace.jsonl"
     if nonpython and stage == "builder":
         previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-        count = sum(row["stage"] == "builder" for row in previous) + 1
+        # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+        proof_round = SCRIPTED["proof_round"](stage, data)
+        count = SCRIPTED["attempt"](stage, data, previous)
         root = Path(config["reference"]).parent
         source = root / ("seed" if count <= 2 else "reference") / "greet.js"
         Path("greet.js").write_text(source.read_text() + f"\n// controlled attempt {count}\n")
@@ -27,6 +31,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                         "source_revision": data["source_revision"],
                         "source_sha256": hashlib.sha256(Path("greet.js").read_bytes()).hexdigest(),
                         "exit_code": code,
+                        "proof_round": proof_round,
                     }
                 )
                 + "\n"
@@ -49,7 +54,7 @@ def report_for(stage, data, common, config, run_check, requirements):
     if nonpython and result.get("next_task"):
         result["plan"] = [line.replace("greet.py", "greet.js") for line in result.get("plan", [])]
     rows = [json.loads(line) for line in trace.read_text().splitlines()]
-    builds = sum(row["stage"] == "builder" for row in rows)
+    builds = SCRIPTED["builds"](rows)
     if (
         config["fault"] != "recovery_novelty_hold"
         and builds >= 2

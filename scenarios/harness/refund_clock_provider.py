@@ -16,8 +16,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shutil
 from pathlib import Path
+
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
 
 
 def _fixed_file():
@@ -148,7 +151,7 @@ def source_for_attempt(config, attempt):
 def tester_producer(config):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "refund-trace.jsonl"
     previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-    attempt = sum(row["stage"] == "builder" for row in previous)
+    attempt = SCRIPTED["builds"](previous)
     if not attempt:
         return {}  # No Builder has authored files for this Tester.
     return {**config, "reference": str(source_for_attempt(config, attempt))}
@@ -166,7 +169,8 @@ def report_for(stage, data, common, config, run_check, requirements):
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
     if stage == "builder":
-        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
+        # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+        attempt = SCRIPTED["attempt"](stage, data, previous)
         _apply(source_for_attempt(config, attempt), config["paths"])
         code = run_check()
         result = {
@@ -271,6 +275,7 @@ def report_for(stage, data, common, config, run_check, requirements):
         "status": result.get("verdict", result.get("status")),
         "regression_verdict": proof.get("verdict"),
         "source_revision": data.get("source_revision"),
+        "proof_round": SCRIPTED["proof_round"](stage, data),
     }
     with trace.open("a") as handle:
         handle.write(json.dumps(row) + "\n")

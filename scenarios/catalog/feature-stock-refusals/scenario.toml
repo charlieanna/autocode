@@ -31,8 +31,9 @@ fault = "vacuous_refusal_tests"
 # Builder wrote the vacuous tests, so the trap never fired. A hybrid run scripts the planning stages (the plan's
 # cases name the tests: "test: test_c3_..." for each reference test) and the first Builder, which delivers
 # broken/vacuous-refusal-tests (correct stock.py, refusal tests that also pass on the original code). The
-# regression proof then fails on those planned cases by construction, and every later call is live: the
-# Validator, the Completion Owner, AutoResolver and the repair Builder.
+# regression proof then fails on those planned cases by construction. The round that failing proof sends straight
+# back to the Builder is still the first attempt, so it is scripted too and keeps the trap. Every later call is live:
+# the Validator, the Completion Owner, AutoResolver and the repair Builder.
 [hybrid]
 scripted = ["requirements_gather", "draft_plan", "review_plan", "revise_plan",
             "finalize_plan"]

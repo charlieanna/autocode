@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import runpy
 import shutil
 import uuid
 from pathlib import Path
+
+SCRIPTED = runpy.run_path(str(Path(__file__).with_name("scripted_attempt.py")))
 
 
 def _fixed_file():
@@ -50,8 +53,10 @@ def report_for(stage, data, common, config, run_check, requirements):
         "evidence": "event:check",
     }
     code = None
+    # The round a failing proof sends back before any Tester repeats its attempt (scripted_attempt.py).
+    proof_round = SCRIPTED["proof_round"](stage, data)
     if stage == "builder":
-        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
+        attempt = SCRIPTED["attempt"](stage, data, previous)
         # "completion_rework_unowned_check" (scenarios/catalog/rework-same-failure): every attempt applies the
         # solution, and the check still fails on a file the task may not change.
         broken = (
@@ -222,6 +227,7 @@ def report_for(stage, data, common, config, run_check, requirements):
         "regression_verdict": (data.get("regression_proof") or {}).get("verdict"),
         "next_task": result.get("next_task"),
         "next_objective": result.get("next_objective"),
+        "proof_round": proof_round,
     }
     with trace.open("a") as handle:
         handle.write(json.dumps(row) + "\n")

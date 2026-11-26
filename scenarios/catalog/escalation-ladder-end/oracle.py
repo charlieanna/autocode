@@ -17,7 +17,9 @@ from harness.oracle import Check, escalation_checks
 # policy's default stronger attempt, GPT-6 Sol at xhigh, as the Codex engine spells it.
 CLIMBED = (("gpt-5.6-terra", "high"), ("gpt-6-sol", "xhigh"))
 # The Builder's attempts: the first, its one ordinary retry, then the stronger attempt; then the ladder ends.
-BUILDS = 3
+# The first build keeps the fault, so its failing proof first sends it back to the same Builder once
+# before any Tester (no review sent it back, so it is no ladder step).
+BUILDS = 4
 # The runner's own stamps (the view's escalation_outcomes): the ordinary retry and the stronger attempt, both
 # `paused` at the retry-limit pause, as the row reads.
 STAMPED = {"passed": 0, "paused": 2, "open": 0}

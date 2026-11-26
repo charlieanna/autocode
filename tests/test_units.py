@@ -126,6 +126,9 @@ class ResolverFlow(unittest.TestCase):
                 # A build that changes product code owes the runner's proof (#2474), recorded as its own stage.
                 "builder",
                 "regression_proof",
+                # The unproven change goes back to the Builder once before any Tester.
+                "builder",
+                "regression_proof",
                 "tester",
                 "regression_proof",
                 "review_completion",
@@ -148,6 +151,12 @@ class ResolverFlow(unittest.TestCase):
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
+        self.select("autocode_build")
+        self.launch(args, 0)
+        self.select("autoreview")
+        self.launch(args, 0)
+        # The unproven change goes back to the Builder once before any Tester; the second review is the Tester's.
+        self.assertEqual("builder", self.saved()[1]["next_stage"])
         self.select("autocode_build")
         self.launch(args, 0)
         self.select("autoreview")
@@ -207,11 +216,14 @@ class ResolverFlow(unittest.TestCase):
         self.launch(args, 2)
         view = json.loads(self.launch([*args, "--status"], 0).stdout)["view"]
         self.launch([*args, "--approve-goal", view["needs"]["token"]], 0)
-        self.select("autocode_build")
-        self.launch(args, 0)
-        self.select("autoreview")
-        self.launch(args, 0)
+        # The unproven change goes back to the Builder once before any Tester; the second review is the Tester's.
+        for _ in range(2):
+            self.select("autocode_build")
+            self.launch(args, 0)
+            self.select("autoreview")
+            self.launch(args, 0)
         _, state = self.saved()
+        self.assertEqual("resolve", state["next_stage"])
         revision = support.snapshot(self.project)["revision"]
         for index in range(3):
             output = run / f"rejected-resolver-{index}.json"

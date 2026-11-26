@@ -130,7 +130,13 @@ def install(fake, configuration: dict, trace) -> None:
         counts_file.write_text(json.dumps(counts))
         repair = bool(data.get("report_repair"))
         mark("provider_stage", stage=stage, invocation=counts[stage], repair=repair)
-        if attack.startswith("builder_permission_") and stage == "builder":
+        # A corrected recovery is the second Builder call; a later one (such as the round a failing proof
+        # sends back before any Tester) is an ordinary build.
+        if (
+            attack.startswith("builder_permission_")
+            and stage == "builder"
+            and not (attack == "builder_permission_corrected" and counts[stage] > 2)
+        ):
             partial = Path("greet.py")
             if counts[stage] == 1:
                 partial.write_text("# retained partial implementation\n")

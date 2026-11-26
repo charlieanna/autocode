@@ -21,7 +21,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
 
     True when the stage must wait for another progressing local verification step,
     its proof sent changed guards back to plan review, or, before the Tester, the
-    proof of this source sent the run to the wrong-implementations study first; or, before any launch, the
+    proof of this source sent the run to the wrong-implementations study first, or a proof of it that does not pass
+    went back to the Builder (autocode_proof_findings.builder_round); or, before any launch, the
     approved plan runs a program the tool boundary refuses and went back to the Planner (#4015), or an approved
     bug-fix plan with a milestone the proof can never accept went back to planning (#3962).
     """
@@ -34,7 +35,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
         return True
     if _before_review(state, stage, workspace, run_dir) is True:
         return True
-    if stage != "tester":
+    if stage not in ("tester", "review_checkpoint"):
         return False
     try:
         from . import autocode_source_scope as source_scope
@@ -43,7 +44,31 @@ def before_review(state: RunState, stage, workspace, run_dir):
         import autocode_source_scope as source_scope
         import autocode_wrong_implementations as wrong_implementations
     # Only here does the Tester's proof of the current source exist: it was made just above (#3977).
-    return wrong_implementations.route(state, source_scope.snapshot(workspace, state)["revision"])
+    revision = source_scope.snapshot(workspace, state)["revision"]
+    if _builder_first(state, revision):
+        return True
+    return stage == "tester" and wrong_implementations.route(state, revision)
+
+
+def _builder_first(state: RunState, revision) -> bool:
+    """A proof of ``revision`` that does not pass goes to the Builder before any Tester (autocode_proof_findings).
+
+    Not when the Tester wrote the tests (spec-first: the Builder may not change them), or when the proof judged
+    nothing because what it ran on changed while it ran (autocode_proof_infrastructure.disturbed), which it
+    proves again itself."""
+    try:
+        from . import autocode_acceptance_tests as acceptance_tests
+        from . import autocode_proof_findings as proof_findings
+        from . import autocode_proof_infrastructure as infrastructure
+    except ImportError:
+        import autocode_acceptance_tests as acceptance_tests
+        import autocode_proof_findings as proof_findings
+        import autocode_proof_infrastructure as infrastructure
+    if not _proof_routing(state) or acceptance_tests.enabled(state):
+        return False
+    if infrastructure.disturbed(state.get("regression_proof")):
+        return False
+    return proof_findings.builder_round(state, revision)
 
 
 def _before_review(state: RunState, stage, workspace, run_dir):

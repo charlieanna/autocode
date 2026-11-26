@@ -1203,7 +1203,13 @@ before the Design Reviewer) and by
 When the regression proof owed for completion does not pass on the source about to
 be judged, it raises one naming the proof's reasons, checked before each Tester and
 Completion Reviewer dispatch (`tools/autocode_proof_findings.py`, #2475). It closes
-the finding when the proof passes on a source the finding has not failed on. A
+the finding when the proof passes on a source the finding has not failed on.
+Before a Tester (or the combined checkpoint) launches, an open finding of the source
+about to be tested goes straight back to the Builder once, with its reasons and the
+proof receipt as the Builder's next action, and no model call relays it: a proof that
+does not pass already decides the review. The finding's `builder_rounds` records it.
+After that round the Tester runs as before. Tests the Tester wrote (spec-first) and a
+proof that only saw its context change while it ran keep the Tester. A
 Completion Reviewer that asks to complete while it is open is sent back once for
 that source to review again; a second request pauses `PAUSED_COMPLETION_REVIEW`,
 which the Investigator takes. The completion gate no longer stops for the person

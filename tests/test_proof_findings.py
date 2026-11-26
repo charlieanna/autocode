@@ -68,6 +68,35 @@ class ProofFindingTests(unittest.TestCase):
         self.assertEqual("PAUSED_COMPLETION_REVIEW", second["status"])
         self.assertEqual("RUNNING", proof_findings.send_back(state, "r2")["status"])
 
+    def test_an_open_finding_goes_to_the_builder_once_before_the_tester(self):
+        state = {**failing("r1"), "iteration": 3, "status": "RUNNING", "next_stage": "tester"}
+        row = proof_findings.reconcile(state, "r1", required=True, proved=False, reason=REASON)
+        self.assertTrue(proof_findings.builder_round(state, "r1"))
+        self.assertEqual(
+            ("RUNNING", "EXECUTING", "builder", 3),
+            tuple(state[k] for k in ("status", "phase", "next_stage", "iteration")),
+        )
+        self.assertIn(row["id"], state["next_action"])
+        self.assertIn("No regression test", state["next_action"])
+        self.assertIn("/run/verification.json", state["next_action"])
+        self.assertEqual(
+            [("r1", "/run/verification.json")], [(r["source_revision"], r["receipt"]) for r in row["builder_rounds"]]
+        )
+        # The Builder's new source fails again: its rounds are spent, so the Tester runs as before.
+        state.update(failing("r2"), next_stage="tester")
+        proof_findings.reconcile(state, "r2", required=True, proved=False, reason=REASON)
+        self.assertFalse(proof_findings.builder_round(state, "r2"))
+        self.assertEqual(("tester", 3), (state["next_stage"], state["iteration"]))
+
+    def test_only_a_failing_proof_of_this_source_with_its_open_finding_goes_to_the_builder(self):
+        state = failing("r1")
+        self.assertFalse(proof_findings.builder_round(state, "r1"))  # no finding opened for it
+        proof_findings.reconcile(state, "r1", required=True, proved=False, reason=REASON)
+        self.assertFalse(proof_findings.builder_round(state, "r2"))  # a proof of another source
+        state["regression_proof"]["verdict"] = "PASS"
+        self.assertFalse(proof_findings.builder_round(state, "r1"))
+        self.assertNotIn("next_stage", state)
+
     def test_milestone_reconciliation_does_not_open_a_finding_for_future_cases(self):
         state = {
             "version": 3,
