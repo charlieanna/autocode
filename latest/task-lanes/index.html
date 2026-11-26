@@ -935,6 +935,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#watching-every-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching every run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#when-a-task-finishes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2038,6 +2049,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#watching-every-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watching every run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#when-a-task-finishes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2074,7 +2096,7 @@
 
 
 <h1 id="task-lanes-and-multiple-tasks">Task lanes and multiple tasks<a class="headerlink" href="#task-lanes-and-multiple-tasks" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/729ab31a071913e3938d821f6e3cc983fb9bcf3c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6d9ed43014147902a970f652f03c3011b3c0f9dc/README.md">← Back to README</a></p>
 <h2 id="connected-task-lanes">Connected task lanes<a class="headerlink" href="#connected-task-lanes" title="Permanent link">&para;</a></h2>
 <p>Use <code>autocode tasks</code> (or <code>autocode tasks</code>) when several complete Autocode tasks must
 run in order or independently. Tasks inside one lane run sequentially in the same
@@ -2504,6 +2526,28 @@ each hold a <code>.gitignore</code> containing <code>*</code>, so run state, log
 never appear in <code>git status</code> or get staged by <code>git add -A</code> in your checkout or in a
 task worktree. Your own <code>.gitignore</code> is not touched, and a <code>.gitignore</code> you already
 put in one of these directories is left as it is.</p>
+<h3 id="watching-every-run">Watching every run<a class="headerlink" href="#watching-every-run" title="Permanent link">&para;</a></h3>
+<p>Several tasks at once, in one project or in many, are watched from one place:</p>
+<pre><code class="language-sh">autocode board                      # a live screen of every run on this machine
+autocode runs --all --active        # the same rows once: runs that need you or are working
+autocode runs --all --needs         # only the runs that need you
+autocode runs --all --json          # every run, for a script
+</code></pre>
+<p><code>autocode board</code> keeps the list on screen and rereads it every few seconds. Runs that need
+you come first, then the runs still working; <code>a</code> adds the finished ones and <code>n</code> keeps only
+those that need you. The highlighted row shows its stage, its folder and the command the run
+accepts next. Enter opens the run: its six-job pipeline with each job's model and spend, its
+tasks, a line for each agent working now (each parallel Builder has its own), its cost
+against the cap and what it needs from you. A run waiting for plan approval shows the whole
+plan above its approval command, so the command you run is for the plan you read. Esc goes
+back and <code>q</code> quits.</p>
+<p>The board reads only what <code>autocode runs --all --json</code> and <code>autocode --status</code> print, and it
+takes no action: it starts, approves and resumes nothing. From Claude Code or Codex, the MCP
+server's <code>autocode_runs</code> tool returns the same rows (<a href="../agent-step/#every-projects-runs">every project's
+runs</a>).</p>
+<p>One request whose parts do not depend on each other needs no separate tasks: the Orchestrator
+builds independent milestones of one approved plan at the same time, two by default and more
+with <code>--max-parallel-builders N</code>, and the board's run screen shows each Builder.</p>
 <h3 id="when-a-task-finishes">When a task finishes<a class="headerlink" href="#when-a-task-finishes" title="Permanent link">&para;</a></h3>
 <p>When a run in a task worktree completes, AutoCode commits the delivered source to the
 task's branch (<code>autocode/&lt;task&gt;-&lt;id&gt;</code>, author <code>AutoCode &lt;autocode@localhost&gt;</code>) and
