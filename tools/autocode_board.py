@@ -105,7 +105,8 @@ def apply(board: Board, results: list[tuple]) -> None:
         if listing:
             if isinstance(read, dict) and isinstance(read.get("runs"), list):
                 board.rows = [row for row in read["runs"] if isinstance(row, dict)]
-                board.counts = read.get("counts") if isinstance(read.get("counts"), dict) else {}
+                counts = read.get("counts")
+                board.counts = counts if isinstance(counts, dict) else {}
                 board.loaded, board.error = True, ""
                 if board.picked is None and (first := picked(board)):
                     board.picked = first.get("run_dir")  # the highlight stays on its run when new runs appear
@@ -321,10 +322,10 @@ def run_lines(board: Board, width: int) -> list[Line]:
     if chat.get("last_output_at"):
         lines.append((_fit(f"  last output at {chat['last_output_at']}", width), DIM))
 
-    cost = view.get("cost") or {}
-    if cost:
-        cap = cost.get("cap_usd")
-        spent = _money(cost.get("spent_usd")) + ("+" if cost.get("complete") is False else "")
+    total = view.get("cost") or {}
+    if total:
+        cap = total.get("cap_usd")
+        spent = _money(total.get("spent_usd")) + ("+" if total.get("complete") is False else "")
         lines += [
             ("", PLAIN),
             (_fit(f"Cost   {spent}" + (f" of a {_money(cap)} cap" if cap else ", no cap"), width), HEAD),
