@@ -428,6 +428,63 @@ class AffectedTestsSelectionTests(unittest.TestCase):
                 self.assertIn(wanted, sites[(module, 2)]["tests"])
                 self.assertEqual(0, summary["unobserved_mutants"])
 
+    def test_a_definition_no_test_names_keeps_the_tests_that_import_its_module(self):
+        # A live FastAPI run (2026-11-25): `@app.post("/alert")` registered the handler and every test reached
+        # it through `TestClient(app)`, never by name, so symbol narrowing left its 26 mutants with no test and
+        # they were recorded as survivors without running. A registry, a base class or an entry table does the
+        # same, so the case is any definition reached without its name, in either runner.
+        registries = {
+            "decorator": (
+                "HANDLERS = {}\n\n\ndef route(name):\n    def register(function):\n"
+                "        HANDLERS[name] = function\n        return function\n\n    return register\n\n\n"
+                "def dispatch(name, value):\n    return HANDLERS[name](value)\n\n\n"
+                '@route("cap")\ndef cap(n):\n    if n > 10:\n        return 9\n    return n\n',
+                'self.assertEqual(9, dispatch("cap", 11))',
+            ),
+            "subclass registry": (
+                "class Handler:\n    known = {}\n\n    def __init_subclass__(cls, **kwargs):\n"
+                "        super().__init_subclass__(**kwargs)\n        Handler.known[cls.__name__] = cls\n\n\n"
+                "def dispatch(name, value):\n    return Handler.known[name]().run(value)\n\n\n"
+                "class Cap(Handler):\n    def run(self, n):\n        if n > 10:\n            return 9\n"
+                "        return n\n",
+                'self.assertEqual(9, dispatch("Cap", 11))',
+            ),
+        }
+        for name, (module, assertion) in registries.items():
+            for runner, command, ids in (
+                (
+                    "unittest",
+                    f"{sys.executable} -m unittest discover -v",
+                    ["tests.test_app.AppTests.test_cap", "tests.test_other.OtherTests.test_other"],
+                ),
+                (
+                    "pytest",
+                    f"{sys.executable} -m pytest tests -q",
+                    ["tests/test_app.py::AppTests::test_cap", "tests/test_other.py::OtherTests::test_other"],
+                ),
+            ):
+                with self.subTest(name, runner=runner):
+                    root = self._tree(
+                        {
+                            "app.py": module,
+                            "other.py": "def other():\n    return 1\n",
+                            "tests/__init__.py": "",
+                            "tests/test_app.py": "import unittest\nfrom app import dispatch\n\n\n"
+                            f"class AppTests(unittest.TestCase):\n    def test_cap(self):\n        {assertion}\n",
+                            "tests/test_other.py": "import unittest\nfrom other import other\n\n\n"
+                            "class OtherTests(unittest.TestCase):\n    def test_other(self):\n"
+                            "        self.assertEqual(1, other())\n",
+                        }
+                    )
+                    line = next(
+                        number for number, text in enumerate(module.splitlines(), 1) if text.strip() == "if n > 10:"
+                    )
+                    selection = affected_tests.select(runner, command, ids, root, ["app.py"])
+                    sites, summary = affected_tests.plan_for_mutants(selection, [("app.py", line)])
+                    self.assertEqual([ids[0]], sites[("app.py", line)]["tests"])
+                    self.assertEqual(affected_tests.RULE_IMPORT, sites[("app.py", line)]["rule"])
+                    self.assertEqual(0, summary["unobserved_mutants"])
+
     def test_unobserved_file_and_fallbacks(self):
         root = self._tree(
             {

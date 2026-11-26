@@ -561,97 +561,129 @@ def _collect(
                 evidence=[],
             )
         prior = retained.get(mutant.id)
-        if prior is not None and (prior.get("outcome") != "not_run" or prior.get("evidence")):
+        # A survivor an earlier runtime recorded from symbol narrowing alone was never shown to every selected test.
+        guessed = (
+            prior is not None
+            and prior.get("selection_rule") == affected_tests.RULE_SYMBOL
+            and prior.get("outcome") == "survived"
+        )
+        if prior is not None and not guessed and (prior.get("outcome") != "not_run" or prior.get("evidence")):
             # Even a failed, incomplete or timed-out attempt is retained. Only
             # sites the prior window never launched get another command.
             row["mutants"].append(copy.deepcopy(prior))
             continue
+        # Symbol narrowing only shortens a run: a test that never names a definition can still run it, when a
+        # decorator or base class hands it to an object the tests use (``@app.post`` on a FastAPI handler reached
+        # through ``TestClient(app)``). So a survivor of a symbol-narrowed run is run again on every selected test.
+        symbol_narrowed = (
+            enforcement and site_selection is not None and site_selection["rule"] == affected_tests.RULE_SYMBOL
+        )
+        label = f"mutant-{number:02d}"
         if enforcement and not mutant_tests:
-            # Proven unobserved by any selected test after passing the unmutated reference:
-            # retain as survived with no kill rather than running unrelated tests.
+            # No selected test imports the file: proven unobserved after passing the unmutated reference.
+            # Retain as survived with no kill rather than running unrelated tests.
             row["mutants"].append(
                 {**entry, "outcome": "survived", "survived_tests": [], "evidence": [reference["output"]]}
             )
             continue
-        remaining = deadline - clock()
-        if remaining < MUTANT_FLOOR_SECONDS:
-            unrun += 1
-            row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
-            continue
-        label, limit = f"mutant-{number:02d}", min(remaining, bound)
-        active_command = mutant_command
-        if enforcement and python and site_selection is not None and site_selection.get("command"):
-            active_command = mutation_results.stop_command(site_selection["command"])
-        if progress is not None:
-            elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
-            progress(
-                f"Checking changed-line mutations ({number}/{total_mutants}, {int(elapsed)}s elapsed): {row['path']}:{mutant.line}",
-                command=active_command,
-                output=evidence,
-                phase="mutation",
-                current=number,
-                total=total_mutants,
-                elapsed_seconds=elapsed,
+        while True:
+            remaining = deadline - clock()
+            if remaining < MUTANT_FLOOR_SECONDS:
+                unrun += 1
+                row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
+                break
+            limit = min(remaining, bound)
+            active_command = mutant_command
+            if enforcement and python and site_selection is not None and site_selection.get("command"):
+                active_command = mutation_results.stop_command(site_selection["command"])
+            if progress is not None:
+                elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
+                progress(
+                    f"Checking changed-line mutations ({number}/{total_mutants}, {int(elapsed)}s elapsed): {row['path']}:{mutant.line}",
+                    command=active_command,
+                    output=evidence,
+                    phase="mutation",
+                    current=number,
+                    total=total_mutants,
+                    elapsed_seconds=elapsed,
+                )
+            ownership_uncertain = False
+            unparsed = False
+            try:
+                target.write_bytes(mutants.apply(source, mutant))
+                # Each version its own whole second, so a cached compile keyed by modification time and size
+                # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
+                os.utime(
+                    target,
+                    ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns - number * 1_000_000_000),
+                )
+                if parse_check:
+                    unparsed = _did_not_parse(run(_parse_command(command, row["path"]), f"parse-{number:02d}", limit))
+                if not unparsed:
+                    receipt = run(prepare(active_command), label, limit)
+            except command_receipt.OwnershipUncertain:
+                ownership_uncertain = strict
+                raise
+            finally:
+                if not ownership_uncertain:
+                    target.write_bytes(source)
+                    # A forward-time runner's next build must see the restored source as newer than the mutant's.
+                    os.utime(target, ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns))
+            if unparsed:
+                # Ruby refused the mutant's syntax, so no test could load it: not a mutation of the product, as a Go
+                # mutant that does not build is not (#3817).
+                row["notes"].append(
+                    f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not parse; not a site"
+                )
+                break
+            if reasons := source_binding.reasons({"mutant": receipt}):
+                unrun += 1
+                row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
+                row["notes"].append(
+                    f"{row['path']}:{mutant.line}: the mutant's source resolution was not established: "
+                    + "; ".join(reasons)
+                )
+                break
+            if not python and (_did_not_build(receipt) or (observe and _wrote_no_report(receipt))):
+                # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
+                # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).
+                row["notes"].append(
+                    f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not build; not a site"
+                )
+                break
+            expected_tests = mutant_tests if enforcement else passed
+            judged = receipt if python else mutation_results.selected(receipt, expected_tests)
+            outcome, observed = (
+                mutation_results.outcome(
+                    judged,
+                    expected_tests,
+                    stopped=(python or observe) and mutation_results.stops_after_failure(receipt.get("command", "")),
+                )
+                if enforcement
+                else judge(judged, passed)
             )
-        ownership_uncertain = False
-        unparsed = False
-        try:
-            target.write_bytes(mutants.apply(source, mutant))
-            # Each version its own whole second, so a cached compile keyed by modification time and size
-            # (a test's own Python, started with a minimal environment, -E or -I) is never reused.
-            os.utime(
-                target,
-                ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns - number * 1_000_000_000),
-            )
-            if parse_check:
-                unparsed = _did_not_parse(run(_parse_command(command, row["path"]), f"parse-{number:02d}", limit))
-            if not unparsed:
-                receipt = run(prepare(active_command), label, limit)
-        except command_receipt.OwnershipUncertain:
-            ownership_uncertain = strict
-            raise
-        finally:
-            if not ownership_uncertain:
-                target.write_bytes(source)
-                # A forward-time runner's next build must see the restored source as newer than the mutant's.
-                os.utime(target, ns=(times.st_atime_ns, _later(target) if forward else times.st_mtime_ns))
-        if unparsed:
-            # Ruby refused the mutant's syntax, so no test could load it: not a mutation of the product, as a Go
-            # mutant that does not build is not (#3817).
-            row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not parse; not a site")
-            continue
-        if reasons := source_binding.reasons({"mutant": receipt}):
-            unrun += 1
-            row["mutants"].append({**entry, "outcome": "not_run", "survived_tests": []})
-            row["notes"].append(
-                f"{row['path']}:{mutant.line}: the mutant's source resolution was not established: "
-                + "; ".join(reasons)
-            )
-            continue
-        if not python and (_did_not_build(receipt) or (observe and _wrote_no_report(receipt))):
-            # The text mutator's edit was not a program (Go's "declared and not used" when a dropped call
-            # was a name's only use): no test ran, so the site is not a mutation of the product (#3817).
-            row["notes"].append(f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not build; not a site")
-            continue
-        expected_tests = mutant_tests if enforcement else passed
-        judged = receipt if python else mutation_results.selected(receipt, expected_tests)
-        outcome, observed = (
-            mutation_results.outcome(
-                judged,
-                expected_tests,
-                stopped=(python or observe) and mutation_results.stops_after_failure(receipt.get("command", "")),
-            )
-            if enforcement
-            else judge(judged, passed)
-        )
-        survived = observed if outcome == "survived" else []
-        if enforcement:
-            entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
-        if strict and outcome == "survived" and set(survived) != set(expected_tests):
-            outcome, survived = "not_run", []
-        if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
-            outcome, unrun = "not_run", unrun + 1
-        row["mutants"].append({**entry, "outcome": outcome, "survived_tests": survived})
+            survived = observed if outcome == "survived" else []
+            if enforcement:
+                entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
+            if strict and outcome == "survived" and set(survived) != set(expected_tests):
+                outcome, survived = "not_run", []
+            if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
+                outcome, unrun = "not_run", unrun + 1
+            if symbol_narrowed and outcome == "survived" and len(mutant_tests) < len(tests):
+                # Recorded beside the run that decides, so the report shows what narrowing alone would have said.
+                entry["symbol_selection"] = {
+                    "tests": list(mutant_tests),
+                    "outcome": outcome,
+                    "evidence": entry["evidence"],
+                }
+                entry.update(
+                    selected_tests=list(tests), selection_rule=affected_tests.RULE_ALL, failed_tests=[], evidence=[]
+                )
+                mutant_tests, site_selection, symbol_narrowed = tests, None, False
+                label = f"mutant-{number:02d}-all"
+                continue
+            row["mutants"].append({**entry, "outcome": outcome, "survived_tests": survived})
+            break
     note = (
         f"the {BUDGET_SECONDS}-second budget ran out with {unrun} of {len(planned)} mutants not run" if unrun else None
     )

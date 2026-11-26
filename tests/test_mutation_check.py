@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_affected_tests as affected_tests
 import autocode_changed_code_proof as changed_code_proof
 import autocode_check_replay as check_replay
 import autocode_command_supervision as command_supervision
@@ -891,6 +892,102 @@ class ProofTests(unittest.TestCase):
             cmd = by_output[mutant["evidence"][0]]["command"]
             self.assertIn("test_c2_doubles_tax", cmd)
             self.assertNotIn("test_c1_caps_value", cmd)
+
+    def test_a_survivor_of_symbol_narrowing_is_killed_by_a_test_that_reaches_it_without_its_name(self):
+        # test_c2 names `cap` and cannot tell `> 10` from `>= 10` or `> 11`; test_c1 reaches `cap` only through
+        # the route table its decorator fills, as a FastAPI handler is reached through `TestClient(app)`, and
+        # kills both. Symbol narrowing gives those mutants test_c2 alone, so they must run on every test.
+        temporary = tempfile.TemporaryDirectory(prefix="mutation-symbol-survivor-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "project"
+        (root / "tests").mkdir(parents=True)
+        registry = (
+            "HANDLERS = {}\n\n\ndef route(name):\n    def register(function):\n"
+            "        HANDLERS[name] = function\n        return function\n\n    return register\n\n\n"
+            "def dispatch(name, value):\n    return HANDLERS[name](value)\n\n\n"
+        )
+        (root / "routes.py").write_text(registry + '@route("cap")\ndef cap(n):\n    return n\n')
+        (root / "tests" / "__init__.py").write_text("")
+        (root / "tests" / "test_small.py").write_text(
+            "import unittest\n\nclass Smoke(unittest.TestCase):\n    def test_ok(self): pass\n"
+        )
+        git(root, "init", "-q")
+        git(root, "config", "maintenance.auto", "false")
+        git(root, "config", "gc.auto", "0")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
+
+        changed = registry + '@route("cap")\ndef cap(n):\n    if n > 10:\n        return 9\n    return n\n'
+        (root / "routes.py").write_text(changed)
+        (root / "tests" / "test_routes.py").write_text(
+            "import unittest\nfrom routes import cap, dispatch\n\n"
+            "class RouteTests(unittest.TestCase):\n"
+            "    def test_c1_route_caps_at_the_bound(self):\n"
+            '        self.assertEqual(9, dispatch("cap", 11))\n'
+            '        self.assertEqual(10, dispatch("cap", 10))\n\n'
+            "    def test_c2_cap_keeps_small_values(self):\n"
+            "        self.assertEqual(3, cap(3))\n"
+            "        self.assertEqual(9, cap(50))\n"
+        )
+        state = {
+            "base_commit": git(root, "rev-parse", "HEAD"),
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {
+                "body": {
+                    "task_kind": "feature",
+                    "acceptance_criteria": [
+                        {
+                            "id": "C1",
+                            "criterion": "the cap route caps values above 10 to 9",
+                            "verification_method": "test: test_c1_route_caps_at_the_bound",
+                        },
+                        {
+                            "id": "C2",
+                            "criterion": "cap keeps small values",
+                            "verification_method": "test: test_c2_cap_keeps_small_values",
+                        },
+                    ],
+                    "milestones": [{"id": "M1"}],
+                }
+            },
+        }
+        proof = regression.prove(state, root, Path(temporary.name) / "run")
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        saved = json.loads(Path(proof["path"]).read_text())
+        self.assertTrue(changed_code_proof.intact(proof, saved))
+
+        bound = changed.splitlines().index("    if n > 10:") + 1
+        mutants = [
+            mutant
+            for item in proof["mutation_check"]["files"]
+            if item["path"] == "routes.py"
+            for mutant in item["mutants"]
+            if mutant["line"] == bound
+        ]
+        confirmed = [mutant for mutant in mutants if "symbol_selection" in mutant]
+        self.assertTrue(confirmed, mutants)
+        both = sorted(proof["mutation_check"]["selected_tests"])
+        for mutant in confirmed:
+            self.assertEqual("survived", mutant["symbol_selection"]["outcome"], mutant)
+            self.assertEqual(
+                ["tests.test_routes.RouteTests.test_c2_cap_keeps_small_values"], mutant["symbol_selection"]["tests"]
+            )
+            self.assertEqual("killed", mutant["outcome"], mutant)
+            self.assertEqual(both, sorted(mutant["selected_tests"]))
+            self.assertEqual(affected_tests.RULE_ALL, mutant["selection_rule"])
+            self.assertEqual(["tests.test_routes.RouteTests.test_c1_route_caps_at_the_bound"], mutant["failed_tests"])
+        self.assertEqual([], [mutant for mutant in mutants if mutant["outcome"] != "killed"])
+        self.assertNotIn("T1", proof["mutation_check"].get("survivors") or {})
+        obligation = next(
+            row
+            for row in proof["changed_code_evidence"]["obligations"]
+            if row["path"] == "routes.py" and row["line"] == bound
+        )
+        self.assertEqual("tested", obligation["status"], obligation)
 
     def test_unobserved_changed_module_runs_zero_mutant_commands_and_requires_reason(self):
         self.state["investigation"]["test_cases"][0]["then"] = "returns 9"

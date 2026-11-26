@@ -856,7 +856,13 @@ from `tools/autocode_mutants.py`).
   reachability closure of selected tests (`tools/autocode_affected_tests.py`, recorded
   in `test_selection` and per-mutant `selected_tests`/`selection_rule`), falling back
   to all selected tests on dynamic or unmapped edges and recording provably unobserved
-  lines as `survived` without launching unrelated tests. An import reaches every workspace
+  lines (no selected test imports the file) as `survived` without launching unrelated tests.
+  Symbol narrowing is only a guess: a decorator, base class or registry can hand a definition
+  to an object the tests use without naming it (a FastAPI `@app.post` handler reached through
+  `TestClient(app)`). So a site no test names keeps the tests that import its file, and a mutant
+  that survives a symbol-narrowed run runs again on every selected test, which decides its
+  outcome; the narrowed run is kept beside it as `symbol_selection`. Before, a live run recorded
+  26 handler mutants as survivors that never ran, and its Tester gave 26 reasons for them. An import reaches every workspace
   module whose path ends in the imported name, so a module reached through any `sys.path`
   entry (a directory a test or `conftest.py` inserts, `PYTHONPATH`, `src/`, a start
   directory) selects the tests that import it.
