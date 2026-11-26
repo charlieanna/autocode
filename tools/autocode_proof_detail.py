@@ -25,6 +25,9 @@ from collections import Counter
 # overflowing handoffs readable: a one-file change's mutation and per-line detail was 15 to 20 KB of every
 # Tester and Completion Reviewer prompt, the largest part of what a small task's reviews cost.
 LIMIT = 2048
+# The changed lines the reviewer decides stay whole up to the old 12 KB: its decisions name their gap_id
+# rows, so a small change keeps them in the handoff and only bulk detail moves.
+DECISION_LIMIT = 12288
 # A changed_code_inputs entry at or under this size stays inline (the 12 KB limit's eighth before).
 INLINE_INPUT = 1536
 STAGES = ("tester", "review_completion", "review_checkpoint")
@@ -169,7 +172,11 @@ def move(source, result, moved) -> None:
     )
     fields = []
     for field, holder, key, whole, summarize in plans:
-        if whole is None or key not in holder or _size(holder[key]) <= LIMIT:
+        if (
+            whole is None
+            or key not in holder
+            or _size(holder[key]) <= (DECISION_LIMIT if field == OBLIGATIONS else LIMIT)
+        ):
             continue
         summary = summarize(whole)
         if summary is None or _size(summary) + 2048 >= _size(holder[key]):

@@ -32,7 +32,12 @@ def _review_data(data):
         declared = {}
     if not isinstance(declared, dict):
         return None
-    requested = (fields.keys() | {"regression_proof"}) & declared.keys()
+    # Whole objects the runner summarizes by key (autocode_proof_detail.SURVIVORS and INPUTS).
+    objects = {
+        "regression_proof_mutation_survivors": ("mutation_check", "survivors"),
+        "regression_proof_changed_code_inputs": (None, "changed_code_inputs"),
+    }
+    requested = (fields.keys() | objects.keys() | {"regression_proof"}) & declared.keys()
     if requested:
         try:
             raw = Path(artifact["path"]).read_bytes()
@@ -65,6 +70,15 @@ def _review_data(data):
                     section = {}
                     proof[holder] = section
                 section[key] = rows
+            for name in objects.keys() & requested:
+                whole = saved[name]
+                if not isinstance(whole, dict):
+                    return None
+                holder, key = objects[name]
+                section = proof if holder is None else proof.setdefault(holder, {})
+                if not isinstance(section, dict):
+                    return None
+                section[key] = whole
             result["regression_proof"] = proof
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None
