@@ -93,6 +93,7 @@ try:
     from . import autocode_plan_command_roles as plan_roles
     from . import autocode_plan_proof_command as plan_command
     from . import autocode_project_suite_health as project_suite_health
+    from . import autocode_proof_infrastructure as proof_infrastructure
     from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
@@ -144,6 +145,7 @@ except ImportError:
     import autocode_plan_command_roles as plan_roles
     import autocode_plan_proof_command as plan_command
     import autocode_project_suite_health as project_suite_health
+    import autocode_proof_infrastructure as proof_infrastructure
     import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
@@ -877,7 +879,12 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     workspace = Path(workspace)
     current = source_scope.snapshot(workspace, state)["revision"]
     try:
-        return _prove_once(state, workspace, run_dir, current, all_due=all_due)
+        proof = _prove_once(state, workspace, run_dir, current, all_due=all_due)
+        if proof_infrastructure.disturbed(proof):
+            # What the proof ran on changed while it ran (AutoCode updated, dependencies reinstalled): it
+            # judged nothing, so it runs once more in the context that holds now. Both attempts are kept.
+            proof = _prove_once(state, workspace, run_dir, current, all_due=all_due)
+        return proof
     except verify.command_receipt.OwnershipUncertain as error:
         if not getattr(error, "check_cancelled", False) and runner_check.auto_recover(
             state,
@@ -1900,14 +1907,12 @@ def _proving(
         before = execution_context["identity"]
         changed = sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
         proof["verdict"] = verify.UNVERIFIED
-        proof.setdefault("unverified", []).append(
-            "Execution context changed while proving the candidate: " + ", ".join(changed)
-        )
+        proof.setdefault("unverified", []).append(proof_infrastructure.CONTEXT_CHANGED + ": " + ", ".join(changed))
     if execution_context.get("follow_up_baseline") != follow_up_proof.context(
         state, workspace, run_dir, cases(state, all_due=all_due)
     ):
         proof["verdict"] = verify.UNVERIFIED
-        proof.setdefault("unverified", []).append("Follow-up baseline changed while proving the candidate")
+        proof.setdefault("unverified", []).append(proof_infrastructure.FOLLOW_UP_CHANGED)
     # Report only (#699): mutants run only once the verdict is final and a pass, so a proof that fails its
     # cases or its context check spends nothing on them; every other proof carries the not-passed note.
     proof["mutation_check"] = (
@@ -2375,7 +2380,7 @@ def _review_needs_proof(state: RunState, workspace):
         or bool(context.get("preserve_only")) != preserve_only(state)
     ):
         return True
-    return saved.get("verdict") == verify.FAIL and (
+    return (saved.get("verdict") == verify.FAIL or proof_infrastructure.disturbed(saved)) and (
         sum(
             1
             for row in state.get("regression_proofs") or []

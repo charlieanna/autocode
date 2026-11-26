@@ -24,6 +24,7 @@ try:
     from . import autocode_changed_code_proof as changed_code
     from . import autocode_mutation_check as mutation
     from . import autocode_mutation_checkpoint as mutation_checkpoint
+    from . import autocode_proof_infrastructure as proof_infrastructure
     from . import autocode_runner_check as runner_check
     from . import autocode_scratch_location as scratch_location
     from . import autocode_source_scope as source_scope
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_changed_code_proof as changed_code
     import autocode_mutation_check as mutation
     import autocode_mutation_checkpoint as mutation_checkpoint
+    import autocode_proof_infrastructure as proof_infrastructure
     import autocode_runner_check as runner_check
     import autocode_scratch_location as scratch_location
     import autocode_source_scope as source_scope
@@ -221,7 +223,7 @@ def _window(
             proof["mutation_check"] = measured
         if current_identity() != context["identity"]:
             proof["verdict"] = verify.UNVERIFIED
-            proof.setdefault("unverified", []).append("Execution context changed during mutation continuation")
+            proof.setdefault("unverified", []).append(proof_infrastructure.CONTINUATION_CHANGED)
         duration = round(time.monotonic() - started, 3)
         continuation = {
             "previous_path": previous["path"],
