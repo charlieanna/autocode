@@ -56,6 +56,20 @@ def compact_receipt(receipt):
     return receipt
 
 
+def shown_receipt(receipt):
+    """A stored receipt as a stage's handoff shows it: its source binding's verdict only.
+
+    A model reads what the binding decided, never re-authenticates it, so the pinned paths the proof
+    keeps for that would only crowd the handoff."""
+    binding = receipt.get("source_binding") if isinstance(receipt, dict) else None
+    if isinstance(binding, dict):
+        return {
+            **receipt,
+            "source_binding": {key: binding.get(key) for key in ("version", "framework", "status", "reason")},
+        }
+    return receipt
+
+
 def _compact_binding(binding):
     if not isinstance(binding, dict):
         return binding
