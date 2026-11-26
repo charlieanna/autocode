@@ -102,10 +102,14 @@ class ExecutionTests(unittest.TestCase):
                 self.assertEqual(
                     {"killed", "survived"}, {row["outcome"] for file in check["files"] for row in file["mutants"]}
                 )
-                unobserved = [row for row in check["files"][0]["mutants"] if row["line"] == 6]
-                self.assertEqual(1, len(unobserved))
-                self.assertEqual([], unobserved[0]["selected_tests"])
-                self.assertEqual("survived", unobserved[0]["outcome"])
+                # No test names `unused`, but every test imports app.py: only the import closure proves a test
+                # cannot reach a line, so its mutant runs on those tests and survives them, observed.
+                unused = [row for row in check["files"][0]["mutants"] if row["line"] == 6]
+                self.assertEqual(1, len(unused))
+                self.assertEqual(sorted(selected), sorted(unused[0]["selected_tests"]))
+                self.assertEqual("survived", unused[0]["outcome"])
+                self.assertEqual(sorted(selected), sorted(unused[0]["survived_tests"]))
+                self.assertNotEqual([check["reference_output"]], unused[0]["evidence"])
                 self.assertEqual(original, (tree / "app.py").read_text())
 
     def test_positional_options_and_unrecognized_commands_do_not_authorize_early_stop(self):

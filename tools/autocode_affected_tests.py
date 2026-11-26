@@ -13,8 +13,11 @@ conservative subset of ``selected_tests`` that can reach it:
    reachable helper/fixture code) that reference any symbol in the intra-module reverse closure of
    that definition. Any uncertainty falls back to ``import_closure`` or ``all_selected_tests``.
 
-Pure static analysis plus runner command narrowing: never executes project code and never
-under-selects.
+Pure static analysis plus runner command narrowing: never executes project code. Only the import
+closure is a proof that a test cannot reach a line. A symbol closure is a guess (a decorator or base
+class can hand a definition to an object the tests use without naming it), so it never leaves a site
+without tests, and the mutation check runs a survivor of a symbol-narrowed run on every selected
+test before recording it (``autocode_mutation_check``).
 """
 
 from __future__ import annotations
@@ -855,7 +858,11 @@ def select(
 
         final_tests, cmd = make_command(symbol_tests)
         if not final_tests:
-            return [], RULE_SYMBOL, None
+            # No test names the definition, yet one may still run it: a decorator, a base class or a registry
+            # can hand it to an object the tests do use (a FastAPI ``@app.post`` handler reached only through
+            # ``TestClient(app)``). Only the import closure is a proof, so the site keeps the tests that load it.
+            final_tests, cmd = make_command(file_tests)
+            return final_tests, RULE_IMPORT if len(final_tests) < len(tests) else RULE_ALL, cmd
         if len(final_tests) < len(tests):
             return final_tests, RULE_SYMBOL, cmd
         return final_tests, RULE_ALL, None
