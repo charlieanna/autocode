@@ -1835,6 +1835,17 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tests.test_changeset_bridge",
         ),
     ),
+    # The runs board reads `runs --all --json` and `--status` from the CLI, so no import reaches it from them.
+    (
+        (
+            "tools/autocode_board.py",
+            "tools/autocode_chat_polling.py",
+            "tools/autocode_runs_command.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_subcommands.py",
+        ),
+        ("tests.test_board_cli",),
+    ),
     # The full-screen chat in a real terminal (#1646): its tests launch the CLI, so imports cannot select them.
     (("tools/autocode_chat_", "tools/autocode_client_actions.py"), ("tests.test_chat_screens",)),
     (
