@@ -297,6 +297,41 @@ class ListingTests(unittest.TestCase):
         )
         self.assertEqual(0, view["queue"]["working"])  # the finished run uses no model
 
+    def test_a_run_whose_start_has_not_returned_is_found_by_its_issue_worktree(self):
+        """`issue start` saves the run directory only when the run's first advance returns; until then the
+        board still finds the run, by the issue's own worktree, rather than showing it as unlinked."""
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            worktree = project / issue_queue.STORE / "acme-widgets-8"
+            path = issue_queue.record_path(project, github.IssueRef("acme", "widgets", 8))
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "owner": "acme",
+                        "repo": "widgets",
+                        "number": 8,
+                        "worktree": str(worktree),
+                        "run_dir": None,
+                        "branch": "autocode/issue-8",
+                    }
+                )
+            )
+            rows = [
+                {"run_dir": str(project / ".autocode/runs/chat"), "workspace": str(project), "bucket": "working"},
+                {
+                    "run_dir": str(worktree / ".autocode/runs/r8"),
+                    "workspace": str(worktree),
+                    "bucket": "needs you",
+                    "status": "WAITING_FOR_USER",
+                    "needs": "answer",
+                },
+            ]
+            [run] = issue_queue.queue_view(project, rows=rows)["issues"]
+        self.assertEqual(
+            (str(worktree / ".autocode/runs/r8"), "needs you", "answer"), (run["run_dir"], run["bucket"], run["needs"])
+        )
+
     def test_a_finished_run_with_a_pull_request_names_no_action(self):
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp)

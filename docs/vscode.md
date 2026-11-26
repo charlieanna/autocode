@@ -255,6 +255,39 @@ every run is complete and an integration check is due, **Run the set's check**
 asks first, then runs it. These are the only change-set actions the extension
 takes ([change sets in clients](task-run.md#change-sets-in-clients)).
 
+## Tasks board: every task, and many GitHub issues at once
+
+**AutoCode: Open Tasks Board** (the checklist icon above Chat and Runs) opens one editor tab with every
+run of the open project, grouped by what it needs: **Needs you**, **Working**, **Queued**, **Done** and
+any run that cannot be read. **All projects** shows every project's runs instead. Each row shows the
+task (and `#N` for a GitHub issue), the core's words for its status, the next stage while it works, its
+branch or pull request, and how long since it last saved. Its button is what the run needs:
+**Answer**, **Review plan** or **Review** open that run's chat, where you answer it or read the whole
+plan before you approve it; **Continue** continues a run saved for you to continue, after the same
+confirmation as the Runs list; **Open** opens any other run's chat. The board rereads itself every few
+seconds while it is open.
+
+**Run GitHub issues…** reads the repository's open issues (the newest 100) through
+`autocode issue list --json`. Tick the issues to start and choose how many may work at once (3 unless
+you change it), then **Start**. After you confirm the spend, AutoCode queues them
+(`autocode issue queue add`) and the window runs the project's scheduler (`autocode issue queue run`):
+each issue gets its own `autocode/issue-N-…` branch, worktree and chat, started the way a new chat
+starts (its run mode and your options for new chats). An issue waiting for your answer or approval
+uses no model and gives its slot to the next one; your answer or approval continues it at once
+([many issues at once](issues.md#many-issues-at-once)). Queued issues show under **Queued**, and one
+that could not start shows why. If the window closed before every issue started, the queue's banner
+offers **Resume the queue**. An issue with a run, or already queued, cannot be ticked again.
+
+When an issue's run has completed, its row offers **Open pull request**: after you confirm, AutoCode
+commits the change on the issue's branch, pushes it and opens a draft pull request carrying the run's
+evidence (`autocode issue pr ISSUE --open`). Nothing is merged. GitHub access uses `GITHUB_TOKEN` or
+`GH_TOKEN`, or your `gh auth login` sign-in when neither is set.
+
+The board reads only `autocode runs --json` and `autocode issue queue status --json`, and the picker
+`autocode issue list --json`. It takes the queue's `add` filled with what you ticked, the queue's
+`run`, and an issue's `open_pr`, each only in the exact shape the core named, and acts on a run only
+through its chat or the Runs list's Continue (owner decision 2026-11-26).
+
 ## Update from master
 
 Once Marketplace publishing is set up ([VS Code extension](releasing.md#vs-code-extension)),

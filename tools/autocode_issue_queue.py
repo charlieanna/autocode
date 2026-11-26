@@ -162,12 +162,24 @@ def _record_for(project: Path, ref: github.IssueRef) -> dict | None:
 
 
 def _rows_by_dir(rows: list[dict]) -> dict:
-    return {str(Path(row["run_dir"]).resolve()): row for row in rows if row.get("run_dir")}
+    """Each run row by its run directory, and each issue worktree's newest run by the worktree."""
+    found = {}
+    for row in sorted((row for row in rows if row.get("run_dir")), key=lambda row: row["run_dir"]):
+        found[str(Path(row["run_dir"]).resolve())] = row
+        if row.get("workspace"):
+            found[("worktree", str(Path(row["workspace"]).resolve()))] = row
+    return found
 
 
 def run_view(project: Path, ref: github.IssueRef, record: dict, rows_by_dir: dict) -> dict:
-    """An issue's run, as `autocode runs` sees it, with the commands a client may take for it."""
-    row = rows_by_dir.get(str(Path(record["run_dir"]).resolve())) if record.get("run_dir") else None
+    """An issue's run, as `autocode runs` sees it, with the commands a client may take for it.
+
+    `issue start` saves the run directory in the record only once the run's first advance returns, so
+    until then the run is found by the issue's own worktree, where it is the only run."""
+    if record.get("run_dir"):
+        row = rows_by_dir.get(str(Path(record["run_dir"]).resolve()))
+    else:
+        row = rows_by_dir.get(("worktree", str(Path(record["worktree"]).resolve()))) if record.get("worktree") else None
     actions = {}
     if row and row.get("status") in COMPLETE and not record.get("pr_url"):
         # `issue pr` itself refuses a run whose completion gate has not passed.
@@ -181,7 +193,7 @@ def run_view(project: Path, ref: github.IssueRef, record: dict, rows_by_dir: dic
         "title": record.get("title"),
         "url": record.get("url"),
         "worktree": record.get("worktree"),
-        "run_dir": record.get("run_dir"),
+        "run_dir": record.get("run_dir") or (row or {}).get("run_dir"),
         "branch": record.get("branch"),
         "pr_url": record.get("pr_url"),
         "bucket": (row or {}).get("bucket"),

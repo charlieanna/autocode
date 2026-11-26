@@ -14,6 +14,7 @@ import { RunPanel } from "./panel";
 import { RunItem, RunsProvider } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
+import { TasksBoard } from "./board";
 import { runStages, StagesPanel } from "./stages";
 import { StageListCache } from "./core/stage-cache";
 import { continueChoice } from "./core/view";
@@ -34,6 +35,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // One list of new-chat stage models for the chat and the Stage models panel, kept per workspace.
   const stageLists = new StageListCache(context.workspaceState);
   const stagePanel = new StagesPanel(stageLists);
+  // Every run of the open project in one tab, and many GitHub issues started at once (owner decision 2026-11-26).
+  const board = new TasksBoard(context.workspaceState, log, () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
   let active: RunRef | undefined;
   let watched: RunRef | undefined;
   let statusSequence = 0;
@@ -165,6 +168,7 @@ export function activate(context: vscode.ExtensionContext): void {
     chat,
     connections,
     stagePanel,
+    board,
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("autocode")) {
         void refresh();
@@ -181,6 +185,9 @@ export function activate(context: vscode.ExtensionContext): void {
     history,
     history.onDidChangeVisibility(({ visible }) => { if (visible) void runs.refresh(); }),
     vscode.commands.registerCommand("autocode.showChat", () => chat.focus()),
+    vscode.commands.registerCommand("autocode.showBoard", () => board.show().catch((error) => {
+      void vscode.window.showErrorMessage(`AutoCode Tasks: ${messageOf(error)}`);
+    })),
     vscode.commands.registerCommand("autocode.startRun", async () => {
       chat.show();
     }),
