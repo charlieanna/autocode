@@ -30,9 +30,12 @@ repository make most likely, or "" when none is. Offer only readings you actuall
 the user can always answer in their own words, so never pad the list. For a request to build
 something new, also sketch in {confirmation_target}, in a few plain sentences, how the recommended
 reading would work (its parts, what each does, what it runs on or connects to), so the user can
-correct the approach before a plan exists. When one reading is clearly the most likely, ask in this
-same round the forks that reading leaves open (TIER 2 below), written for that reading, rather than
-waiting for another round. A reported bug that cannot be reproduced from the report and the code
+correct the approach before a plan exists. Whenever you set proposed_default, read the code that
+reading would change and ask, in this same round and after the reading question, the forks it leaves
+open (TIER 2 below), each worded for that reading ("If you go with fixing the rough edges: what should
+`done 99` print?"), so a person who takes your recommendation answers everything in one reply; if they
+pick another reading, that reading's forks are asked next. Leave them out only when the recommended
+reading leaves nothing open. A reported bug that cannot be reproduced from the report and the code
 gets one open question instead, asking for a concrete recent example: what happened, and what they
 expected instead, with options=[] and proposed_default="". Follow the user's answer: probe what
 remains unclear, challenge contradictions respectfully, and do not repeat facts already supplied.
@@ -82,6 +85,10 @@ is still asking what the outcome is, outcome_scope is open_question naming that 
 asked in the same round is named by its own dimension, and the dimensions nothing yet decides are
 not_applicable (all six are not_applicable only when no decision question
 is asked, such as for a greeting). The runner checks every ref against its source.
+specified_in_source holds only when the cited source fixes what the user sees: a requirement that says
+"a short error message" leaves the message, where it is printed and the exit status open, and a behavior
+no source names (also rejecting `done 0` when only `done 99` was asked about) is a fork to ask, not a
+requirement to write or a default to choose.
 Do not plan or inspect repository files just to respond to a greeting or small talk. For a vague
 idea, read only enough to ground the readings and the sketch you propose (what the project is, its
 language, the module the change would touch). Establish what the user wants first. Once a change is named, inspect the

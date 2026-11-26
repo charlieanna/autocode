@@ -34,7 +34,6 @@ class RequirementsQuestionContractTests(unittest.TestCase):
                 )
                 self.assertIn("sketch in", text)
                 self.assertIn("how the recommended reading would work", text)
-                self.assertIn("ask in this same round the forks that reading leaves open", text)
                 self.assertIn("A reported bug that cannot be reproduced", text)
                 self.assertIn('with options=[] and proposed_default=""', text)
                 self.assertNotIn("Do not invent a menu", text)
@@ -42,6 +41,20 @@ class RequirementsQuestionContractTests(unittest.TestCase):
         conversation = flat(prompts.get("fragments/autoplanner/requirements-conversation.md"))
         self.assertIn("propose before you ask", conversation)
         self.assertNotIn("do not turn that conversation into a choice menu", conversation)
+
+    def test_a_recommended_reading_brings_its_forks_into_the_same_round(self):
+        """2026-11-26 live runs: of four vague requests where Requirements recommended a reading, none
+        asked that reading's forks in the same round ("When one reading is clearly the most likely"),
+        so the person answered the reading, then waited a second round for its error text and edge
+        cases; one plain run wrote those choices itself and marked them specified_in_source."""
+        for conversational, text in self.rendered():
+            with self.subTest(conversational=conversational):
+                self.assertNotIn("When one reading is clearly the most likely", text)
+                self.assertIn("Whenever you set proposed_default, read the code that", text)
+                self.assertIn("the forks it leaves", text)
+                self.assertIn("so a person who takes your recommendation answers everything in one reply", text)
+                self.assertIn("specified_in_source holds only when the cited source fixes what the user sees", text)
+                self.assertIn("is a fork to ask, not a", text)
 
     def test_options_show_an_outcome_and_the_things_only_the_person_knows_come_in_the_same_round(self):
         """2026-11-24 live runs: options were prose labels ("Exactly 30x24 hours") with no example of
