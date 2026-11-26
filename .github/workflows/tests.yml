@@ -234,7 +234,7 @@ jobs:
         # and every later CLI call then compiled the rest from source (#4167's CI ran 1.5-5x slower).
         run: |
           .venv/bin/python -c "import sys; sys.path.insert(0, 'tools'); import run_suite; run_suite.compile_runtime()"
-          sudo env PYTHONDONTWRITEBYTECODE=1 AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+          sudo env PYTHONDONTWRITEBYTECODE=1 AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo tests.test_userns.RootTests
 
       - name: Install RSpec for the RSpec proof tests
         if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
@@ -414,7 +414,7 @@ jobs:
         # and every later CLI call then compiled the rest from source (#4167's CI ran 1.5-5x slower).
         run: |
           .venv/bin/python -c "import sys; sys.path.insert(0, 'tools'); import run_suite; run_suite.compile_runtime()"
-          sudo env PYTHONDONTWRITEBYTECODE=1 AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+          sudo env PYTHONDONTWRITEBYTECODE=1 AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo tests.test_userns.RootTests
 
       # Every suite shard and scenario shard needs the same pinned Maven and its dependencies. Fetching
       # them from Maven Central in each of up to 14 parallel jobs drew HTTP 429 and failed setup
@@ -551,6 +551,8 @@ jobs:
               "tests.test_native_initial_callers.OriginalCheckFailureTests",
               # --agent-sandbox around a whole agent process (Seatbelt).
               "tests.test_agent_sandbox.KernelTests",
+              # A proof command's read boundary (#4152 phase 3).
+              "tests.test_read_boundary.BoundaryTests",
           )
           suite = unittest.TestSuite()
           for name in names:
@@ -613,6 +615,7 @@ jobs:
               "tests.test_tool_containment.UnicodeKernelTests",
               "tests.test_tool_containment.KernelTests",
               "tests.test_tool_containment.BubblewrapKernelTests",
+              "tests.test_read_boundary.BoundaryTests",
               "tests.test_toolchain.SelectedToolchainTests",
               "tests.test_elf_dependencies.LoaderFixtureTests",
               "tests.test_native_linux_boundary.NativeLinuxKernelTests",

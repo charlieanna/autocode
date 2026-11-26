@@ -25,12 +25,14 @@ try:
     from . import autocode_capped_output as capped
     from . import autocode_command_receipt as receipts
     from . import autocode_process as processes
+    from . import autocode_read_boundary as read_boundary
     from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
     import autocode_capped_output as capped
     import autocode_command_receipt as receipts
     import autocode_process as processes
+    import autocode_read_boundary as read_boundary
     import autocode_supervision as supervision
     import autocode_util as util
 
@@ -238,7 +240,10 @@ def run(
     activity_checkpoint=None,
     deadline_monotonic=None,
 ):
-    """Execute with durable ownership; return the exclusive capture path in output."""
+    """Execute with durable ownership; return the exclusive capture path in output.
+
+    A command run in a proof copy runs inside the read boundary where the host has one
+    (autocode_read_boundary, #4152 phase 3), and its receipt records the boundary or why there is none."""
     # Capture before any watchdog starts: ContextVars do not follow its thread.
     cancellation = CANCELLATION.get()
     if cancellation is not None and (request := cancellation()):
@@ -270,6 +275,7 @@ def run(
         if held_launch is not None
         else log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}")
     )
+    boundary = read_boundary.for_command(cwd, outputs=[log_path.parent]) if held_launch is None else None
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
     if deadline_monotonic is not None:
@@ -324,7 +330,7 @@ def run(
                 try:
                     if held_launch is None:
                         with supervision.launch_command(
-                            shell_argv(command),
+                            [*boundary[0], *shell_argv(command)],
                             receipt_path=directory / "supervision.json",
                             timeout=remaining,
                             checkpoint=admit,
@@ -413,6 +419,10 @@ def run(
         # persistence, from the exact env this launch uses (#3981).
         "execution_environment_sha256": util.digest(env),
     }
+    if boundary is not None:
+        result["read_boundary"] = boundary[1]
+    if boundary is not None:
+        result["read_boundary"] = boundary[1]
     if stats and stats["truncated"]:
         result.update(output_truncated=True, output_bytes=stats["total"], output_limit_bytes=stats["limit"])
     if metadata is not None:
