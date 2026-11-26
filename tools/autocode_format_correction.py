@@ -141,6 +141,11 @@ def repair_session(state: RunState, pending, route_role=None, *, native=None) ->
             return None, "sessionless_route"
         if not getattr(adapter, "SUPPORTS_REPORT_RECOVERY", False):
             return None, "provider_without_report_recovery"
+        if not getattr(adapter, "RESUME_REPORT_REPAIR", True) and not settings.get("replay_recording"):
+            # The provider's tools-off repair cannot reuse the stage's cached conversation, so resuming
+            # re-sends that whole conversation at full price beside a handoff that already carries the
+            # rejected report and its refusals (Claude Code: providers/claude.py RESUME_REPORT_REPAIR).
+            return None, "uncached_repair_resume"
     if not same_route(state, original, route_role):
         return None, "route_changed"
     latest = pending.get("latest_rejected")
