@@ -1896,7 +1896,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/338973df2fe97f9dbe20b04c33527536699d3983/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1770cc7e4dc8f4051d2be0629c7d979650d97310/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3263,7 +3263,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/338973df2fe97f9dbe20b04c33527536699d3983/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/1770cc7e4dc8f4051d2be0629c7d979650d97310/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3536,8 +3536,11 @@ modulo formatting (#1013). On a strict choice question, any other text is reject
 current, and something the options do not cover goes in <code>--feedback</code> (<code>/feedback</code> in
 <code>--chat</code>, which asks again after a rejected answer). A question without options takes any
 nonempty text. When the current turn has an accepted Requirements handoff, <code>view.requirements</code>
-projects <code>{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity}</code>
-(<code>null</code> otherwise; <code>job</code> and <code>clarity</code> are what that report named, each <code>null</code> when it named none, #3630),
+projects <code>{handoff_ref, intended_outcome, requirements, proposed_assumptions, acceptance_tests, constraints, conflicts, job, clarity, understood}</code>
+(<code>null</code> otherwise; <code>job</code> and <code>clarity</code> are what that report named, each <code>null</code> when it named none, #3630;
+<code>understood</code> is what Requirements said it understood, in its own words: the chat reply, or the report's
+<code>summary</code> on a run without a chat, <code>""</code> when it said nothing. The terminal CLI and the channel bridge show it
+above Requirements' own questions, so the readings it offers are read against what it understood and found),
 and, when available for the current source, <code>suite_reports</code>. These bounded historical provider reports
 name their exact command, whether they report collection or execution, test count and reported paths;
 <code>omitted_paths</code> marks a truncated path list. They are explicitly not independently verified, and
@@ -4149,7 +4152,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/338973df2fe97f9dbe20b04c33527536699d3983/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1770cc7e4dc8f4051d2be0629c7d979650d97310/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
