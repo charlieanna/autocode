@@ -1913,7 +1913,9 @@ print(json.dumps({{"type": "turn.completed", "usage": {{"input_tokens": saved["i
                 decorated = decorate(prompt, schema, self.run / "events.jsonl")
                 head, packet = decorated.split("CURRENT HANDOFF DATA\n", 1)
                 self.assertNotIn("\n", packet.strip())
-                self.assertIn(json.dumps(schema, separators=(",", ":")), head)
+                inline = json.dumps(schema, separators=(",", ":"))
+                # Claude Code carries the schema as its StructuredOutput tool's input schema instead.
+                (self.assertNotIn if name == "claude" else self.assertIn)(inline, head)
 
     def test_provider_decorated_handoff_overflow_never_launches_and_starts_a_fresh_attempt(self):
         self.state["settings"]["engine"] = "opencode"

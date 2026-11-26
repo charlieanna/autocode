@@ -36,14 +36,12 @@ from __future__ import annotations
 
 try:
     from .. import autocode_agent_env as agent_env
-    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
     from .. import autocode_publish_guard as publish_guard
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_agent_env as agent_env
-    import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
     import autocode_publish_guard as publish_guard
@@ -514,16 +512,14 @@ def launch(
 
 
 def prompt_for_schema(prompt, schema, events) -> str:
-    """The stage prompt with Claude's output contract and the report schema before the handoff data."""
+    """The stage prompt with Claude's output contract before the handoff data; the schema is the tool's."""
     prompt = tool_handoff.with_capture_command(prompt)
     prompt = tool_handoff.with_stage_events_log(prompt, events)
-    schema = changed_code_review.prompt_order(schema)
-    contract = (
-        prompts.get("fragments/provider-claude/prompt-for-schema.md")
-        + prompts.get("fragments/provider-claude/prompt-for-schema-02.md")
-        # Compact, as OpenCode's: an indented schema doubled to 19 KB and tipped a repair over its cap (#1337).
-        + json.dumps(schema, separators=(",", ":"))
-        + "\n"
+    # The schema itself is not repeated here: Claude Code gives it to the model as the StructuredOutput tool's
+    # input schema (``--json-schema``), and a second copy in the prompt cost up to 14k input tokens per call.
+    del schema
+    contract = prompts.get("fragments/provider-claude/prompt-for-schema.md") + prompts.get(
+        "fragments/provider-claude/prompt-for-schema-02.md"
     )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", contract + "\nCURRENT HANDOFF DATA\n", 1)
 

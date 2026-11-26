@@ -520,7 +520,9 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn(events, contract)
         for words in ("StructuredOutput", "event:item_N", "capture_command"):
             self.assertIn(words, contract)
-        self.assertTrue(contract.endswith(json.dumps(schema, separators=(",", ":")) + "\n"))
+        # The schema reaches the model once, as the StructuredOutput tool's input schema (--json-schema).
+        self.assertNotIn(json.dumps(schema, separators=(",", ":")), prompt)
+        self.assertIn("StructuredOutput tool's input schema is the report schema", contract)
         handoff_data = json.loads(handoff)
         self.assertIn("capture_command", handoff_data)
         self.assertEqual(events, handoff_data["stage_events_log"])
