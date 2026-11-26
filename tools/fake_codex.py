@@ -374,11 +374,28 @@ if stage == "builder" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
 mode = os.environ.get("AUTOCODE_FIXTURE_MODE", "standard")
 # Bug-fix fixtures: the job type the planners propose, and the exact files the Builder writes.
 task_kind = os.environ.get("AUTOCODE_FIXTURE_TASK_KIND", "build")
-builder_files = (
+scripted_files = (
     json.loads(Path(os.environ["AUTOCODE_FIXTURE_FILES"]).read_text())
     if os.environ.get("AUTOCODE_FIXTURE_FILES")
     else None
 )
+# A list scripts a correction: the Builder writes the first entry while it has no actionable finding and the
+# last once the runner or a reviewer has given it one; the plan names every path any entry writes, and the
+# other stages read the entry whose exact bytes are in the workspace.
+builder_rounds = scripted_files if isinstance(scripted_files, list) else [scripted_files] if scripted_files else []
+
+
+def _scripted_round(rounds):
+    if stage == "builder":
+        return rounds[-1 if data.get("actionable_findings") else 0]
+    for files in reversed(rounds):
+        if all(Path(name).is_file() and Path(name).read_text() == content for name, content in files.items()):
+            return files
+    return rounds[0]
+
+
+builder_paths = sorted({name for files in builder_rounds for name in files})
+builder_files = _scripted_round(builder_rounds) if builder_rounds else None
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
 record_launch(stage)
 common = {
@@ -457,7 +474,7 @@ def adaptive_task(draft, implement):
 
 IMPLEMENT_TASK = {
     "objective": "Implement greeting CLI",
-    "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
+    "affected_paths": builder_paths if builder_files else ["greet.py", "test_greeting.py"],
     "kind": "implement",
     "milestone_id": "M1",
     "requirements": ["Greet names; reject empty/whitespace input"],
@@ -554,7 +571,7 @@ elif stage == "draft_plan":
     if os.environ.get("AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW"):
         draft["end_to_end_flow"].append("User approves C1")
     if builder_files:
-        draft["milestones"][0]["affected_paths"] = sorted(builder_files)
+        draft["milestones"][0]["affected_paths"] = builder_paths
     if mode == "milestones":
         draft["acceptance_criteria"].append(
             {
@@ -666,7 +683,7 @@ elif stage == "finalize_plan":
     }
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
-        "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
+        "affected_paths": builder_paths if builder_files else ["greet.py", "test_greeting.py"],
         "kind": "implement",
         "milestone_id": "M1",
         "requirements": ["Greet names; reject empty/whitespace input"],
@@ -802,13 +819,16 @@ elif stage.removesuffix("_report_repair") in TASK_PLANNER_STAGES and stage != "r
         # Exercise Resolver routing with a valid rejection that still needs a repair plan.
         result["next_task"]["validation_plan"] = []
 elif stage == "builder":
+    # A rework fixture's Builder corrects its work only for a reviewer's finding: the runner's own proof
+    # finding (source runner), which comes back before any Tester, leaves the first attempt as it was.
+    reviewer_findings = [row for row in data["actionable_findings"] if row.get("source") != "runner"]
     # Each implement attempt must produce a real tree delta; the runner
     # measures changed files from the workspace snapshot, not the report.
     batch = str(uuid.uuid4())
     milestone = data.get("current_task", {}).get("milestone_id")
     if mode == "milestones" and milestone == "M2":
         write_goodbye_source(Path.cwd(), revision=batch)
-    elif mode == "stalled" or mode == "rework" and not data["actionable_findings"]:
+    elif mode == "stalled" or mode == "rework" and not reviewer_findings:
         Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + "\n")
     elif builder_files:
         for name, content in builder_files.items():
@@ -839,7 +859,7 @@ elif stage == "builder":
         )
     elif builder_files:
         result.update(changed_files=sorted(builder_files), evidence_refs=sorted(builder_files))
-    elif mode != "stalled" and (mode != "rework" or data["actionable_findings"]):
+    elif mode != "stalled" and (mode != "rework" or reviewer_findings):
         # The seeded workspace above: the stalled and first rework attempts write greet.py alone.
         result.update(changed_files=["greet.py", "test_greeting.py"], evidence_refs=["greet.py", "test_greeting.py"])
 else:

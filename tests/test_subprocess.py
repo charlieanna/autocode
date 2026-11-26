@@ -206,7 +206,11 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(3, view["recovery"]["outcome"]["evidence"]["attempt"])
         attempts = view["usage"]["accounting"]["attempts"]
         builders = [row for row in attempts if row["stage"] == "builder"]
-        self.assertEqual(["gpt-5.6-terra", "gpt-5.6-terra", "gpt-6-sol"], [row["model"] for row in builders])
+        # The first build's unproven change goes back to the same Builder once before any Tester; that round is
+        # not a classified failure, so the retry policy's own attempts follow it unchanged.
+        self.assertEqual(
+            ["gpt-5.6-terra", "gpt-5.6-terra", "gpt-5.6-terra", "gpt-6-sol"], [row["model"] for row in builders]
+        )
         self.assertIsNone(view["next_command"], "an exhausted run must not offer another attempt")
         self.assertTrue(all(not action.get("next_command") for action in view["recovery"]["actions"]))
         # Reopening and obsolete retry flags cannot spend another model call.
@@ -250,7 +254,9 @@ class SubprocessFlow(unittest.TestCase):
         run, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(["CONTINUE", "REWORK", "COMPLETE"], [d["report"]["status"] for d in state["decisions"]])
-        self.assertEqual(2, sum(r["stage"] == "builder" for r in state["stages"]))
+        # The first build's proof does not pass, so it goes back to the Builder once before any Tester; this
+        # fixture's Builder corrects only a reviewer's finding, so the Tester then fails it as before.
+        self.assertEqual(3, sum(r["stage"] == "builder" for r in state["stages"]))
         self.assertEqual(2, sum(r["stage"] == "tester" for r in state["stages"]))
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
@@ -558,12 +564,14 @@ class SubprocessFlow(unittest.TestCase):
         assert_operational_wait(self, state, "PAUSED_ITERATION_LIMIT")
         self.assertEqual("REWORK", state["last_decision"]["report"]["status"])
         task_id = state["current_task"]["id"]
-        self.assertEqual(1, sum(r["stage"] == "builder" for r in state["stages"]))
+        # The first build's unproven change went back to its Builder once before the Tester; that round is not
+        # a review iteration, so the limit still stops the run at the review's REWORK.
+        self.assertEqual(2, sum(r["stage"] == "builder" for r in state["stages"]))
         self.launch(["--run-dir", str(run), "--resume-paused", "--max-iterations", "3"], 0)
         _, final = self.saved()
         self.assertEqual("COMPLETE", final["phase"])
         self.assertEqual(task_id, final["current_task"]["id"])
-        self.assertEqual(2, sum(r["stage"] == "builder" for r in final["stages"]))
+        self.assertEqual(3, sum(r["stage"] == "builder" for r in final["stages"]))
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch

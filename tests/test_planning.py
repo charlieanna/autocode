@@ -1578,6 +1578,9 @@ class JointFlow(unittest.TestCase):
                 "orchestrator",
                 "builder",
                 "regression_proof",
+                # The unproven change goes back to the Builder once before any Tester.
+                "builder",
+                "regression_proof",
                 "tester",
                 "regression_proof",
                 "review_completion",
@@ -1629,7 +1632,9 @@ class JointFlow(unittest.TestCase):
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
         stages = [r for r in final["stages"] if r["stage"] == "builder"]
-        self.assertEqual(2, len(stages))
+        # The first build's unproven change goes back to the Builder once before any Tester, then the
+        # Tester's rework is the retry policy's own round.
+        self.assertEqual(3, len(stages))
         for stage in stages:
             self.assertEqual("opencode", stage["engine"])
             self.assertEqual("opencode", stage["command"][0])
@@ -1640,10 +1645,10 @@ class JointFlow(unittest.TestCase):
         # The requested effort applies to every build. Builder retry policy owns
         # the rework route: the ordinary retry keeps the configured effort and
         # rotates the session instead of climbing the reasoning ladder.
-        self.assertEqual("high", stages[0]["command"][stages[0]["command"].index("--variant") + 1])
-        self.assertEqual("high", stages[1]["command"][stages[1]["command"].index("--variant") + 1])
-        self.assertIsNone(stages[0]["expected_session"])
-        self.assertIsNone(stages[1]["expected_session"])
+        for stage in stages:
+            self.assertEqual("high", stage["command"][stage["command"].index("--variant") + 1])
+        # The proof's round continues the Builder's own session; the retry policy's round rotates it.
+        self.assertEqual([True, False, True], [stage["expected_session"] is None for stage in stages])
         self.assertEqual("retry", final["builder_retry_decisions"][-1]["action"])
         self.assertEqual("high", final["builder_retry_decisions"][-1]["selected_effort"])
         self.assertNotEqual(final["sessions"]["builder"], final["sessions"]["tester"])

@@ -39,12 +39,13 @@ PLANNING = [
     "finalize_plan",
 ]
 EXECUTION = ["orchestrator", "builder", "regression_proof", "tester", "review_completion"]
+# A proof that does not pass goes back to the Builder once before any Tester launches, with no model call
+# between (autocode_proof_findings.builder_round).
+SENT_BACK = ["orchestrator", "builder", "regression_proof", "builder", "regression_proof"]
 # A failing proof of this source is replayed once before the Completion Owner reviews
 # (#2065: a single flake must not drive REWORK). The replay is runner-owned.
 FAILED_PROOF_EXECUTION = [
-    "orchestrator",
-    "builder",
-    "regression_proof",
+    *SENT_BACK,
     "tester",
     "regression_proof",
     "review_completion",
@@ -143,6 +144,28 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertIn("No regression test", finding[0]["finding"])
         self.assertNotEqual("PAUSED_COMPLETION_GATE", final["status"])
         self.assertTrue(final.get("stuck_investigations"))
+
+    def test_a_proof_that_does_not_pass_goes_back_to_the_builder_before_any_tester(self):
+        # The first round fixes the code without the regression test the proof needs; the finding the runner
+        # opens is the Builder's actionable finding, and its second round adds the test. One Tester checks it.
+        fixed = {"greet.py": references.BUGFIX_REFERENCE["greet.py"]}
+        self.builder_writes([fixed, {**fixed, "test_greet.py": references.BUGFIX_REFERENCE["test_greet.py"]}])
+        run, _, final, result = self.run_to_end(0)
+        self.assertEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
+        stages = [row["stage"] for row in final["stages"]]
+        self.assertEqual(PLANNING + SENT_BACK + ["tester", "review_completion"], stages)
+        self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], final["regression_proof"]["fail_to_pass"])
+        (finding,) = [row for row in final["findings_ledger"] if row.get("regression_proof")]
+        self.assertEqual("resolved", finding["status"])
+        self.assertIn("No regression test", finding["finding"])
+        self.assertEqual(finding["failed_revisions"], [row["source_revision"] for row in finding["builder_rounds"]])
+        # The second Builder was handed the runner's finding, not a Tester's report of it.
+        second = [row for row in final["stages"] if row["stage"] == "builder"][1]
+        handoff = json.loads(Path(second["prompt"]).read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual([finding["id"]], [row["id"] for row in handoff["actionable_findings"]])
+        self.assertIn("the Tester has not been started", handoff["next_action"])
+        view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertTrue(view["done"])
 
     def test_build_product_changes_get_the_same_changed_line_proof(self):
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"

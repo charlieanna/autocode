@@ -71,7 +71,8 @@ class ResolverRecoveryLifecycleCliTests(unittest.TestCase):
         view = status()
         attempts = view["usage"]["accounting"]["attempts"]
         stages = [row["stage"] for row in attempts if not row["runner_owned"]]
-        self.assertEqual(1, stages.count("builder"), "recovery must retain the completed implementation")
+        # The unproven first build goes back to the Builder once before any Tester; recovery adds no build.
+        self.assertEqual(2, stages.count("builder"), "recovery must retain the completed implementation")
         self.assertGreaterEqual(stages.count("resolve"), 2, stages)
         self.assertLessEqual(stages.count("resolve"), 3, stages)
         self.assertTrue(all(row["timed_out"] for row in attempts if row["stage"] == "resolve"))

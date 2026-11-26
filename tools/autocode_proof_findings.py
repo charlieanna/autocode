@@ -9,6 +9,9 @@ finding with source ``runner`` naming the proof's reasons, and closes it once th
 source it has not failed on. The ordinary route then carries it: the reviewers and the Resolver see
 it in ``open_findings``, and a correction task assigns it to the Builder (``actionable_findings``).
 
+Before the Tester of a source whose proof does not pass, the finding goes straight back to the Builder once
+(``builder_round``): the Tester could only relay what the runner already decided.
+
 A reviewer that asks to complete while the finding is open is sent back once for that source with
 SEND_BACK_NOTE (``send_back``); a second request for the same source pauses PAUSED_COMPLETION_REVIEW,
 which the Investigator takes (autocode_stuck_job.RETRYABLE), never a person question. The same holds
@@ -20,7 +23,7 @@ Builder cannot change a test the change does not own.
 
 Only this module writes or closes ``runner`` findings marked ``regression_proof``. Imports nothing
 above the findings ledger; the caller passes whether the proof is owed and proven.
-State: findings_ledger rows with source ``runner``, ``regression_proof`` and ``failed_revisions``;
+State: findings_ledger rows with source ``runner``, ``regression_proof``, ``failed_revisions`` and ``builder_rounds``;
 ``unresolved_findings``; ``completion_sent_back`` (shared with units.autoreview.completion_review:
 one send-back per artifact).
 """
@@ -62,6 +65,13 @@ INTERMITTENT_NOTE = (
 STOP = (
     "The Completion Reviewer asked again to complete while the runner's regression proof does not pass "
     "for this source; the Investigator decides how the work continues"
+)
+# Direct Builder rounds for one open proof finding before the Tester launches (``builder_round``).
+BUILDER_ROUNDS = 1
+BUILDER_NOTE = (
+    "The runner's regression proof does not pass on this source, so the Tester has not been started. Correct the "
+    "change or its tests until the proof passes, keeping the approved criteria, their test names and the task's "
+    "affected paths. Run the approved checks before you report."
 )
 
 
@@ -202,6 +212,37 @@ def intermittent(state: RunState, revision) -> bool:
         revision in (row.get("failed_revisions") or []) and REGRESSED in (row.get("finding") or "")
         for row in open_rows(state)
     )
+
+
+def builder_round(state: RunState, revision) -> bool:
+    """Before the Tester, return an open proof finding of ``revision`` to the Builder, BUILDER_ROUNDS times.
+
+    A proof that does not pass already decides the review: completion needs it to pass, and the Tester could
+    only relay it. In 204 saved runs, 23 of the 32 first returns to the Builder were such a proof, each relayed
+    by a Tester and often a Completion Reviewer, Resolver and Investigator ($29.55 in all); the next Builder
+    round alone fixed 11 of the 17 whose proof failed. So the Builder gets the finding (it is in
+    ``unresolved_findings``) without a model call. A finding whose rounds are spent, or a proof the caller judged
+    the Builder cannot change, keeps the existing route: the Tester runs and the finding stays blocking. True
+    when the run was sent to the Builder and the Tester must not launch now. State: the finding row's
+    ``builder_rounds``, the sources it was returned for.
+    """
+    proof = state.get("regression_proof") or {}
+    if proof.get("source_revision") != revision or proof.get("verdict") not in ("FAIL", "UNVERIFIED"):
+        return False
+    row = next((row for row in open_rows(state) if revision in (row.get("failed_revisions") or [])), None)
+    if row is None or len(row.get("builder_rounds") or []) >= BUILDER_ROUNDS:
+        return False
+    row.setdefault("builder_rounds", []).append(
+        {"source_revision": revision, "receipt": proof.get("path"), "at": util.now()}
+    )
+    # No review ran, so this is not a new iteration: the run's iteration limit counts review rounds.
+    run_status.running(
+        state,
+        "EXECUTING",
+        next_stage="builder",
+        next_action=f"{BUILDER_NOTE} Finding {row['id']}: {row['finding']} Proof receipt: {proof.get('path')}",
+    )
+    return True
 
 
 def send_back(state: RunState, revision, note=SEND_BACK_NOTE):
