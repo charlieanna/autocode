@@ -1896,7 +1896,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1b7eda283efb442b3a2298226d035051818dd4e2/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/aec30f3c8968874cfd1897612c26bfde06fb5589/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3263,7 +3263,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/1b7eda283efb442b3a2298226d035051818dd4e2/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/aec30f3c8968874cfd1897612c26bfde06fb5589/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4152,7 +4152,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1b7eda283efb442b3a2298226d035051818dd4e2/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/aec30f3c8968874cfd1897612c26bfde06fb5589/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5729,7 +5729,7 @@ following the brief. A client shows the label and description and passes the
 chosen mode's <code>start_args</code> unchanged when it starts a run; it never builds its
 own list or adds flags to a mode. The flags apply only to the new run: a saved
 run keeps the flow it started with. Listing launches nothing and reads no run.
-Optional <code>spend_confirmation</code> is <code>"planning"</code> for both listed modes: start the Requirements
+Optional <code>spend_confirmation</code> is <code>"planning"</code> for every listed mode: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
 model allowance. A mode with <code>"start"</code> (none today) can plan immediately, so a
@@ -5745,9 +5745,14 @@ launch for older cores.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>full</code> (default)</td>
+<td><code>full</code> (default, labeled "Slow lane")</td>
 <td><code>--joint-planning --spec-first</code></td>
 <td>Requirements talks with the person and confirms what it understood before the plan is prepared (<a href="../spec-first/">Spec-first runs</a>).</td>
+</tr>
+<tr>
+<td><code>fast</code> ("Fast lane")</td>
+<td><code>--joint-planning --spec-first --fast-lane</code></td>
+<td>The same Requirements conversation; the Planner's first draft goes to the person without a Plan Reviewer call, and one combined review replaces the Tester and the Completion Reviewer. The person picks it; AutoCode does not size the plan to decide (<a href="../adaptive-planning/#fast-lane">fast lane</a>).</td>
 </tr>
 <tr>
 <td><code>plan</code></td>

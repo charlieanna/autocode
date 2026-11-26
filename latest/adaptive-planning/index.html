@@ -666,10 +666,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fast-lane-for-small-clear-tasks" class="md-nav__link">
+  <a href="#fast-lane" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fast lane for small, clear tasks
+        Fast lane
       
     </span>
   </a>
@@ -1931,10 +1931,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#fast-lane-for-small-clear-tasks" class="md-nav__link">
+  <a href="#fast-lane" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fast lane for small, clear tasks
+        Fast lane
       
     </span>
   </a>
@@ -2131,29 +2131,33 @@ Usage is never erased. It happens once per piece of feedback; a restart inside t
 same revision carries the allowance as before. A total you chose with
 <code>--planning-review-call-limit</code> stays a total, and a correction to a plan you already
 approved keeps its own bounded review round.</p>
-<h2 id="fast-lane-for-small-clear-tasks">Fast lane for small, clear tasks<a class="headerlink" href="#fast-lane-for-small-clear-tasks" title="Permanent link">&para;</a></h2>
+<h2 id="fast-lane">Fast lane<a class="headerlink" href="#fast-lane" title="Permanent link">&para;</a></h2>
 <p><code>--fast-lane</code> (new runs only, owner request 2026-11-23) removes the two model calls a small task gains least
-from, and no gate:</p>
+from, and no gate. The person picks it: VS Code and the terminal chat offer it as the <strong>Fast lane</strong> run mode
+beside the <strong>Slow lane</strong> (the default, <code>full</code>), and AutoCode does not size the plan to second-guess the choice
+(owner decision 2026-11-26).</p>
 <ul>
 <li><strong>One combined review.</strong> The run uses <code>--review-routing combined</code>: the Completion Reviewer independently
   tests the Builder's work and judges completion in one call (<code>review_checkpoint</code>) instead of a Tester and
   then a Completion Reviewer. The policy is written into the plan you approve.</li>
-<li><strong>No Plan Reviewer on a plan that qualifies.</strong> The Planner's first draft goes straight to your exact-token
-  approval when, read from the run and never asked of a model: Requirements judged the request clear; the
-  draft is small (one milestone, at most four files); it can go to you as written (no open question, an
-  executable first task); it touches nothing <code>sensitive-paths</code> names; the brief holds no exact-output or API
-  risk declaration that needs the Plan Reviewer's observations; and, when criteria cite the request, they pass
-  the strictest source trace (every criterion cites, every sentence is covered, nothing excused), which only a
-  Plan Reviewer may loosen. Progressive and design-backed plans are always reviewed.</li>
+<li><strong>No Plan Reviewer.</strong> The Planner's first draft goes straight to your exact-token approval, whatever its
+  size, however clear Requirements judged the request and whatever <code>sensitive-paths</code> names. A draft is still
+  reviewed only when it cannot be approved without a review, read from the run and never asked of a model: it
+  cannot go to you as written (an open question, no executable first task); the brief holds an exact-output
+  or API risk declaration whose observations only the Plan Reviewer may seal; criteria cite the request but
+  fail the strictest source trace (every criterion cites, every sentence is covered, nothing excused), which
+  only a Plan Reviewer may loosen; or the plan is progressive or design-backed.</li>
 </ul>
-<p>Any other draft takes the ordinary path, and the reason is saved with the plan (<code>planning.fast_lane</code>). Feedback
+<p>Such a draft takes the ordinary path, and the decision and its reason are saved with the plan
+(<code>planning.fast_lane</code>), with the plan's size and the request's clarity for the record. Feedback
 on a shown plan is revised by the Planner and reviewed as usual. The status view's <code>stage_decisions</code> shows the
 three skipped planning reviews with the reason, covered by the draft and your approval
 (<code>tools/autocode_fast_lane.py</code>).</p>
 <p>After approval nothing changes: the Builder, the regression proof, the changed-code evidence (diff coverage,
 mutation check and per-line reasons, checked by the combined review), claim evidence and the completion gate
 decide whether the run may finish.</p>
-<p><strong>Measured, 2026-11-23.</strong> On the offline fixture task (<code>tests/test_fast_lane.py</code>) the run completes with four
+<p><strong>Measured, 2026-11-23</strong>, under the earlier rule that also required a small plan, a clear request and no
+<code>sensitive-paths</code> match. On the offline fixture task (<code>tests/test_fast_lane.py</code>) the run completes with four
 model launches (Requirements, Planner, Builder, combined review) instead of six. Replaying the qualification
 over 149 completed live runs from the task survey (Claude Code, small real tasks in eleven languages), 112
 (75%) would have taken the fast lane; the 37 others were not small (18), needed the Plan Reviewer's
@@ -2200,7 +2204,7 @@ Tester's verdict PASS:</p>
 </tr>
 </tbody>
 </table>
-<p>The fast lane skipped the Plan Reviewer as designed (the draft was small and Requirements judged it clear) and
+<p>The fast lane skipped the Plan Reviewer as designed and
 the plans were equivalent: the same two files and the same cases (31 → 4, 0 → 0, 1 → 1, 30 → 3, a zero page
 size refused). After approval the two runs took the same time: the combined review (15 s, plus a 7 s repair
 because a cited check matched no executed event) cost what the Tester and the Completion Reviewer (12 s and
