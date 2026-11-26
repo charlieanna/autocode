@@ -23,6 +23,8 @@ import autocode_worker_lifeline as lifeline
 import build_product_fixtures as products
 from goal_fixtures import body
 
+from tests import cli_budget
+
 
 def supervised_processes(root):
     """The keeper, provider and owner identities every supervision receipt under root records."""
@@ -271,8 +273,10 @@ class BuildBlackbox(unittest.TestCase):
             current = human.current(json.loads((Path(args[args.index("--run-dir") + 1]) / "state.json").read_text()))
             if current:
                 args = [*args, "--resolver-token", current["request_token"]]
-        # A scripted provider still runs the local proof and can do several reviews in one call.
-        limit = timeout if timeout is not None else 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 300
+        # A scripted provider still runs the local proof and can do several reviews in one call, so the bound
+        # grows with what CI recorded for the calling module (#4196).
+        floor = 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 300
+        limit = timeout if timeout is not None else cli_budget.call_budget(type(self).__module__, floor)
         self.counter += 1
         receipt = self.root / f"cli-{self.counter}.json"
         started = time.monotonic()
@@ -1122,6 +1126,30 @@ class InvokeTimeoutEvidenceTests(unittest.TestCase):
             self.assertEqual(300, launched.call_args.kwargs["timeout"])
             receipt = json.loads((root / "cli-1.json").read_text())
         self.assertEqual((0, 6.9), (receipt["returncode"], receipt["seconds"]))
+
+    def test_a_call_waits_as_long_as_ci_recorded_for_its_module(self):
+        # #4196: the 21-node graph's last review was cut off at a fixed 300 s on the nightly runner.
+        from unittest.mock import patch
+
+        class Harness:
+            __module__ = "tests.test_build_graph_cli"
+
+            def __init__(self, root):
+                self.root, self.env, self.counter = root, {}, 0
+
+            def command(self, unit, args):
+                return [unit, *args]
+
+            def assertEqual(self, *args):
+                pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            returned = subprocess.CompletedProcess(["autoreview"], 0, "", "")
+            with patch.object(subprocess, "run", return_value=returned) as launched:
+                BuildBlackbox.invoke(Harness(Path(folder)), "autoreview", ["--run-dir", "r1"])
+        waited = launched.call_args.kwargs["timeout"]
+        self.assertEqual(cli_budget.call_budget("tests.test_build_graph_cli", 300), waited)
+        self.assertGreaterEqual(waited, cli_budget.MARGIN * cli_budget.slowest("tests.test_build_graph_cli"))
 
 
 if __name__ == "__main__":

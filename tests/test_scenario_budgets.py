@@ -8,13 +8,13 @@ recorded for a test in its module (``tests/suite_durations.json``, refreshed by 
 """
 
 import ast
-import json
 import unittest
 from pathlib import Path
 
+from tests import cli_budget
+from tests.cli_budget import MARGIN
+
 REPO = Path(__file__).resolve().parents[1]
-DURATIONS = REPO / "tests" / "suite_durations.json"
-MARGIN = 2
 
 
 def budgets(source: str) -> list[tuple[int, object]]:
@@ -56,10 +56,9 @@ def budgets(source: str) -> list[tuple[int, object]]:
 
 def tight(module: str, source: str, durations: dict[str, float]) -> list[str]:
     """Each real-CLI budget in ``module`` below ``MARGIN`` times its slowest recorded test."""
-    recorded = [seconds for test, seconds in durations.items() if test.startswith(module + ".")]
-    if not recorded:
+    slowest = cli_budget.slowest(module, durations)
+    if slowest is None:
         return []
-    slowest = max(recorded)
     return [
         f"{module}:{line}: budget {seconds} s, slowest recorded test {slowest:g} s"
         for line, seconds in budgets(source)
@@ -69,7 +68,7 @@ def tight(module: str, source: str, durations: dict[str, float]) -> list[str]:
 
 class ScenarioBudgetTests(unittest.TestCase):
     def test_real_cli_budgets_leave_room_for_a_slow_runner(self):
-        durations = json.loads(DURATIONS.read_text())["seconds"]
+        durations = cli_budget.recorded()
         found, checked = [], []
         for path in sorted((REPO / "scenarios").rglob("test_*.py")):
             module = ".".join(path.relative_to(REPO).with_suffix("").parts)
@@ -94,6 +93,68 @@ class ScenarioBudgetTests(unittest.TestCase):
             ["scenarios.x:3: budget 180 s, slowest recorded test 130.7 s"], tight("scenarios.x", source, durations)
         )
         self.assertEqual([], tight("scenarios.unrecorded", source, durations))
+
+
+def fixed_call_bounds(source: str) -> list[tuple[int, object]]:
+    """(line, seconds) for each ``self.invoke(..., timeout=...)``: a BuildBlackbox call that sets its own bound."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "invoke"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+        ):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "timeout":
+                value = keyword.value
+                found.append((node.lineno, value.value if isinstance(value, ast.Constant) else ast.unparse(value)))
+    return found
+
+
+class BlackboxCallBudgetTests(unittest.TestCase):
+    """The BuildBlackbox driver's real-CLI calls follow the same rule (#4196)."""
+
+    def blackbox_modules(self):
+        for path in sorted((REPO / "tests").glob("test_*.py")):
+            source = path.read_text()
+            if path.name == "test_build_blackbox.py" or "BuildBlackbox.invoke" in source:
+                yield f"tests.{path.stem}", source
+
+    def test_each_blackbox_call_gets_the_recorded_room_for_its_module(self):
+        durations = cli_budget.recorded()
+        modules = dict(self.blackbox_modules())
+        self.assertIn("tests.test_build_graph_cli", modules)
+        short = []
+        for module, source in modules.items():
+            slowest = cli_budget.slowest(module, durations)
+            if slowest is None:
+                continue
+            self.assertGreaterEqual(cli_budget.call_budget(module, 300, durations), MARGIN * slowest, module)
+            short += [
+                f"{module}:{line}: timeout={seconds}, slowest recorded {slowest:g} s"
+                for line, seconds in fixed_call_bounds(source)
+                if not isinstance(seconds, int) or seconds < MARGIN * slowest
+            ]
+        self.assertEqual([], short, "leave the bound to tests.cli_budget instead of a fixed timeout")
+
+    def test_the_budget_reads_a_module_or_its_tests_and_keeps_the_floor(self):
+        durations = {"tests.test_a": 489.9, "scenarios.b.Tests.test_c": 100.2, "tests.test_ab": 9000.0}
+        self.assertEqual(980, cli_budget.call_budget("tests.test_a", 300, durations))
+        self.assertEqual(300, cli_budget.call_budget("scenarios.b", 300, durations))
+        self.assertEqual(600, cli_budget.call_budget("tests.unrecorded", 600, durations))
+        self.assertEqual(300, cli_budget.call_budget("types", 300, durations))
+
+    def test_the_check_reads_the_fixed_bounds_of_self_invoke_only(self):
+        source = (
+            "def test(self):\n"
+            "    self.invoke('autoreview', ['--run-dir', run], timeout=300)\n"
+            "    self.invoke('autoreview', ['--run-dir', run])\n"
+            "    fixture.invoke('autocode_build', [], timeout=90)\n"
+        )
+        self.assertEqual([(2, 300)], fixed_call_bounds(source))
 
 
 if __name__ == "__main__":
