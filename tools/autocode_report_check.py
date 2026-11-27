@@ -58,6 +58,7 @@ try:
     from . import (
         autocode_source_trace as source_trace,
     )
+    from . import autocode_superseded_tests as superseded_tests
     from . import autocode_tester_probes as tester_probes
     from . import (
         autocode_util as util,
@@ -81,6 +82,7 @@ except ImportError:
     import autocode_requirements_faults as requirements_faults
     import autocode_requirements_report as requirements_report
     import autocode_source_trace as source_trace
+    import autocode_superseded_tests as superseded_tests
     import autocode_tester_probes as tester_probes
     import autocode_util as util
     import autocode_verification_plan as verification_plan
@@ -313,6 +315,12 @@ def _check_planning(stage: str, data: dict[str, Any], spec: dict[str, Any], erro
         if isinstance(fail_first_context, dict) and (
             refused := fail_first.report_refusal(contract, coordinated_run=bool(fail_first_context.get("coordinated")))
         ):
+            errors.append(refused)
+        # The plan-contract listing rules a finished draft can catch pre-submit (#4220): the same refusals
+        # validate_body raises at install, projected as pure functions of the contract and workspace.
+        if refused := superseded_tests.superseded_twice(contract.get("acceptance_criteria")):
+            errors.append(refused)
+        if refused := verification_plan.scaffolding_refusal(spec.get("workspace") or "", contract):
             errors.append(refused)
     if stage == "revise_plan":
         concern_ids = [str(cid) for cid in (spec.get("concern_ids") or []) if str(cid).strip()]
