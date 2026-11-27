@@ -120,7 +120,9 @@ def _verdict(candidate, base) -> str:
         return "regression"
     if "missing" in candidate or not base[1:] or "missing" in base:
         return "regression"
-    return "quarantined" if "fail" in base[1:] else "regression"
+    # Every base entry is an observed run: the judged suite run first, or the recorded runs a prior proof saw,
+    # whose first is a real failure when it was a test that failed on both sides.
+    return "quarantined" if "fail" in base else "regression"
 
 
 def recheck(framework_name, command, tests, run, *, directory=None, quarantined_entries=None) -> dict | None:

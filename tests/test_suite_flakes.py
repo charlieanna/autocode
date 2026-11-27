@@ -105,6 +105,15 @@ class RecheckTests(unittest.TestCase):
         self.assertEqual("regression", record["tests"][0]["verdict"])
         self.assertEqual([], flakes.quarantined(record))
 
+    def test_a_test_a_prior_proof_saw_fail_on_both_sides_is_quarantined_when_it_passes_again(self):
+        # A pre-existing row that was flaky on both sides is reused with its judged base run first: a failure.
+        known = {FLAKY: {"base_runs": ["fail", "pass", "pass"], "base_commit": "abc123", "reason": "flaky"}}
+        run, calls = scripted({"candidate": [{"passed": [FLAKY]}, {"failed": [FLAKY]}]})
+        record = flakes.recheck("unittest", self.COMMAND, [FLAKY], run, quarantined_entries=known)
+        self.assertEqual(["candidate", "candidate"], [side for _, side, _ in calls])
+        self.assertEqual("quarantined", record["tests"][0]["verdict"])
+        self.assertEqual([FLAKY], flakes.quarantined(record))
+
     def test_missing_evidence_never_quarantines(self):
         unreported = {"exit_code": 1, "timed_out": True, "results": None}
         run, _ = scripted({"candidate": [{"passed": [FLAKY]}, unreported], "base": [{"failed": [FLAKY]}] * 2})
