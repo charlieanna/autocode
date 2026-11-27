@@ -149,6 +149,25 @@ python3 tools/live_token_sampler.py --run-dir /path/to/run \
 Both also work as Python modules (`python3 -m tools.score_autocode_run` and
 `python3 -m tools.live_token_sampler`) from the repository root.
 
+## Where plan quota went
+
+On a Claude or ChatGPT plan the limit is a pool of quota that every stage on that tool draws
+on, not a bill. `autocode usage quota [--workspace PATH] [--since DATE] [--all] [--json]` reads
+the same `usage.jsonl` ledgers as `report` and groups every stage that could draw quota by the pool
+it ran on (`claude`, `codex`, or `other` for an API key or any other route), then by role, model and
+level. For each pool it shows the burn, the burn that was **wasted** (a rejected, timed-out or
+interrupted stage) and the burn over the last 5 hours and 7 days, the two windows the plans limit by.
+
+- **The unit is a weight, not a bill.** Neither plan publishes its quota in dollars, so each stage is
+  the provider's reported cost, else its recorded tokens at the price table (see below). The figures
+  compare models and stages with each other. The report states no plan capacity and no share of one.
+- **Unknown is never zero.** A stage whose usage was never recorded is counted as unknown, and a pool
+  that has one prints its burn as a floor (`*`).
+- **Fake-provider runs are left out** and counted: they use no plan quota. Runner-owned stages are
+  left out too, since they call no model.
+- It reads only ledgers, launches nothing and changes no route. It shows where quota went so a person
+  or a later change can choose cheaper routes; it grants no completion authority.
+
 ## How to interpret the numbers
 
 The scorer's `token_usage.estimated_api_equivalent_usd` uses the existing
