@@ -24,9 +24,11 @@ class TesterExecutedProofRequestTests(unittest.TestCase):
     request = requests.TesterProofRequest.request
 
     def test_pending_independent_line_review_does_not_deny_executed_regression_evidence(self):
+        # A survived-mutant line still needs independent review after #4218 (a no-site line is now settled
+        # by the runner). This tautological guard's every bound mutant survives, so it stays reason_required.
         self.project.write(
             {
-                "components/gateway/server.py": "def health():\n    marker = None\n    return 'ok' if marker is None else 'bad'\n"
+                "components/gateway/server.py": "def health():\n    name = 'ok'\n    if len(name) >= 0: pass\n    return name\n"
             }
         )
         regression.before_review(self.state, "tester", self.project.root, self.run)
@@ -44,11 +46,12 @@ class TesterExecutedProofRequestTests(unittest.TestCase):
         self.assertEqual(before, self.state["regression_proof"])
         self.assertFalse(regression.complete(self.state, revision), "A prompt hint grants no independent line decision")
         gaps = [row for row in proof["changed_code_evidence"]["obligations"] if row["status"] == "reason_required"]
-        self.assertEqual(["marker = None"], [row["source_line"] for row in gaps])
+        self.assertEqual(["if len(name) >= 0: pass"], [row["source_line"] for row in gaps])
         review = self.run / "independent-tester-reason.json"
         reason = (
-            "The None initializer has no supported value mutation. The candidate health test observes ok; "
-            "removing the binding raises NameError in that same tested path."
+            "The guard if len(name) >= 0: pass is tautological: a length is never negative and its body is pass, "
+            "so every bound mutation leaves the observed health output unchanged. The candidate health test asserts "
+            "ok and passed independently under each surviving mutant; only this independent review settles the line."
         )
         util.atomic_json(review, {"reason": reason})
         evidence = [str(self.project.root / gaps[0]["path"]), str(review)]

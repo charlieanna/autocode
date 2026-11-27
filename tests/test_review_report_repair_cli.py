@@ -6,6 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import goal_fixtures
+
 from . import test_subprocess as cli_support
 
 WRAPPER = r"""
@@ -106,10 +108,16 @@ else:
 class ReviewReportRepairCLI(unittest.TestCase):
     def test_one_report_only_repair_sees_all_defects_and_completes_without_reexecuting_checks(self):
         row = self.assert_review_patch_completes(diagnostics_case=True)
-        for expected in ("wrong-proof-one", "wrong-proof-two", "different line", "no mutation outcome"):
+        # The open gaps are surviving mutants of the scripted greeting's redundant guards. A survived line
+        # keeps a mutation outcome, so the runner's no-site settlement (#4218) never closes it and the PASS
+        # no longer demands a "no mutation outcome" decision; the repair still sees the wrong citations, the
+        # unmatched misquote and the open survived lines, and restores every decision in one report.
+        for expected in ("wrong-proof-one", "wrong-proof-two", "different line"):
             self.assertIn(expected, row["error"])
+        self.assertNotIn("no mutation outcome", row["error"])
         self.assertEqual("proof:current", row["citation"])
         self.assertGreaterEqual(len(row["open_lines"]), 2)
+        self.assertTrue(all(row.get("mutation_outcomes") for row in row["open_lines"]), row["open_lines"])
 
     def test_tester_patch_completes_with_original_checks_and_preserved_raw_response(self):
         self.assert_review_patch_completes()
@@ -144,6 +152,19 @@ class ReviewReportRepairCLI(unittest.TestCase):
             fixture.env.update(
                 REVIEW_REPAIR_DIAGNOSTICS="1", REVIEW_REPAIR_BASELINE=str(fixture.root / "baseline.json")
             )
+            # Script the greeting whose redundant guards leave surviving mutants: unlike a no-site line, a
+            # survived line keeps a mutation outcome and stays open after the runner's no-site settlement
+            # (#4218), so the report repair still has open gaps to decide and restore.
+            scripted = fixture.root / "diagnostics-files.json"
+            scripted.write_text(
+                json.dumps(
+                    {
+                        "greet.py": goal_fixtures.GREETING_REDUNDANT_SOURCE,
+                        "test_greeting.py": goal_fixtures.GREETING_TESTS,
+                    }
+                )
+            )
+            fixture.env["AUTOCODE_FIXTURE_FILES"] = str(scripted)
         if array_case:
             fixture.env["REVIEW_REPAIR_ARRAY"] = "1"
         if completion_case:

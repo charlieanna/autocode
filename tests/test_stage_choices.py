@@ -96,22 +96,13 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual({"model": HAIKU, "effort": "medium", "offered": True}, builder["default"])
         self.assertIsNone(builder["chosen"])
         self.assertIsNone(builder["reset"])
-        self.assertEqual("Resolver and per-task Planner", self.stage(current, "task_planner")["label"])
+        resolver = self.stage(current, "task_planner")
+        self.assertEqual("Resolver and per-task Planner", resolver["label"])
+        # #4219: it ran 1-5 times a large build at about a fifth of the spend, so the advice must not call it cheap.
+        self.assertNotIn("little cost", resolver["advice"])
+        self.assertIn("a fifth of the spend", resolver["advice"])
         for stage in current["stages"]:
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
-
-    def test_the_resolver_advice_says_what_a_refusal_loop_costs(self):
-        # #4219: the advice said "It runs rarely, so it adds little cost" while the Resolver measured 19.3%
-        # of list-price spend ($41.48 over 13 calls, ~$3.46 each), running 1-5 times a run in large builds,
-        # mostly diagnosing a refusal loop. The person's only cost signal at setup must not say otherwise.
-        current = choices.view("claude", **self.kw)
-        advice = self.stage(current, "task_planner")["advice"]
-        self.assertNotIn("adds little cost", advice)
-        self.assertNotIn("runs rarely", advice)
-        self.assertIn("strongest model at high", advice)
-        self.assertIn("costs the most", advice)
-        self.assertIn("stops making progress", advice)
-        self.assertIn("several times in one task", advice)
 
     def test_each_stage_names_the_jobs_that_run_on_its_choice(self):
         # A workflow job copies its route from a stage the person chooses (role_transport.DERIVED_ROLES; the

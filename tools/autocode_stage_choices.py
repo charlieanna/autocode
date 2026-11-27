@@ -126,8 +126,9 @@ STAGES = (
         "task_planner",
         "resolver",
         "Steps in when a stage stops making progress, and plans the steps inside each task.",
-        "Your strongest model at high, so each call costs the most. It runs when a stage stops making "
-        "progress; a refusal loop can summon it several times in one task.",
+        "Your strongest model at high, since it gets the hardest problems. It is not cheap: on large builds "
+        "it ran one to five times a run, mostly when a stage kept failing the same way, and those calls were "
+        "about a fifth of the spend. To save there, pick a strong but cheaper model.",
     ),
 )
 ORDER = tuple(stage[0] for stage in STAGES)
