@@ -800,6 +800,34 @@ class UndeterminedReplayTests(unittest.TestCase):
         contract.update(approval_status="approved", approval_event=approval)
         self.state.update(goal_contract=contract, user_events=[approval])
 
+    def test_a_failure_only_of_a_test_the_change_adds_is_not_an_original_failure(self):
+        # Restoring the original test files can break a test the change adds, one that needs what the change
+        # added to a protected helper or data file. It is no original test: the candidate half judges it.
+        added = self.failing()
+        added["results"]["failed"] = ["test_feature.py::test_reads_the_new_scenario"]
+        error, receipt = self.replay({("original", 0): added})
+        self.assertIsNone(error)
+        saved = json.loads(receipt.read_text())
+        self.assertEqual("PASS", saved["verdict"])
+        self.assertEqual(["test_feature.py::test_reads_the_new_scenario"], saved["new_test_failures"])
+        receipt.unlink()
+        # Beside a failing original test it excuses nothing, and a failing candidate half is never excused.
+        both = self.failing()
+        both["results"]["failed"] = [
+            "test_feature.py::test_reads_the_new_scenario",
+            "test_layout.LayoutTests.test_height",
+        ]
+        candidate = self.failing()
+        candidate["results"]["failed"] = ["test_feature.py::test_reads_the_new_scenario"]
+        for receipts in ({("original", 0): both}, {("candidate", 0): candidate, ("original", 0): added}):
+            with self.subTest(receipts=sorted(receipts)):
+                error, receipt = self.replay(receipts)
+                self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+                saved = json.loads(receipt.read_text())
+                self.assertEqual("FAIL", saved["verdict"])
+                self.assertNotIn("new_test_failures", saved)
+                receipt.unlink()
+
     def test_a_replaced_original_failure_is_excused_only_when_the_candidate_half_passes(self):
         self.approve_replacing_test_height()
         error, receipt = self.replay({("original", 0): self.failing()})

@@ -108,3 +108,28 @@ def proven(proof, revision) -> list[str]:
     if proof.get("verdict") != "PASS" or proof.get("source_revision") != revision:
         return []
     return sorted(str(path) for path in proof.get("test_support") or ())
+
+
+def added_only(row, original_files) -> list[str] | None:
+    """The original half's failing test ids when no original file defines any of them, else None.
+
+    The original-test gate restores the original bytes of every changed protected file, test data and
+    helpers among them. A test the change adds that needs what the change added to such a file then fails
+    there, though it is no original test: the candidate half judges it. The run must have ended on its own
+    with complete per-test results, nothing uncollected and at least one failure, and every failing id must
+    be one ``defines`` cannot place in an original file (a doubt keeps the failure).
+    """
+    if not isinstance(row, dict) or row.get("timed_out") or row.get("error"):
+        return None
+    if type(row.get("exit_code")) is not int or row["exit_code"] == 0:
+        return None
+    results = row.get("results")
+    if not isinstance(results, dict) or results.get("complete") is not True:
+        return None
+    failed = results.get("failed")
+    if not isinstance(failed, list) or not failed or results.get("uncollected") or results.get("collection_errors"):
+        return None
+    originals = sorted(str(name) for name in original_files or ())
+    if not originals or defines(originals, {"failed": failed}):
+        return None
+    return sorted(str(test) for test in failed)

@@ -537,7 +537,10 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                     "command": part,
                     **({"timeout_seconds": timeout_seconds} if label == "original-recheck" else {}),
                 },
-                accepted_failure=lambda row: superseded_tests.excused(row, replaced, changed) is not None,
+                accepted_failure=lambda row: (
+                    superseded_tests.excused(row, replaced, changed) is not None
+                    or test_support.added_only(row, record["files"]) is not None
+                ),
             )
 
         def run(label, **overlays):
@@ -613,6 +616,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             if excused:
                 result["verdict"] = "PASS"
                 result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
+        if (
+            result["verdict"] == "FAIL"
+            and outcomes["candidate"]["outcome"] == check_outcome.PASSED
+            and not retry
+            and (added := test_support.added_only(result["original"], record["files"]))
+        ):
+            # Only tests the change adds failed with the original test files restored: no original test did.
+            result["verdict"] = "PASS"
+            result["new_test_failures"] = added
         if (
             base_run is not None
             and len(parts) == 1
