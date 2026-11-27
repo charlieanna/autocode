@@ -98,6 +98,8 @@ jobs:
   extension:
     needs: scope
     if: needs.scope.outputs.extension == 'true'
+    # A hang must fail fast and keep its screen (#4215): one waited six hours for GitHub's default.
+    timeout-minutes: 75
     # The VS Code client (#884) is TypeScript over the CLI, so its gate is Node, not
     # the Python suite. It reads only `--status` and `registry list --json`, so this
     # job needs no provider and spends no model allowance.
@@ -143,10 +145,12 @@ jobs:
           go-version: "1.25.5"
           cache: false
       - name: Test held status reads and a blocked Planner in the Extension Host
+        # About 20 minutes when healthy. A step that times out fails, so the screen below is kept.
+        timeout-minutes: 45
         run: xvfb-run -a npm run test:host
         working-directory: vscode-extension
       - name: Keep the Extension Host's last screen
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: extension-host-screen

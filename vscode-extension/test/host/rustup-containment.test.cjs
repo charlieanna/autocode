@@ -9,19 +9,10 @@ const path = require('node:path');
 const { privateHostRoot } = require('../owned-fixture-cleanup.cjs');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
+const { until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(what, probe, timeout = 120_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  do {
-    try { last = await probe(); if (last) return last; } catch (error) { last = error; }
-    await sleep(250);
-  } while (Date.now() < deadline);
-  throw new Error(`Timed out waiting for ${what}; last: ${last instanceof Error ? last.message : JSON.stringify(last)}`);
-}
 function python() {
   if (process.env.AUTOCODE_HOST_PYTHON) return process.env.AUTOCODE_HOST_PYTHON;
   const venv = path.join(REPO, '.venv/bin/python');

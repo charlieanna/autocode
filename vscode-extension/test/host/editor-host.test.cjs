@@ -19,29 +19,13 @@ const path = require('node:path');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { sleep, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
 const VSCODE_VERSION = '1.147.0';
 // The editor's own read deadline (src/core/cli.ts STATUS_TIMEOUT_MS); the held read must cross it.
 const READ_DEADLINE_MS = 30_000;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until(what, probe, timeout = 60_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  for (;;) {
-    try {
-      last = await probe();
-      if (last) return last;
-    } catch (error) {
-      last = error;
-    }
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}; last: ${last instanceof Error ? last.message : JSON.stringify(last)}`);
-    await sleep(250);
-  }
-}
 
 function python() {
   if (process.env.AUTOCODE_HOST_PYTHON) return process.env.AUTOCODE_HOST_PYTHON;
@@ -122,6 +106,10 @@ async function command(title) {
   await win.keyboard.press('Enter');
 }
 
+// Bounded like every other host suite (#4215): a hang fails within minutes and keeps its screen.
+const HOOK_TIMEOUT_MS = 300_000;
+const TEST_TIMEOUT_MS = 300_000;
+
 before(rememberFailure(async () => {
   fs.writeFileSync(log, '');
   const made = spawnSync(python(), [path.join(REPO, 'tests', 'provider_auth_fixture.py'), path.join(root, 'run'), '--inherit-homes'], {
@@ -179,7 +167,7 @@ before(rememberFailure(async () => {
     throw error;
   }
   await until('the run in the chat', async () => (await chatText()).includes('rejected the saved credentials (HTTP 401)'));
-}));
+}), { timeout: HOOK_TIMEOUT_MS });
 
 after(async () => {
   await win?.screenshot({ path: path.join(EXTENSION, '.vscode-test', 'host-stock.png'), timeout: 5_000 }).catch(() => {});
@@ -231,9 +219,9 @@ after(async () => {
     console.error(`Preserved failed stock host fixture at ${root}`);
     throw error;
   }
-});
+}, { timeout: HOOK_TIMEOUT_MS });
 
-test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', rememberFailure(async () => {
+test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', { timeout: TEST_TIMEOUT_MS }, rememberFailure(async () => {
   const frame = await chat();
   const expand = frame.locator('#header-collapse[aria-expanded="false"]');
   if (await expand.count()) await expand.click();
@@ -279,7 +267,7 @@ test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why
   await win.keyboard.press('Control+W');
 }));
 
-test('a status read held past its deadline shows unavailable, keeps one reader and the draft, and recovers', rememberFailure(async () => {
+test('a status read held past its deadline shows unavailable, keeps one reader and the draft, and recovers', { timeout: TEST_TIMEOUT_MS }, rememberFailure(async () => {
   const draft = 'Keep this draft while the status read is held.';
   await (await chat()).fill('#message', draft);
   fs.writeFileSync(hold, '');
