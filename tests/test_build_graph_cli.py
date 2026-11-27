@@ -39,17 +39,20 @@ def joined_graph(dependencies=None):
 
 def citation_repair_spec():
     spec = fixtures.notes()
-    # Statement mutants cover the original storage module completely. Future
-    # imports have no mutation site; test the postponed annotation they enable
-    # so the fixture Tester must cite a reason and the bad citation reaches repair.
+    # The runner settles a line with no mutation site itself (#4218), so the fixture Tester needs a line it must
+    # still judge for its bad citation to reach repair: an explicit touch before the write, whose dropped call
+    # survives because write_text creates the file anyway. The fixture declares that one line equivalent.
     source = spec["payloads"]["M1"]["notes/storage.py"]
-    spec["payloads"]["M1"]["notes/storage.py"] = "from __future__ import annotations\n" + source.replace(
-        "def load(p):", "def load(p: Path):"
+    spec["payloads"]["M1"]["notes/storage.py"] = source.replace(
+        "def save(p, rows): Path(p).write_text(json.dumps(rows))",
+        "def save(p, rows):\n    Path(p).touch()\n    Path(p).write_text(json.dumps(rows))",
     )
-    spec["payloads"]["M1"]["test_storage.py"] += (
-        "\n    def test_load_postpones_its_path_annotation(self):\n"
-        "        self.assertEqual({'p': 'Path'}, load.__annotations__)\n"
-    )
+    spec["equivalent_lines"] = {
+        "notes/storage.py": {
+            "Path(p).touch()": "Dropping the explicit touch is equivalent: write_text on the next line creates "
+            "the file when it is missing, so the saved notes still reload exactly."
+        }
+    }
     spec["changed_code_citation_repair"] = True
     return spec
 

@@ -239,6 +239,8 @@ class ClimbCapBlackbox(unittest.TestCase):
     state = bb.BuildBlackbox.state
     events = bb.BuildBlackbox.events
     build = bb.BuildBlackbox.build
+    candidate = bb.BuildBlackbox.candidate
+    review_after_proof_round = bb.BuildBlackbox.review_after_proof_round
 
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
@@ -259,7 +261,7 @@ class ClimbCapBlackbox(unittest.TestCase):
         spec.update(complete_product=True, criterion_checks={"C1": "raise SystemExit(1)"})
         self.seed(spec, checker="gpt-6-sol", tester_effort=None)
         self.build()
-        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.review_after_proof_round()
         self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", *resolver_options], code)
         status = self.status()
         self.assertEqual("tester", status["next_stage"])
