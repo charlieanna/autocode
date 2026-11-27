@@ -1155,6 +1155,38 @@ def _prove_once(state: RunState, workspace, run_dir, current, *, all_due=False):
     )
 
 
+def _retention_family(saved, execution_context, run_dir):
+    """The prior proof's directory this fresh proof joins when it may retain per file (#4217).
+
+    A retained observation keeps the capture that produced it, so the new proof's artifact and its
+    checks are written inside that same proof family, exactly as a continuation window is: every
+    receipt the proof carries then sits inside its own pinned root. ``None`` when nothing may be
+    retained, and the proof is measured in its own fresh directory as before. Only a saved proof whose
+    runtime identity is reusable across invocations is retained from, the same bar continuation uses.
+    """
+    if not isinstance(saved, dict):
+        return None
+    study = saved.get("mutation_check")
+    if not isinstance(study, dict) or study.get("collected") is not True:
+        return None
+    context = saved.get("execution_context")
+    identity = context.get("identity") if isinstance(context, dict) else None
+    if not isinstance(identity, dict) or identity.get("reuse_supported") is not True:
+        return None
+    if changed_code.retention_context(context) != changed_code.retention_context(execution_context):
+        return None
+    if not changed_code.self_custody(saved):
+        return None
+    try:
+        family = Path(saved["path"]).parent
+    except (TypeError, KeyError):
+        return None
+    folder = Path(run_dir).resolve() / "regression"
+    if family.parent != folder or family.is_symlink() or not family.is_dir():
+        return None
+    return family
+
+
 def _prove(
     state: RunState,
     workspace,
@@ -1616,6 +1648,12 @@ def _proving(
         # traversal, and a run directory reached through one (/tmp or /var on macOS) would fail
         # its own authenticity check (autocode_changed_code_measurement.pinned).
         out = Path(run_dir).resolve() / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
+        # A proof that may retain an unchanged file's observations (#4217) joins the prior proof's
+        # directory family, so every receipt it carries stays inside the root its own artifact pins.
+        saved = state.get("regression_proof")
+        family = _retention_family(saved, execution_context, run_dir)
+        if family is not None:
+            out = family / out.name
         if progress:
             progress(
                 "Comparing regression tests and checking the full candidate suite",
@@ -1726,7 +1764,12 @@ def _proving(
             )
             if listed["files"]:
                 result = proving_run((*seen_tests, *listed["files"]))
-        path = out / "verification.json"
+        # The artifact sits beside every receipt it carries: in its own directory for a fresh proof,
+        # and in the prior proof's family root when it retains one's observations (#4217). The prior
+        # proof's own verification.json is never touched.
+        path = (
+            out / "verification.json" if family is None else family / f"verification-retained-{uuid.uuid4().hex}.json"
+        )
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:
             proof["notes"] = [*(proof.get("notes") or []), *inputs.notes]
@@ -1915,16 +1958,21 @@ def _proving(
         proof.setdefault("unverified", []).append(proof_infrastructure.FOLLOW_UP_CHANGED)
     # Report only (#699): mutants run only once the verdict is final and a pass, so a proof that fails its
     # cases or its context check spends nothing on them; every other proof carries the not-passed note.
+    # A passing proof of an edited candidate offers the prior study (#4217): an unchanged file's
+    # authenticated observations are retained per file instead of re-burning the budget on the same
+    # sites. The measurement root is the family that owns every receipt the proof will carry.
     proof["mutation_check"] = (
         changed_code.collect(
             proof,
             result,
             proving,
             workspace,
-            out,
+            out if family is None else family,
             kept[-1],
             execution_context,
             source_paths=source_scope.paths(state),
+            previous=saved if family is not None and proof.get("verdict") == verify.PASS else None,
+            evidence_dir=out / "mutation-check",
             progress=progress,
         )
         if path and kept and kept[-1].is_dir()
