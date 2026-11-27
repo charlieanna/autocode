@@ -4850,6 +4850,10 @@ class StockRefusalsRunTests(unittest.TestCase):
                 # The trap's PASS leaves changed lines with no mutation outcome undecided: one bounded
                 # Tester report repair asks for those decisions (#2621). This fixture's Tester has no
                 # reason for the trap's bytes, so the run goes on to the Completion Reviewer as before.
+                # #4218's runner no-site settlement does NOT remove this repair: the trap's regression
+                # proof FAILs here, so the mutation check never runs and these lines carry no outcome
+                # because their file was never processed (the case settlement fails closed on), not
+                # because they are no-site lines in a processed file.
                 "tester_report_repair",
                 "review_completion",
                 "resolve",
@@ -5155,7 +5159,9 @@ class HybridRunTests(unittest.TestCase):
     # The first Builder and the round its failing proof sends back before any review are the scripted trap.
     SCRIPTED = ["requirements_gather", "draft_plan", "review_plan", "builder", "builder"]
     # The trap's PASS leaves changed lines with no mutation outcome undecided, so the Tester gets one
-    # bounded report repair to decide them (#2621) before the Completion Reviewer runs.
+    # bounded report repair to decide them (#2621) before the Completion Reviewer runs. #4218's runner
+    # no-site settlement does not remove it: the trap's proof FAILs, the mutation check never runs, and
+    # the lines carry no outcome because their file was never processed, not because they are no-site.
     LIVE = [
         "tester",
         "tester_report_repair",
