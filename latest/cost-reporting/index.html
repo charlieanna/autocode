@@ -1288,6 +1288,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-plan-quota-went" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where plan quota went
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where plan quota went">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cheaper-routes-the-ledger-proves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cheaper routes the ledger proves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-to-interpret-the-numbers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1982,6 +2010,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-plan-quota-went" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where plan quota went
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where plan quota went">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cheaper-routes-the-ledger-proves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cheaper routes the ledger proves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-to-interpret-the-numbers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2186,6 +2242,41 @@ python3 tools/live_token_sampler.py --run-dir /path/to/run \
 </code></pre>
 <p>Both also work as Python modules (<code>python3 -m tools.score_autocode_run</code> and
 <code>python3 -m tools.live_token_sampler</code>) from the repository root.</p>
+<h2 id="where-plan-quota-went">Where plan quota went<a class="headerlink" href="#where-plan-quota-went" title="Permanent link">&para;</a></h2>
+<p>On a Claude or ChatGPT plan the limit is a pool of quota that every stage on that tool draws
+on, not a bill. <code>autocode usage quota [--workspace PATH] [--since DATE] [--all] [--json]</code> reads
+the same <code>usage.jsonl</code> ledgers as <code>report</code> and groups every stage that could draw quota by the pool
+it ran on (<code>claude</code>, <code>codex</code>, or <code>other</code> for an API key or any other route), then by role, model and
+level. For each pool it shows the burn, the burn that was <strong>wasted</strong> (a rejected, timed-out or
+interrupted stage) and the burn over the last 5 hours and 7 days, the two windows the plans limit by.</p>
+<ul>
+<li><strong>The unit is a weight, not a bill.</strong> Neither plan publishes its quota in dollars, so each stage is
+  the provider's reported cost, else its recorded tokens at the price table (see below). The figures
+  compare models and stages with each other. The report states no plan capacity and no share of one.</li>
+<li><strong>Unknown is never zero.</strong> A stage whose usage was never recorded is counted as unknown, and a pool
+  that has one prints its burn as a floor (<code>*</code>).</li>
+<li><strong>Fake-provider runs are left out</strong> and counted: they use no plan quota. Runner-owned stages are
+  left out too, since they call no model.</li>
+<li>It reads only ledgers, launches nothing and changes no route. It shows where quota went so a person
+  or a later change can choose cheaper routes; it grants no completion authority.</li>
+</ul>
+<h3 id="cheaper-routes-the-ledger-proves">Cheaper routes the ledger proves<a class="headerlink" href="#cheaper-routes-the-ledger-proves" title="Permanent link">&para;</a></h3>
+<p>Under each <code>claude</code> and <code>codex</code> pool the report adds a <strong>what-if</strong>: for a role that ran on several
+routes (a model at a level) in the same pool, the cheapest route that would have cost less for the same
+stages, and what that would have saved. A route is named only when the ledger itself shows that:</p>
+<ul>
+<li>the same pool and role ran it at least 5 times with a recorded price (<code>min_attempts</code> in the JSON);</li>
+<li>its accept rate (stages the runner took, not stages later judged well done) is at least that of the
+  route it replaces; and</li>
+<li>its price per attempt is lower, from the stages that have a price. The saving is the price gap times
+  the replaced route's priced attempts, so unknown usage never adds to it.</li>
+</ul>
+<p>A route is also dropped when it would put a checker on the same model as the work it checks
+(<code>autocode_verifier_independence</code>), judged against every route of the pairing's other role in the
+ledger. Nothing comes from a model table, so a model the ledger never ran for that role is never
+named. The <code>other</code> pool is not analysed. This is arithmetic over past runs: tasks differ, an accepted
+stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
+pool says so.</p>
 <h2 id="how-to-interpret-the-numbers">How to interpret the numbers<a class="headerlink" href="#how-to-interpret-the-numbers" title="Permanent link">&para;</a></h2>
 <p>The scorer's <code>token_usage.estimated_api_equivalent_usd</code> uses the existing
 historical comparison rates, recorded in <code>pricing_basis</code>. These are <strong>not

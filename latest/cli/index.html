@@ -2472,7 +2472,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/67c3666c564276906c7a579c62c83c802329c61f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/15fb0c8df2a2ea124f20f40e5432b4eaea056029/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2707,8 +2707,8 @@ See <a href="../task-run/#worktrees-for-clients">Worktrees for clients</a>.</p>
 <td>Serve the same steps as MCP tools over stdio, for Codex, Claude Code or Claude Desktop, with a read-only <code>autocode_runs</code> tool that lists every project's runs; <code>FLAGS</code> are the engine, model and budget flags for runs it starts. See <a href="../agent-step/#mcp-server">MCP server</a>.</td>
 </tr>
 <tr>
-<td><code>autocode usage [list\|report] [--workspace PATH] [--since DATE] [--all] [--json]</code></td>
-<td>Cross-run stage time, spend, outcome split, rejection classes, and first-interaction latency across <code>PROJECT/.autocode/usage.jsonl</code> ledgers, compared against <code>docs/efficiency-targets.json</code> with fake and live evidence kept strictly separate. Reads only <code>usage.jsonl</code> ledgers (never <code>state.json</code>).</td>
+<td><code>autocode usage [list\|report\|quota] [--workspace PATH] [--since DATE] [--all] [--json]</code></td>
+<td>Cross-run stage time, spend, outcome split, rejection classes, and first-interaction latency across <code>PROJECT/.autocode/usage.jsonl</code> ledgers, compared against <code>docs/efficiency-targets.json</code> with fake and live evidence kept strictly separate; <code>quota</code> shows where Claude and Codex plan quota went and the cheaper routes the ledger proves. Reads only <code>usage.jsonl</code> ledgers (never <code>state.json</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -2741,7 +2741,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/67c3666c564276906c7a579c62c83c802329c61f/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/15fb0c8df2a2ea124f20f40e5432b4eaea056029/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3381,7 +3381,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/67c3666c564276906c7a579c62c83c802329c61f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/15fb0c8df2a2ea124f20f40e5432b4eaea056029/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4137,7 +4137,7 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <tr>
 <td><code>autocode usage</code></td>
 <td><code>--workspace</code>, <code>--since</code>, <code>--all</code>, <code>--json</code></td>
-<td>Project workspace containing <code>.autocode/usage.jsonl</code>, inclusive <code>YYYY-MM-DD</code> UTC start date filter, all registered projects (<code>--all</code>), and machine-readable JSON output. <code>list</code> (default) shows per-run ledger rows; <code>report</code> (or <code>--all</code> / <code>--since</code>) adds outcome splits, rejection breakdowns, first-interaction latency, prompt/cache overhead, and <code>docs/efficiency-targets.json</code> status.</td>
+<td>Project workspace containing <code>.autocode/usage.jsonl</code>, inclusive <code>YYYY-MM-DD</code> UTC start date filter, all registered projects (<code>--all</code>), and machine-readable JSON output. <code>list</code> (default) shows per-run ledger rows; <code>report</code> (or <code>--all</code> / <code>--since</code>) adds outcome splits, rejection breakdowns, first-interaction latency, prompt/cache overhead, and <code>docs/efficiency-targets.json</code> status. <code>quota</code> shows the burn, the wasted burn and the last 5 hours and 7 days per Claude, Codex and other pool, by role, model and level, as API-equivalent weights rather than a bill or a plan share, with a what-if of cheaper same-pool routes the ledger itself proves (<a href="../cost-reporting/#where-plan-quota-went">Where plan quota went</a>).</td>
 </tr>
 </tbody>
 </table>
@@ -4561,7 +4561,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/67c3666c564276906c7a579c62c83c802329c61f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/15fb0c8df2a2ea124f20f40e5432b4eaea056029/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
