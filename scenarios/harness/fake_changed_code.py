@@ -2231,6 +2231,54 @@ GREETING_ACCEPTS_EMPTY_NAME_REASONS = {
     "raise SystemExit(main())": "No supported exit-adapter mutation. The CLI tests require exit zero on success and exit 2 on missing and extra names; discarding main's return value fails those checks.",
 }
 
+# The reference greeting with one redundant explicit flush (#4218 left the greeting's Tester nothing to
+# decide: the runner now settles every line with no mutation site itself, among them the entrypoint guard
+# whose reason cited a killed mutant's capture). Dropping the flush is an equivalent mutant, since the
+# interpreter flushes stdout at exit, so this one line still needs the independent Tester's judgment, and
+# that judgment cites the capture in which the success test killed the dropped print. Replay re-binds the
+# citation to the replay's own capture (tests.test_saved_run_replay_cli).
+GREETING_FLUSHED_SOURCE = '"""Deterministic greeting CLI."""\n\nimport sys\n\nUSAGE = "usage: greet.py NAME"\n\n\ndef greet(name: str) -> str:\n    return f"Hello, {name}"\n\n\ndef main(argv=None) -> int:\n    argv = sys.argv[1:] if argv is None else argv\n    if len(argv) != 1 or not argv[0]:\n        print(USAGE, file=sys.stderr)\n        return 2\n    print(greet(argv[0]))\n    sys.stdout.flush()\n    return 0\n\n\nif __name__ == "__main__":\n    raise SystemExit(main())\n'
+GREETING_FLUSHED = (hashlib.sha256(GREETING_FLUSHED_SOURCE.encode()).hexdigest(), GREETING_REFERENCE[1])
+
+
+def _greeting_flush(proof, digest, lines):
+    """Accept only the flush line's surviving dropped call, citing the print line's killed capture."""
+    flush, printed = lines.index("    sys.stdout.flush()") + 1, lines.index("    print(greet(argv[0]))") + 1
+    mutants = [
+        mutant
+        for file in (proof.get("mutation_check") or {}).get("files") or []
+        if file.get("path") == "greet.py" and file.get("sha256") == digest
+        for mutant in file.get("mutants") or []
+        if mutant.get("line") == flush
+    ]
+    capture = _killed_capture(proof, "greet.py", digest, printed)
+    if (
+        not capture
+        or not mutants
+        or any(
+            (m.get("operator"), m.get("outcome"), m.get("failed_tests")) != ("drop_call", "survived", [])
+            for m in mutants
+        )
+    ):
+        return []
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": "Dropping this explicit sys.stdout.flush() is equivalent: the interpreter flushes stdout "
+            "when the CLI exits, so test_cli_success still reads exact Hello, Ada on stdout with exit zero. The "
+            "same test kills the dropped print on the line above, so the CLI tests do observe its output.",
+            "evidence_refs": [proof["path"], "greet.py", *capture],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("status") == "reason_required"
+        and row.get("path") == "greet.py"
+        and row.get("sha256") == digest
+        and row.get("line") == flush
+        and row.get("mutation_outcomes") == ["survived"] * len(mutants)
+    ]
+
 
 def _greeting(data, root):
     proof = data.get("regression_proof") or {}
@@ -2246,12 +2294,19 @@ def _greeting(data, root):
         if tests is None:
             return []
         inputs = (digest, hashlib.sha256(tests.read_bytes()).hexdigest())
-        if inputs not in (GREETING_REFERENCE, GREETING_LOADABLE_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
+        if inputs not in (
+            GREETING_REFERENCE,
+            GREETING_LOADABLE_REFERENCE,
+            GREETING_ACCEPTS_EMPTY_NAME,
+            GREETING_FLUSHED,
+        ):
             return []
     except OSError:
         return []
     if not proof.get("path"):
         return []
+    if inputs == GREETING_FLUSHED:
+        return _greeting_flush(proof, digest, source.decode().splitlines())
     reasons = {
         "import sys": "No supported import mutation. The CLI tests execute argv, stderr and exit behavior; removing the import breaks those observed flows.",
         'USAGE = "usage: greet.py NAME"': "No supported assignment mutation. test_no_arg and test_cli_empty_name require a usage message on stderr with exit 2; deleting or emptying the literal fails those assertions.",

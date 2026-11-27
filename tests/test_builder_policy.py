@@ -1201,6 +1201,7 @@ class PolicyBlackbox(unittest.TestCase):
     events = bb.BuildBlackbox.events
     build = bb.BuildBlackbox.build
     candidate = bb.BuildBlackbox.candidate
+    review_after_proof_round = bb.BuildBlackbox.review_after_proof_round
 
     def test_ordinary_retry_keeps_luna_and_successful_siblings(self):
         self.seed()
@@ -1327,7 +1328,11 @@ class PolicyBlackbox(unittest.TestCase):
             # the invocation itself, so each round is one plain build that continues.
             self.build()
             self.candidate()
-            self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+            if attempt == 0:
+                # The first failing proof sends the change back to the Builder once, before any Tester (#4211).
+                self.review_after_proof_round()
+            else:
+                self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
             self.assertEqual("FAIL", self.state()["validation"]["verdict"])
             args = ["--run-dir", str(self.run), "--no-chat"]
             if attempt == 1:
@@ -1335,7 +1340,8 @@ class PolicyBlackbox(unittest.TestCase):
                 # settles it by taking the one scoped retry itself, so one call continues.
                 args += ["--resume-paused"]
             self.invoke("autoresolver", args, 2 if attempt == 2 else 0)
-        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
+        # The proof's own Builder round (#4211) is the second launch; it is not a retry decision.
+        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
         self.assertEqual("PAUSED_INTERVENTION", self.state()["status"])
         self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in self.state()["builder_retry_decisions"]])
         # The fake Tester fails the same check every round: the ledger sees the second and third as repeats.

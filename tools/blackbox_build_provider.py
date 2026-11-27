@@ -157,7 +157,43 @@ def scripted_changed_code_reasons(spec, data):
         if row.get("status") == "reason_required"
         and scripted.get(row.get("path")) == row.get("sha256")
         and not row.get("mutation_outcomes")
-    ]
+    ] + _scripted_equivalent_lines(spec, proof, scripted)
+
+
+def _scripted_equivalent_lines(spec, proof, scripted):
+    """Accept a line the spec declares equivalent, only where every mutant on it survived in the exact bytes.
+
+    The spec scripts both the bytes and the declaration (``equivalent_lines``: path, then exact stripped
+    line, then reason), so this never accepts an arbitrary survivor or a file the fixture did not write.
+    """
+    declared = spec.get("equivalent_lines") or {}
+    mutants = {
+        (file.get("path"), file.get("sha256")): file.get("mutants") or []
+        for file in (proof.get("mutation_check") or {}).get("files") or []
+    }
+    accepted = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, digest, line = row.get("path"), row.get("sha256"), row.get("line")
+        reason = (declared.get(path) or {}).get((row.get("source_line") or "").strip())
+        on_line = [m for m in mutants.get((path, digest), []) if m.get("line") == line]
+        if (
+            reason
+            and row.get("status") == "reason_required"
+            and scripted.get(path) == digest
+            and on_line
+            and all(m.get("outcome") == "survived" and not m.get("failed_tests") for m in on_line)
+            and row.get("mutation_outcomes") == ["survived"] * len(on_line)
+        ):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "equivalent_mutant",
+                    "reason": f"Scripted fixture: {path}:{line}. {reason}",
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    return accepted
 
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
