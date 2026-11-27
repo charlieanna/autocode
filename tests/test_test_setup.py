@@ -279,12 +279,18 @@ class SharedSetupAnswerTests(unittest.TestCase):
 
 
 class RegressionImportJudgmentTests(unittest.TestCase):
-    def judge(self, base, *, new_behavior=True, **kwargs):
+    def judge(self, base, *, new_behavior=True, skipped=(), **kwargs):
         candidate = {
             "exit_code": 0,
             "timed_out": False,
             "results_expected": True,
-            "results": {"passed": [SELECTED], "failed": [], "skipped": [], "total": 1, "complete": True},
+            "results": {
+                "passed": [SELECTED],
+                "failed": [],
+                "skipped": list(skipped),
+                "total": 1 + len(skipped),
+                "complete": True,
+            },
         }
         original = {"exit_code": 1, "timed_out": False, "results": base}
         failed, unverified, notes, proof, reviews = [], [], [], {}, []
@@ -334,6 +340,13 @@ class RegressionImportJudgmentTests(unittest.TestCase):
         self.assertEqual([], proof["fail_to_pass"])
         self.assertEqual([SELECTED], proof["not_run_on_base"])
         self.assertTrue(failed or unverified)
+
+    def test_a_test_skipped_with_the_change_does_not_cancel_a_first_suite(self):
+        # Only the tests that pass with the change are counted; one the host cannot run is no evidence.
+        base = base_results(unloaded=[UNITTEST_UNLOADED])
+        failed, unverified, proof = self.judge(base, absent_first_suite=True, skipped=["test_db.DB.test_stored"])
+        self.assertEqual([SELECTED], proof["fail_to_pass"])
+        self.assertEqual([], failed)
 
     def test_unloadable_repair_does_not_count_a_skipped_targeted_test(self):
         base = base_results(unloaded=[UNITTEST_UNLOADED])

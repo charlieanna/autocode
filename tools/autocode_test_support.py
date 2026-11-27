@@ -108,3 +108,43 @@ def proven(proof, revision) -> list[str]:
     if proof.get("verdict") != "PASS" or proof.get("source_revision") != revision:
         return []
     return sorted(str(path) for path in proof.get("test_support") or ())
+
+
+def proven_tests(proof, revision) -> list[str]:
+    """The changed test files a passing regression proof of this very candidate (``revision``) recorded,
+    the files the change adds among them, or []."""
+    proof = proof if isinstance(proof, dict) else {}
+    if proof.get("verdict") != "PASS" or proof.get("source_revision") != revision:
+        return []
+    return sorted(str(path) for path in proof.get("test_files") or ())
+
+
+def added_only(row, original_files, test_files) -> list[str] | None:
+    """The original half's failing test ids when each is a test of a file the change adds, else None.
+
+    The original-test gate restores the original bytes of every changed protected file, test data and
+    helpers among them. A test the change adds that needs what the change added to such a file then fails
+    there, though it is no original test: the candidate half judges it. The run must have ended on its own
+    with complete per-test results, nothing uncollected and at least one failure. Every failing id must be
+    one ``defines`` places in a changed test file that is no original file (``test_files``, from the
+    proof of this candidate), and none one it could place in an original file: a test id it cannot place,
+    as a runner that names tests without their file reports, keeps the failure.
+    """
+    if not isinstance(row, dict) or row.get("timed_out") or row.get("error"):
+        return None
+    if type(row.get("exit_code")) is not int or row["exit_code"] == 0:
+        return None
+    results = row.get("results")
+    if not isinstance(results, dict) or results.get("complete") is not True:
+        return None
+    failed = results.get("failed")
+    if not isinstance(failed, list) or not failed or results.get("uncollected") or results.get("collection_errors"):
+        return None
+    originals = sorted(str(name) for name in original_files or ())
+    added = sorted(str(name) for name in test_files or () if str(name) not in originals)
+    failing = {"failed": failed}
+    if not originals or not added or defines(originals, failing):
+        return None
+    if set(defines(added, failing)) != {str(test) for test in failed}:
+        return None
+    return sorted(str(test) for test in failed)

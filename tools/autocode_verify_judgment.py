@@ -254,10 +254,11 @@ def judge_regression(
             and seam_names
             and (base["collection_errors"] or setup_errors)
             and on_candidate["exit_code"] == 0
-            and not candidate.get("skipped")
             and not failed
             else set()
         )
+        # A skipped test is no evidence either way: only tests that pass with the change are counted below, so
+        # one the host cannot run (a database variant) does not cancel the proof the others give.
         # A test whose own body could not import what the change adds (test_setup.not_evidence) is one of them.
         imported = {
             test
@@ -291,7 +292,6 @@ def judge_regression(
             and absent_first_suite
             and base["collection_errors"]
             and on_candidate["exit_code"] == 0
-            and not candidate.get("skipped")
             and not failed
         ):
             observed = set(base["passed"]) | set(base["failed"]) | set(base.get("skipped") or ())
