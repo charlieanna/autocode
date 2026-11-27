@@ -266,6 +266,23 @@ def proved_outcome(receipt, tests) -> tuple[str, list[str]]:
     return mutation_results.outcome(receipt, tests)
 
 
+def _retained_measurement_matches(prior, tests, mutant_tests, site_selection) -> bool:
+    """True when a prior outcome was measured against tests that still authenticate this exact site.
+
+    A run against every selected test is at least as strong as any narrowed run, so it transfers even
+    when this window would narrow the site. Otherwise the prior must have used exactly this site's
+    current selection rule and test set: when another file changed the import or symbol closure, an
+    outcome measured against a different set never transfers (#4217). The caller has already bound the
+    file's exact bytes and site inventory; this binds the tests the outcome was measured against.
+    """
+    prior_tests = prior.get("selected_tests")
+    prior_rule = prior.get("selection_rule")
+    if prior_rule == affected_tests.RULE_ALL and prior_tests == list(tests):
+        return True
+    rule = site_selection["rule"] if site_selection is not None else affected_tests.RULE_ALL
+    return prior_rule == rule and prior_tests == list(mutant_tests)
+
+
 def collect(
     framework_name,
     command,
@@ -446,20 +463,36 @@ def _collect(
         return record("no changed product line has a mutation site, so the mutation check ran no test", rows)
     retained = {}
     if previous is not None:
-        # The caller authenticates source, command, runtime and capture custody.
-        # Rebuild the entire site inventory too: no ordinal or display snippet
-        # may transfer a completed observation to another mutation.
-        old = [item for file in previous.get("files", []) for item in file.get("mutants", [])]
+        # The caller authenticates source, command, runtime and capture custody. A different selected-test
+        # set or execution policy never transfers any outcome: the whole study is refused before a run.
         if (
             not enforcement
             or previous.get("selected_tests") != tests
             or previous.get("execution_policy") != mutation_results.STOP_POLICY
-            or [(file.get("path"), file.get("sha256")) for file in previous.get("files", [])]
-            != [(file.get("path"), file.get("sha256")) for file in rows]
-            or [item.get("site_id") for item in old] != [mutant.id for *_, mutant in planned]
         ):
             return record("The retained mutation study does not match the selected tests and exact sites", rows)
-        retained = {item["site_id"]: item for item in old}
+        # Per-file retention (#4217): a file's outcomes transfer only when its exact bytes and its whole
+        # site inventory match a prior file. A changed file (different bytes or sites) re-plans and re-runs;
+        # an unchanged file keeps its authenticated outcomes even when other files changed. No ordinal or
+        # display snippet may transfer a completed observation to another mutation.
+        prior_files: dict = {}
+        for file in previous.get("files", []):
+            path = file.get("path")
+            prior_files[path] = None if path in prior_files else file
+        planned_ids: dict[int, list] = {}
+        for row, _, _, _, mutant in planned:
+            planned_ids.setdefault(id(row), []).append(mutant.id)
+        for row in rows:
+            prior_file = prior_files.get(row["path"])
+            if not isinstance(prior_file, dict) or not row.get("sha256"):
+                continue
+            if prior_file.get("sha256") != row["sha256"]:
+                continue
+            prior_mutants = prior_file.get("mutants", [])
+            if [item.get("site_id") for item in prior_mutants] != planned_ids.get(id(row), []):
+                continue
+            for item in prior_mutants:
+                retained[item["site_id"]] = item
     evidence.mkdir(parents=True, exist_ok=True)
     if deadline is None:
         deadline, reference_limit = clock() + BUDGET_SECONDS, BUDGET_SECONDS
@@ -545,8 +578,32 @@ def _collect(
         selection_by_site, selection_summary = affected_tests.plan_for_mutants(
             raw_selection, [(row["path"], mutant.line) for row, _, _, _, mutant in planned]
         )
+    # Decide which prior outcomes still authenticate, then run never-observed sites before re-runs so the
+    # budget accumulates coverage across proofs (#4217). A re-run is a site whose prior outcome exists but
+    # no longer transfers (a symbol-narrowed survivor, a changed selection, or a never-launched site).
+    retained_sites: set[str] = set()
+    rerun_paths: set[str] = set()
+    for row, _, _, _, mutant in planned:
+        prior = retained.get(mutant.id)
+        if prior is None:
+            continue
+        site_selection = selection_by_site.get((row["path"], mutant.line)) if enforcement else None
+        mutant_tests = site_selection["tests"] if site_selection is not None else tests
+        guessed = prior.get("selection_rule") == affected_tests.RULE_SYMBOL and prior.get("outcome") == "survived"
+        if (
+            not guessed
+            and _retained_measurement_matches(prior, tests, mutant_tests, site_selection)
+            and (prior.get("outcome") != "not_run" or prior.get("evidence"))
+        ):
+            retained_sites.add(mutant.id)
+        else:
+            rerun_paths.add(row["path"])
+    # Files needing a re-run go after files whose sites are all recent or never-observed; within a file the
+    # original site order is kept, so each file's record stays in plan order and its label/mtime are stable.
+    order = sorted(enumerate(planned), key=lambda item: (item[1][0]["path"] in rerun_paths, item[0]))
     unrun = 0
-    for number, (row, target, source, times, mutant) in enumerate(planned, 1):
+    for index, (row, target, source, times, mutant) in order:
+        number = index + 1
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
         site_selection = selection_by_site.get((row["path"], mutant.line)) if enforcement else None
         mutant_tests = site_selection["tests"] if site_selection is not None else tests
@@ -560,17 +617,10 @@ def _collect(
                 failed_tests=[],
                 evidence=[],
             )
-        prior = retained.get(mutant.id)
-        # A survivor an earlier runtime recorded from symbol narrowing alone was never shown to every selected test.
-        guessed = (
-            prior is not None
-            and prior.get("selection_rule") == affected_tests.RULE_SYMBOL
-            and prior.get("outcome") == "survived"
-        )
-        if prior is not None and not guessed and (prior.get("outcome") != "not_run" or prior.get("evidence")):
-            # Even a failed, incomplete or timed-out attempt is retained. Only
-            # sites the prior window never launched get another command.
-            row["mutants"].append(copy.deepcopy(prior))
+        if mutant.id in retained_sites:
+            # Even a failed, incomplete or timed-out attempt is retained. Only sites the prior window never
+            # launched, or whose measurement no longer authenticates this site, get another command.
+            row["mutants"].append(copy.deepcopy(retained[mutant.id]))
             continue
         # Symbol narrowing only shortens a run: a test that never names a definition can still run it, when a
         # decorator or base class hands it to an object the tests use (``@app.post`` on a FastAPI handler reached

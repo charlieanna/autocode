@@ -114,23 +114,35 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(expected, calls)
                 self.assertTrue(final["collected"])
 
-    def test_changed_tests_sites_or_policy_refuse_before_reference_launch(self):
+    def test_changed_tests_or_policy_refuse_before_reference_launch(self):
         first = self.collect(fixtures.Clock(), [])
-        for change in ("tests", "site", "policy", "source"):
+        for change in ("tests", "policy"):
             with self.subTest(change=change):
                 prior = copy.deepcopy(first)
                 if change == "tests":
                     prior["selected_tests"] = [fixtures.C1]
-                elif change == "site":
-                    prior["files"][0]["mutants"][0]["site_id"] = "another-site"
-                elif change == "policy":
-                    prior["execution_policy"] = "another-policy"
                 else:
-                    (self.tree / "app.py").write_text(fixtures.WINDOW + "# changed bytes\n")
+                    prior["execution_policy"] = "another-policy"
                 calls = []
                 result = self.collect(fixtures.Clock(), calls, previous=prior)
                 self.assertFalse(result["collected"])
                 self.assertEqual([], calls)
+
+    def test_changed_site_or_source_reruns_the_file_instead_of_transferring_outcomes(self):
+        # #4217: a file whose bytes or site inventory changed is re-planned and re-run; its prior
+        # outcomes are not transferred, and the study is not refused wholesale.
+        first = self.collect(fixtures.Clock(), [])
+        for change in ("site", "source"):
+            with self.subTest(change=change):
+                prior = copy.deepcopy(first)
+                if change == "site":
+                    prior["files"][0]["mutants"][0]["site_id"] = "another-site"
+                else:
+                    (self.tree / "app.py").write_text(fixtures.WINDOW + "# changed bytes\n")
+                calls = []
+                result = self.collect(fixtures.Clock(), calls, previous=prior)
+                self.assertTrue(result["collected"])
+                self.assertEqual(["unmutated", "mutant-01", "mutant-02", "mutant-03", "mutant-04"], calls)
                 (self.tree / "app.py").write_text(fixtures.WINDOW)
 
     def test_limited_or_unstarted_reference_records_the_budget_without_launching_a_site(self):
@@ -166,6 +178,113 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(deadline == 0, reference.get("not_started", False))
                 self.assertEqual(deadline != 0, reference["timed_out"])
                 self.assertEqual(before, first)
+
+
+OTHER = "def pick(n):\n    if n > 0:\n        return n\n    return 0\n"
+OTHER_DIFF = "diff --git a/other.py b/other.py\n--- a/other.py\n+++ b/other.py\n@@ -1,0 +2,3 @@\n"
+TWO_DIFFS = {"app.py": fixtures.DIFF, "other.py": OTHER_DIFF}
+
+
+class PerFileRetentionTests(unittest.TestCase):
+    """#4217: retention is per file, so editing one file between proofs keeps the others' observations.
+
+    A deterministic fake ``run`` reports every selected test passing, so each site survives and the
+    only thing under test is which sites are retained, re-run, and in what order. No model is launched.
+    """
+
+    def setUp(self):
+        fixtures.RunnerTests.setUp(self)
+        (self.tree / "other.py").write_text(OTHER)
+
+    def collect(self, calls, *, previous=None):
+        def run(command, label, timeout):
+            calls.append(label)
+            return {
+                "output": str(self.evidence / f"{len(calls)}-{label}.log"),
+                "command": command,
+                "exit_code": 0,
+                "timed_out": False,
+                "duration_seconds": 0.5,
+                "results": {
+                    "complete": True,
+                    "passed": [fixtures.C1, fixtures.C2],
+                    "failed": [],
+                    "skipped": [],
+                    "total": 2,
+                    "collection_errors": [],
+                },
+            }
+
+        return mutation.collect_selected_tests(
+            "unittest",
+            fixtures.COMMAND,
+            [fixtures.C1, fixtures.C2],
+            self.tree,
+            self.evidence,
+            [("app.py", "modified"), ("other.py", "modified")],
+            lambda chosen: TWO_DIFFS[chosen[0][0]],
+            run,
+            clock=fixtures.Clock(),
+            enforcement=True,
+            previous=previous,
+        )
+
+    def test_an_unchanged_file_keeps_its_outcomes_when_another_file_changes_bytes(self):
+        calls = []
+        first = self.collect(calls)
+        self.assertTrue(first["collected"])
+        app_rows = first["files"][0]["mutants"]
+        other_rows = first["files"][1]["mutants"]
+        self.assertEqual(6, len(app_rows))
+        self.assertEqual(6, len(other_rows))
+        # app.py is planned first (sites 01-06), other.py second (sites 07-12); every site ran.
+        self.assertEqual(["unmutated", *[f"mutant-{n:02d}" for n in range(1, 13)]], calls)
+
+        # The Builder edits only other.py; app.py's bytes are untouched.
+        (self.tree / "other.py").write_text(OTHER + "# touched\n")
+        calls.clear()
+        second = self.collect(calls, previous=first)
+        self.assertTrue(second["collected"])
+        # app.py's authenticated outcomes are retained verbatim, not re-run.
+        self.assertEqual(app_rows, second["files"][0]["mutants"])
+        self.assertEqual(["unmutated", *[f"mutant-{n:02d}" for n in range(7, 13)]], calls)
+        # other.py re-planned and re-ran: its outcomes carry this window's fresh evidence.
+        rerun = second["files"][1]["mutants"]
+        self.assertEqual(len(other_rows), len(rerun))
+        self.assertNotEqual(other_rows, rerun)
+        self.assertTrue(all(row["evidence"] for row in rerun))
+        self.assertEqual(OTHER + "# touched\n", (self.tree / "other.py").read_text())
+        self.assertEqual(fixtures.WINDOW, (self.tree / "app.py").read_text())
+
+    def test_changed_selected_tests_transfer_no_outcome_even_for_unchanged_files(self):
+        calls = []
+        first = self.collect(calls)
+        prior = copy.deepcopy(first)
+        prior["selected_tests"] = [fixtures.C1]  # a different test set than the current selection
+        calls.clear()
+        result = self.collect(calls, previous=prior)
+        self.assertFalse(result["collected"])
+        self.assertEqual([], calls, "no mutant may run against a mismatched retained study")
+        self.assertIn("does not match the selected tests", result["note"])
+
+    def test_never_observed_sites_run_before_a_re_run_of_an_observed_site(self):
+        calls = []
+        first = self.collect(calls)
+        prior = copy.deepcopy(first)
+        # app.py stays byte-identical, but its first site is a symbol-narrowed survivor: it must run
+        # again on every selected test, so it is a re-run. other.py's bytes change, so its sites are
+        # never-observed. In plan order app.py's re-run precedes other.py, but coverage comes first.
+        prior["files"][0]["mutants"][0]["selection_rule"] = "symbol_closure"
+        prior["files"][0]["mutants"][0]["outcome"] = "survived"
+        (self.tree / "other.py").write_text(OTHER + "# touched\n")
+        calls.clear()
+        second = self.collect(calls, previous=prior)
+        self.assertTrue(second["collected"])
+        # other.py's never-observed sites (07-12) run before app.py's re-run site (01).
+        self.assertEqual(
+            ["unmutated", *[f"mutant-{n:02d}" for n in range(7, 13)], "mutant-01"],
+            calls,
+        )
 
 
 class ProofTests(unittest.TestCase):
