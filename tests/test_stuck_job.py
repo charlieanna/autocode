@@ -151,6 +151,250 @@ class PromptHandoffTests(unittest.TestCase):
         self.check_compact_round_trip("builder_failure")
 
 
+def refusal_text(label, size):
+    """A saved test run's output: the rule it broke at the head, the failing count at the tail."""
+    head = f"{label} HEAD: the Builder cited a path with prose after it\n"
+    tail = f"{label} TAIL: 27 failed, 3 passed in 41.20s\n"
+    body = "tests/test_widget.py:12: AssertionError: expected 3, got 4\n"
+    return head + body * (size // len(body)) + tail
+
+
+def large_incident(mode="ordinary", open_lines=27, reason_bytes=18_000, error_bytes=60_000, lines=229):
+    """A large build's refusal loop: every carrier the Investigator's unbounded handoff bulk came from
+    (#4219). 40 attempts, a failure ledger with whole test outputs, five earlier investigations, and a
+    changed-code proof of 229 lines of which ``open_lines`` still need evidence."""
+    # A path longer than any text tail: the diagnosis cites it, so it must survive exact.
+    deep = "/run/" + "nested/" * 300 + "builder-39.json"
+    stages = [
+        {
+            "stage": "tester" if index % 4 == 0 else "builder",
+            "iteration": index,
+            "output": deep if index == 39 else f"/run/iterations/builder-{index:02d}.json",
+            "rejected": True,
+            "rejection_reason": refusal_text(f"attempt {index}", reason_bytes),
+            "source_revision": "rev-1",
+        }
+        for index in range(40)
+    ]
+    ledger = {
+        f"key{index}": {
+            "identity": {"stage": "builder", "artifact_hash": "rev-1", "error_class": "PAUSED_REPEATED_FAILURE"},
+            "count": 4,
+            "last_error": refusal_text(f"failure {index}", error_bytes),
+            "output_probe": {"attempts": 1, "result": {"output": {"parse": "json_object", "bytes": 1234}}},
+        }
+        for index in range(3)
+    }
+    previous = [
+        {
+            "identity": f"builder:PAUSED_REPEATED_FAILURE:{index}",
+            "stage": "builder",
+            "status": "PAUSED_REPEATED_FAILURE",
+            "reason": refusal_text(f"investigation {index}", 12_000),
+            "outcome": "retried",
+            "diagnosis": "The Builder keeps citing a path with prose after it.",
+            "guidance": "Cite the exact path.",
+            "evidence_refs": ["/run/iterations/builder-01.json"],
+            "probe_result": {"id": "the diagnosed cause", "exit_code": 0, "output": refusal_text("probe", 4_000)},
+        }
+        for index in range(5)
+    ]
+    obligations = [
+        {
+            "gap_id": f"{line:064x}",
+            "handle": f"L{line}",
+            "path": "tools/widget.py",
+            "sha256": f"{line:064x}",
+            "line": line,
+            "status": "reason_required" if line <= open_lines else "tested",
+            "executed": True,
+            "mutation_demonstrated": line > open_lines,
+            "mutation_outcomes": [{"mutant": f"m{line}", "outcome": "killed"}] if line > open_lines else [],
+            "evidence": [],
+            "fallback": "reviewer_reason_required" if line <= open_lines else "none",
+            "reason": "No measured execution or complete behavioral mutation evidence for this changed line."
+            if line <= open_lines
+            else "Current selected tests detect the changed line's mutants.",
+            "source_line": f"    return compute_total(items, discount={line})",
+        }
+        for line in range(1, lines + 1)
+    ]
+    request = {
+        "stage": "builder",
+        "status": "PAUSED_REPEATED_FAILURE",
+        "reason": refusal_text("incident", 6_000),
+        "identity": "builder:PAUSED_REPEATED_FAILURE",
+    }
+    if mode == "builder_failure":
+        request["mode"] = "builder_failure"
+        request["failure_evidence"] = {
+            "record": {
+                "stage": "tester",
+                "iteration": 9,
+                "output": "/run/iterations/tester-09.json",
+                "after_ref": "/run/iterations/after-09.json",
+                "source_revision": "rev-1",
+                "events": "/run/iterations/tester-09.jsonl",
+                "metrics": {"request_context": {"accounting": refusal_text("accounting", 20_000)}},
+            },
+            "error_class": "PAUSED_REPEATED_FAILURE",
+            "checks": [
+                {"id": "K1", "command": "python3 -m unittest", "exit_code": 1, "output": refusal_text("check", 40_000)}
+            ],
+            "checkpoint": {"current": {"id": "M1", "status": "PENDING"}},
+            "output_probe": {"attempts": 1, "result": {}},
+            "failure_id": "F1",
+            "evidence_refs": ["/run/iterations/tester-09.json", "/run/iterations/after-09.json"],
+            "diagnosis": {
+                "changed_code_evidence": {
+                    "schema": 1,
+                    "source_revision": "rev-1",
+                    "proof_context": "ctx",
+                    "status": "UNVERIFIED",
+                    "reason": "Changed product lines still need behavioral evidence.",
+                    "obligations": obligations,
+                    "fallback": ["reviewer_reason_required"],
+                }
+            },
+            "binding": {
+                "task_id": "task-1",
+                "contract_hash": "hash-1",
+                "contract_revision": 1,
+                "source_revision": "rev-1",
+                "output": "/run/iterations/tester-09.json",
+                "evidence_hashes": {"/run/iterations/tester-09.json": "digest-1"},
+            },
+        }
+    return state_for(
+        task=refusal_text("the task brief", 8_000),
+        stages=stages,
+        failure_history=ledger,
+        stuck_investigations=previous + [{"identity": request["identity"], "stage": "builder"}],
+        stuck_investigation=request,
+        current_task={"id": "task-1", "kind": "implement", "affected_paths": ["tools/widget.py"]},
+        goal_contract={
+            "revision": 1,
+            "hash": "hash-1",
+            "body": {"acceptance_criteria": [{"id": "AC1", "criterion": "x"}]},
+        },
+        answers={"Q1": "yes"},
+    )
+
+
+class HandoffBoundTests(unittest.TestCase):
+    """#4219: a read-only diagnosis carries the incident, not an inline copy of the whole run. The largest
+    measured prompt was 623 KB, re-read across about five tool requests (180-240k fresh input tokens a call)."""
+
+    def handoff(self, state):
+        text, _ = stuck.prompt(state, "/run/state.json", {"files": ["tools/widget.py"]}, engine="opencode")
+        _, raw = text.split("\nCURRENT HANDOFF DATA\n", 1)
+        return text, json.loads(raw)
+
+    def rendered(self, data):
+        return len(json.dumps(data, separators=(",", ":")).encode())
+
+    def test_a_large_incident_stays_inside_the_bound_in_both_modes(self):
+        for mode in ("ordinary", "builder_failure"):
+            with self.subTest(mode=mode):
+                state = large_incident(mode)
+                before = copy.deepcopy(state)
+                text, data = self.handoff(state)
+                self.assertEqual(before, state, "rendering must not change the run's saved state")
+                self.assertLessEqual(self.rendered(data), stuck.HANDOFF_BYTES)
+                self.assertLess(len(text.encode()), 128 * 1024)
+                self.assertEqual(
+                    data, stuck.packet(state, "/run/state.json", {"files": ["tools/widget.py"]}, "opencode")
+                )
+                self.assertIn("handoff_bound", data)
+                self.assertEqual(stuck.HANDOFF_BYTES, data["handoff_bound"]["bound_bytes"])
+
+    def test_the_bound_keeps_the_incident_request_and_the_failing_stage_evidence(self):
+        state = large_incident("builder_failure")
+        _, data = self.handoff(state)
+        request = state["stuck_investigation"]
+        # The incident itself, the task, the contract and the person's answers are never trimmed.
+        self.assertEqual({key: request[key] for key in ("stage", "status", "reason")}, data["stuck"])
+        for field in ("task", "goal_contract", "current_task"):
+            self.assertEqual(state[field], data[field], field)
+        self.assertEqual(state["answers"], data["saved_answers"])
+        self.assertEqual("/run/state.json", data["state_file"])
+        # The failing stage's latest attempt: its exact saved path, and the head and tail of its rejection.
+        last = data["recent_stages"][-1]
+        self.assertEqual("builder", last["stage"])
+        self.assertEqual(state["stages"][-1]["output"], last["output"])
+        self.assertTrue(last["rejection_reason"].startswith("attempt 39 HEAD:"))
+        self.assertTrue(last["rejection_reason"].endswith("attempt 39 TAIL: 27 failed, 3 passed in 41.20s\n"))
+        self.assertIn("this row's saved output", last["rejection_reason"])
+        self.assertIn("[autocode:", last["rejection_reason"])
+        # The failure ledger keeps its identity and count, and both ends of the error it stopped on.
+        entry = data["failure_history"]["key0"]
+        self.assertEqual(state["failure_history"]["key0"]["identity"], entry["identity"])
+        self.assertEqual(4, entry["count"])
+        self.assertTrue(entry["last_error"].startswith("failure 0 HEAD:"))
+        self.assertTrue(entry["last_error"].endswith("failure 0 TAIL: 27 failed, 3 passed in 41.20s\n"))
+        # An earlier investigation stays readable, with its own diagnosis and guidance whole.
+        self.assertTrue(data["previous_investigations"])
+        self.assertEqual("Cite the exact path.", data["previous_investigations"][-1]["guidance"])
+
+    def test_a_classification_keeps_its_pinned_authority_and_every_open_line_whole(self):
+        state = large_incident("builder_failure")
+        _, data = self.handoff(state)
+        original = state["stuck_investigation"]["failure_evidence"]
+        failure = data["builder_failure"]
+        for key in ("failure_id", "evidence_refs", "binding", "checkpoint", "error_class", "output_probe"):
+            self.assertEqual(original[key], failure[key], key)
+        for key in ("stage", "iteration", "output", "after_ref", "source_revision", "events"):
+            self.assertEqual(original["record"][key], failure["record"][key], key)
+        assessment = failure["diagnosis"]["changed_code_evidence"]
+        whole = original["diagnosis"]["changed_code_evidence"]
+        self.assertEqual(whole["status"], assessment["status"])
+        self.assertEqual(whole["source_revision"], assessment["source_revision"])
+        opened = [row for row in whole["obligations"] if row["status"] == "reason_required"]
+        # Every open line whole, including the exact source text the handle binds (#2977).
+        self.assertEqual(opened, assessment["obligations"])
+        self.assertTrue(all(row["source_line"] for row in assessment["obligations"]))
+        settled = [row["line"] for row in whole["obligations"] if row["status"] == "tested"]
+        self.assertEqual(settled[: stuck.LISTED_LINES], assessment["settled_lines"]["tested"]["tools/widget.py"])
+        self.assertNotIn("metrics", failure["record"])
+
+    def test_a_pathological_incident_still_fits_the_bound(self):
+        state = large_incident(
+            "builder_failure", open_lines=2000, lines=2000, reason_bytes=200_000, error_bytes=400_000
+        )
+        text, data = self.handoff(state)
+        self.assertLessEqual(self.rendered(data), stuck.HANDOFF_BYTES)
+        self.assertLess(len(text.encode()), 128 * 1024)
+        assessment = data["builder_failure"]["diagnosis"]["changed_code_evidence"]
+        omitted = assessment["obligations_omitted"]
+        self.assertEqual(2000 - len(assessment["obligations"]), omitted["count"])
+        self.assertEqual(f"L{len(assessment['obligations']) + 1}", omitted["lines"][0]["handle"])
+        self.assertEqual("tools/widget.py", omitted["lines"][0]["path"])
+
+    def test_an_incident_inside_the_bound_keeps_its_exact_handoff(self):
+        state = state_for(
+            stuck_investigation={
+                "stage": "builder",
+                "status": "PAUSED_REPEATED_FAILURE",
+                "reason": "rejected three times",
+                "identity": "fixed-identity",
+            }
+        )
+        with patch.object(stuck, "HANDOFF_BYTES", 10**9):
+            whole = stuck.packet(state, "/run/state.json")
+        self.assertEqual(whole, stuck.packet(state, "/run/state.json"))
+        self.assertNotIn("handoff_bound", whole)
+
+    def test_the_bound_is_deterministic_and_never_clips_a_cited_path(self):
+        state = large_incident()
+        first = stuck.packet(state, "/run/state.json")
+        self.assertEqual(first, stuck.packet(copy.deepcopy(state), "/run/state.json"))
+        deep = state["stages"][-1]["output"]
+        self.assertGreater(len(deep.encode()), stuck.HANDOFF_BYTES // 32)
+        self.assertEqual(deep, first["recent_stages"][-1]["output"])
+        self.assertIn("[autocode:", first["recent_stages"][-1]["rejection_reason"])
+        self.assertTrue(first["recent_stages"][-1]["rejection_reason"].startswith("attempt 39 HEAD:"))
+
+
 class InterceptTests(unittest.TestCase):
     def test_a_non_convergence_pause_goes_to_the_investigator(self):
         state = state_for(

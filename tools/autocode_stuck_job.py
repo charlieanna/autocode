@@ -74,6 +74,7 @@ from typing import Any
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_failures as failures
     from . import autocode_job_end as job_end
@@ -101,6 +102,7 @@ try:
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_classification_recovery as classification_recovery
     import autocode_failures as failures
     import autocode_job_end as job_end
@@ -585,7 +587,7 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         if (entry.get("identity") or {}).get("stage") == request["stage"]
     }
     recovery = state.get("recovery_context")
-    return {
+    value = {
         "stage": STAGE,
         "task": state["task"],
         "workspace": state.get("workspace"),
@@ -613,6 +615,239 @@ def packet(state: RunState, state_path, inventory: dict | None = None, engine: s
         # What earlier runs learned about this repository; advisory, never authority (#2943).
         **({"project_notes": notes} if (notes := project_notes.context(state)) else {}),
     }
+    return _bound(value, request["stage"])
+
+
+# The Investigator works read-only, and its prompt already says state_file is authoritative and the stuck
+# stage's saved outputs are its evidence. So the handoff carries the incident, not an inline copy of the run.
+# A large build's diagnosis prompt reached 623 KB and was re-read across about five tool requests (180-240k
+# fresh input tokens a call, #4219): other attempts' whole rejection texts, the failure ledger's whole error
+# text, earlier investigations' pause reasons and probe output, and the settled lines of a changed-code
+# proof. The paths that name all of it are what the diagnosis needs inline; the bulk is on disk.
+HANDOFF_BYTES = 64 * 1024
+# The carriers of that bulk. Every other packet field is the request itself (the incident, the task, the
+# contract, the person's answers) or a pointer, and is never trimmed.
+BULK_FIELDS = ("recent_stages", "failure_history", "previous_investigations", "builder_failure")
+# Values the diagnosis cites exactly: a path, an identity, a command, or a probe's own text. Never clipped,
+# because the report's evidence_refs and probe must still match the pinned files byte for byte.
+EXACT_KEYS = frozenset(
+    {
+        "identity",
+        "stage",
+        "status",
+        "iteration",
+        "line",
+        "count",
+        "attempt",
+        "attempt_id",
+        "id",
+        "output",
+        "events",
+        "schema",
+        "diff_ref",
+        "before_ref",
+        "after_ref",
+        "path",
+        "paths",
+        "evidence_ref",
+        "evidence_refs",
+        "probe_path",
+        "failure_id",
+        "gap_id",
+        "handle",
+        "sha256",
+        "source_revision",
+        "task_id",
+        "contract_hash",
+        "contract_revision",
+        "command",
+        "argv",
+        "exit_code",
+        "probe",
+        "counterexample",
+        "file",
+        "find",
+        "replace",
+        "model",
+        "engine",
+        "reasoning_effort",
+        "at",
+        "requested_at",
+        "finished_at",
+        "settled_at",
+    }
+)
+# How many lines of one kind a bounded view lists by number before it keeps only the count.
+LISTED_LINES = 200
+# A carried check's own identity and command: its output is the text being bounded, not a path.
+CHECK_KEYS = frozenset({"id", "command", "argv", "exit_code", "evidence_ref", "path", "method", "status"})
+# Shrink levels, most evidence first: (text tail bytes, recent attempts kept, earlier investigations kept,
+# open changed-line rows kept whole, other stages' rejection reasons kept). The failing stage's own evidence
+# is trimmed last, and every level keeps EXACT_KEYS whole.
+_LEVELS = (
+    (8 * 1024, 12, 2, 64, True),
+    (4 * 1024, 8, 2, 64, True),
+    (2 * 1024, 6, 1, 64, True),
+    (1024, 4, 1, 64, False),
+    (1024, 4, 0, 32, False),
+    (1024, 4, 0, 0, False),
+)
+
+
+def _size(value) -> int:
+    """The bytes ``value`` adds to the handoff, rendered exactly as prompt() renders it."""
+    return len(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+
+
+def _tail(text, limit: int, where: str):
+    """The head and tail of a long carried text, naming its whole size and where the whole text lives.
+
+    A rejection names the rule it broke at its head and a test run its failure at its tail, so both ends
+    stay; the marker says how much was omitted and which saved record holds the rest. The text keeps at
+    least half the budget whatever the pointer's length, so a long path can never eat the evidence.
+    """
+    if not isinstance(text, str):
+        return text
+    raw = text.encode("utf-8")
+    if len(raw) <= limit:
+        return text
+    note = f"\n[autocode: {len(raw)} bytes in total; the whole text is in {where}]\n"
+    keep = max(limit // 2, limit - len(note.encode("utf-8")))
+    head = keep // 2
+    return raw[:head].decode("utf-8", "ignore") + note + raw[head - keep :].decode("utf-8", "ignore")
+
+
+def _clip(value, limit: int, where: str, exact: frozenset = EXACT_KEYS):
+    """Every long text in a carried record, with its paths, identities and commands exact."""
+    if isinstance(value, str):
+        return _tail(value, limit, where)
+    if isinstance(value, dict):
+        return {key: item if key in exact else _clip(item, limit, where, exact) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_clip(item, limit, where, exact) for item in value]
+    return value
+
+
+def _attempt_stage(row: dict) -> str:
+    return str(row.get("original_stage") or row.get("stage") or "").removesuffix("_report_repair")
+
+
+def _recent(rows: list, stage: str, keep: int, limit: int, others: bool) -> list:
+    """The incident's own latest attempts first, then the two most recent other-stage rows (a role
+    disagreement needs the other role's attempt). Below the first levels another stage keeps its pointers
+    and drops only its reason text, which its saved output still holds."""
+    if keep < len(rows):
+        mine = [index for index, row in enumerate(rows) if _attempt_stage(row) == stage]
+        rest = [index for index, row in enumerate(rows) if _attempt_stage(row) != stage]
+        chosen = set(mine[-max(1, keep - 2) :]) | set(rest[-2:])
+        rows = [row for index, row in enumerate(rows) if index in chosen]
+    view = []
+    for row in rows:
+        row = dict(row)
+        reason = row.get("rejection_reason")
+        if isinstance(reason, str):
+            if others or _attempt_stage(row) == stage:
+                row["rejection_reason"] = _tail(reason, limit, "this row's saved output")
+            else:
+                row.pop("rejection_reason")
+        view.append(row)
+    return view
+
+
+def _proof_view(assessment: dict, open_rows: int) -> dict:
+    """The changed-line evidence this incident is about: every open line whole, settled lines by number.
+
+    The Builder's own view (autocode_changed_code_rework.builder_evidence, #2815) also collapses open lines
+    nothing observed; those are the lines this diagnosis decides, so they stay whole here with their
+    source_line text. Beyond ``open_rows`` open lines the view keeps their count and the first handles;
+    settled lines are listed by number, at most LISTED_LINES per file. The whole assessment stays pinned
+    in the review output the handoff names.
+    """
+    rows = assessment.get("obligations")
+    if not isinstance(rows, list):
+        return assessment
+    view = {key: value for key, value in assessment.items() if key != "obligations"}
+    opened: list = []
+    settled: dict = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("status") in changed_code_evidence.SETTLED:
+            lines = settled.setdefault(row["status"], {}).setdefault(row.get("path"), [])
+            if len(lines) < LISTED_LINES:
+                lines.append(row.get("line"))
+        else:
+            opened.append(row)
+    view["obligations"] = opened[:open_rows]
+    if len(opened) > open_rows:
+        view["obligations_omitted"] = {
+            "count": len(opened) - open_rows,
+            "lines": [
+                {key: row.get(key) for key in ("handle", "path", "line")}
+                for row in opened[open_rows : open_rows + LISTED_LINES]
+                if isinstance(row, dict)
+            ],
+            "read": "the whole assessment in the pinned review output (builder_failure.evidence_refs)",
+        }
+    if settled:
+        view["settled_lines"] = settled
+    return view
+
+
+def _failure(failure: dict, open_rows: int, limit: int) -> dict:
+    """The pinned classification authority stays exact (failure_id, evidence_refs, binding, checkpoint);
+    the failing attempt keeps its pointers and its own rejection text, and the preceding proof's settled
+    lines are collapsed. A check's output is text, not a path, so inside checks only its identity, command
+    and exit code stay exact."""
+    view = copy.deepcopy(failure)
+    record = view.get("record")
+    if isinstance(record, dict):
+        # The attempt's usage accounting, which the status view already publishes; no diagnosis reads it.
+        record.pop("metrics", None)
+        view["record"] = _clip(record, limit, "state.json's stages")
+    if isinstance(view.get("checks"), list):
+        view["checks"] = [_clip(row, limit, "the saved check receipt", CHECK_KEYS) for row in view["checks"]]
+    diagnosis = view.get("diagnosis")
+    if isinstance(diagnosis, dict) and isinstance(diagnosis.get("changed_code_evidence"), dict):
+        diagnosis["changed_code_evidence"] = _proof_view(diagnosis["changed_code_evidence"], open_rows)
+    return view
+
+
+def _bulk(packet: dict, stage: str, level) -> dict:
+    limit, keep, previous, open_rows, others = level
+    view: dict = {}
+    if isinstance(packet.get("recent_stages"), list):
+        view["recent_stages"] = _recent(packet["recent_stages"], stage, keep, limit, others)
+    if isinstance(packet.get("failure_history"), dict):
+        view["failure_history"] = _clip(packet["failure_history"], limit, "state.json's failure_history")
+    if isinstance(packet.get("previous_investigations"), list):
+        rows = packet["previous_investigations"][-previous:] if previous else []
+        view["previous_investigations"] = [_clip(row, limit, "state.json's stuck_investigations") for row in rows]
+    if isinstance(packet.get("builder_failure"), dict):
+        view["builder_failure"] = _failure(packet["builder_failure"], open_rows, limit)
+    return view
+
+
+def _bound(packet: dict, stage: str) -> dict:
+    """The packet within HANDOFF_BYTES: the incident whole, the carried run history and tails bounded.
+
+    A packet already inside the bound is returned unchanged, so an ordinary incident keeps its exact
+    handoff. Over it, the first shrink level that fits is used, and the packet says what was reduced and
+    where the whole record lives. Nothing here decides what the Investigator may conclude.
+    """
+    if _size(packet) <= HANDOFF_BYTES:
+        return packet
+    for level in _LEVELS:
+        bulk = _bulk(packet, stage, level)
+        view = {**packet, **bulk}
+        reduced = [key for key in bulk if _size(bulk[key]) < _size(packet[key])]
+        if reduced:
+            view["handoff_bound"] = {
+                "bound_bytes": HANDOFF_BYTES,
+                "reduced": reduced,
+                "read": "the whole record is in state_file and the saved outputs named above",
+            }
+        if _size(view) <= HANDOFF_BYTES:
+            return view
+    return view
 
 
 def prompt(
