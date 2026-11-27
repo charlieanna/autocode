@@ -803,8 +803,23 @@ class UndeterminedReplayTests(unittest.TestCase):
     def test_a_failure_only_of_a_test_the_change_adds_is_not_an_original_failure(self):
         # Restoring the original test files can break a test the change adds, one that needs what the change
         # added to a protected helper or data file. It is no original test: the candidate half judges it.
+        (self.project / "test_feature.py").write_text("def test_reads_the_new_scenario():\n    assert True\n")
         added = self.failing()
         added["results"]["failed"] = ["test_feature.py::test_reads_the_new_scenario"]
+        # Without a passing proof of this candidate naming the file the change adds, nothing places the test
+        # there; nor can a runner's test name that carries no file. Either way the failure stands.
+        named = self.failing()
+        named["results"]["failed"] = ["reads the new scenario"]
+        revision = guard.source_scope.snapshot(self.project, self.state)["revision"]
+        proof = {"verdict": "PASS", "source_revision": revision, "test_files": ["test_feature.py", "test_layout.py"]}
+        for given, receipts in ((None, {("original", 0): added}), (proof, {("original", 0): named})):
+            with self.subTest(proof=bool(given)):
+                self.state["regression_proof"] = given
+                error, receipt = self.replay(receipts)
+                self.assertIsInstance(error, guard.commands.OriginalGateFailure)
+                self.assertEqual("FAIL", json.loads(receipt.read_text())["verdict"])
+                receipt.unlink()
+        self.state["regression_proof"] = proof
         error, receipt = self.replay({("original", 0): added})
         self.assertIsNone(error)
         saved = json.loads(receipt.read_text())

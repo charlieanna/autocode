@@ -505,6 +505,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
         # Test support the proof showed defines no test (autocode_test_support): its candidate bytes stay, so
         # the original tests' own assertions run on the repaired fixture or helper.
         support = [name for name in test_support.proven(state.get("regression_proof"), revision) if name in changed]
+        proven_tests = test_support.proven_tests(state.get("regression_proof"), revision)
         policy = {
             "binding_hash": record["binding_hash"],
             "command": command,
@@ -539,7 +540,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
                 },
                 accepted_failure=lambda row: (
                     superseded_tests.excused(row, replaced, changed) is not None
-                    or test_support.added_only(row, record["files"]) is not None
+                    or test_support.added_only(row, record["files"], proven_tests) is not None
                 ),
             )
 
@@ -620,7 +621,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout, run_check=N
             result["verdict"] == "FAIL"
             and outcomes["candidate"]["outcome"] == check_outcome.PASSED
             and not retry
-            and (added := test_support.added_only(result["original"], record["files"]))
+            and (added := test_support.added_only(result["original"], record["files"], proven_tests))
         ):
             # Only tests the change adds failed with the original test files restored: no original test did.
             result["verdict"] = "PASS"
