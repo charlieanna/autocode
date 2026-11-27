@@ -8,6 +8,7 @@ const path = require('node:path');
 const { privateHostRoot } = require('../owned-fixture-cleanup.cjs');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
+const { until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -17,22 +18,11 @@ const release = path.join(root, 'action-release');
 const finished = path.join(root, 'action-finished');
 assert.equal(spawnSync('mkfifo', [release]).status, 0, 'create owned release FIFO');
 const statusReads = path.join(root, 'status-reads');
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let app;
 let win;
 let fixture;
 let environment;
 let passed = false;
-
-async function until(what, probe, timeout = 60_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  do {
-    try { last = await probe(); if (last) return last; } catch (error) { last = error; }
-    await sleep(250);
-  } while (Date.now() < deadline);
-  throw new Error(`Timed out waiting for ${what}; last: ${last instanceof Error ? last.message : JSON.stringify(last)}`);
-}
 
 function releaseAction() {
   try {

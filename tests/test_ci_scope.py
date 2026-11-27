@@ -635,6 +635,18 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertLess(enable, probe)
         self.assertLess(probe, job.index("npm run test:host"))
 
+    def test_extension_host_checks_are_bounded_and_keep_their_screen(self):
+        # #4215: the host suite hung until GitHub's six-hour default cancelled the job, and the
+        # screen upload ran only on failure, so a cancelled job kept nothing.
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        job = re.search(r"(?ms)^  extension:\n(.*?)(?=^  [a-z][\w-]*:\n)", workflow).group(1)
+        self.assertRegex(job, r"(?m)^    timeout-minutes: \d+$")
+        steps = re.split(r"(?m)^      - ", job)
+        host = next(step for step in steps if "npm run test:host" in step)
+        self.assertRegex(host, r"(?m)^        timeout-minutes: \d+$")
+        screen = next(step for step in steps if "Keep the Extension Host's last screen" in step)
+        self.assertIn("if: failure() || cancelled()", screen)
+
     def test_harness_and_unit_jobs_have_separate_hosted_runner_budgets(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()
         jobs = dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow))
