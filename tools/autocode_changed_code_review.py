@@ -183,6 +183,26 @@ def resolve(assessment, name):
     return _names(_gaps(assessment)).get(name, name) if isinstance(name, str) else name
 
 
+def _unique_target(gaps, bound, quoted_text):
+    """The one other offered gap whose source_line is ``quoted_text`` in the same file bytes, or None.
+
+    The quote is the authentication (#4218): when it names exactly one other offered line of the same
+    file (sha256), the handle was a mechanical slip and the decision belongs to that line. Zero or
+    several matches are ambiguous, so no re-bind is made and the mismatch is refused.
+    """
+    if not isinstance(bound, dict) or not isinstance(quoted_text, str):
+        return None
+    matches = [
+        row
+        for identity, row in gaps.items()
+        if identity != bound.get("gap_id")
+        and row.get("sha256") == bound.get("sha256")
+        and isinstance(row.get("source_line"), str)
+        and row["source_line"] == quoted_text
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def misquoted(assessment, decisions):
     """Each decision whose source_line is not the text of the exact line its gap_id binds (#2977).
 
@@ -191,6 +211,10 @@ def misquoted(assessment, decisions):
     it is returned to the Tester rather than accepted. Only a gap whose text was read from its
     measured bytes is compared. Matching text proves only that the reason names its own line; the
     reason's adequacy stays the independent reviewers' judgment.
+
+    A quote that names exactly one other offered line in the same file bytes is re-bound at admission
+    (``rebind_misquoted``, #4218), not refused, so it is not a mismatch here; only an ambiguous or
+    unmatched quote is returned.
     """
     gaps = _gaps(assessment)
     names = _names(gaps)
@@ -200,9 +224,50 @@ def misquoted(assessment, decisions):
             continue
         gap = gaps.get(names.get(row.get("gap_id"))) if isinstance(row.get("gap_id"), str) else None
         expected = gap.get("source_line") if gap else None
-        if isinstance(expected, str) and line_evidence.quoted(row["source_line"]) != expected:
+        if (
+            isinstance(expected, str)
+            and line_evidence.quoted(row["source_line"]) != expected
+            and _unique_target(gaps, gap, line_evidence.quoted(row["source_line"])) is None
+        ):
             result.append((row, gap))
     return result
+
+
+def rebind_misquoted(assessment, decisions):
+    """Correct each uniquely-matching misquote's gap_id in place; return the receipts (#4218).
+
+    This is the architecture-rule-8 zero-model-call correction: the quoted line authenticates the
+    decision, so a handle that names a different line of the same bytes is re-bound to the line the
+    quote describes instead of refusing the whole report. An ambiguous or unmatched quote is left
+    untouched for ``misquoted`` to refuse. Each receipt records the handle supplied and the gap it
+    now binds, with the exact file, bytes and line.
+    """
+    gaps = _gaps(assessment)
+    names = _names(gaps)
+    receipts = []
+    for row in decisions if isinstance(decisions, list) else []:
+        if not isinstance(row, dict) or "source_line" not in row:
+            continue
+        supplied = row.get("gap_id")
+        gap = gaps.get(names.get(supplied)) if isinstance(supplied, str) else None
+        expected = gap.get("source_line") if gap else None
+        if not isinstance(expected, str) or line_evidence.quoted(row["source_line"]) == expected:
+            continue
+        target = _unique_target(gaps, gap, line_evidence.quoted(row["source_line"]))
+        if target is None:
+            continue
+        row["gap_id"] = target["gap_id"]
+        receipts.append(
+            {
+                "from": supplied,
+                "to": target["gap_id"],
+                "path": target["path"],
+                "sha256": target["sha256"],
+                "line": target["line"],
+                "source_line": target["source_line"],
+            }
+        )
+    return receipts
 
 
 def misquote_message(mismatches):
@@ -371,9 +436,13 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     fields = set(field.get("items", {}).get("properties") or ())
     if fields not in (set(SCHEMA["items"]["properties"]), LEGACY_FIELDS):
         raise ValueError("Changed-code reason review has no exact current offered gap binding")
+    # The quote authenticates the line: re-bind a uniquely-matching misquoted handle before refusing
+    # the rest, and keep a receipt of each mechanical correction (#4218).
+    receipts = rebind_misquoted(assessment, decisions)
     mismatches = misquoted(assessment, decisions)
     if mismatches:
         raise ValueError(misquote_message(mismatches))
+    rebound = {row["to"]: row["from"] for row in receipts}
     result, seen = [], set()
     for row in decisions:
         if not isinstance(row, dict) or set(row) != fields:
@@ -417,20 +486,22 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
             != identity
         ):
             raise ValueError("Changed-code reason gap lacks its exact file and line binding")
-        result.append(
-            {
-                "gap_id": identity,
-                "source_revision": assessment["source_revision"],
-                "proof_context": assessment["proof_context"],
-                "path": gap["path"],
-                "sha256": gap["sha256"],
-                "line": gap["line"],
-                **({"source_line": gap["source_line"]} if isinstance(gap.get("source_line"), str) else {}),
-                "accepted": row["decision"] == "accept",
-                "reason_kind": row["reason_kind"],
-                "reason": reason.strip(),
-                "evidence": evidence,
-                "reviewer": {"stage": stage, "role": record["role"], "output": record["output"]},
-            }
-        )
+        entry = {
+            "gap_id": identity,
+            "source_revision": assessment["source_revision"],
+            "proof_context": assessment["proof_context"],
+            "path": gap["path"],
+            "sha256": gap["sha256"],
+            "line": gap["line"],
+            **({"source_line": gap["source_line"]} if isinstance(gap.get("source_line"), str) else {}),
+            "accepted": row["decision"] == "accept",
+            "reason_kind": row["reason_kind"],
+            "reason": reason.strip(),
+            "evidence": evidence,
+            "reviewer": {"stage": stage, "role": record["role"], "output": record["output"]},
+        }
+        if identity in rebound:
+            # The handle this decision supplied before its quote re-bound it to the line it describes.
+            entry["rebound_from"] = rebound[identity]
+        result.append(entry)
     return result

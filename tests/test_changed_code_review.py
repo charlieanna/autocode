@@ -690,39 +690,47 @@ class ExactLineTests(unittest.TestCase):
             )["obligations"]
             self.assertFalse(any("source_line" in row for row in rows))
 
-    def test_the_retained_s6_reasons_that_describe_other_lines_are_refused(self):
-        """The accepted S6 report put reasons for one line under the handle of another."""
-        drifted = [
-            # Bound to the corpus comment, the reason explains the SURFACE constant.
-            self.decision(
-                self.comment,
-                'export const SURFACE = "typescript_client";',
-                "SURFACE names this client's surface in the shared corpus; a different constant drops every case.",
-            ),
-            # Bound to SURFACE, the reason explains CorpusCase.surfaces typing.
-            self.decision(
-                self.surface,
-                "surfaces: string[];",
-                "CorpusCase.surfaces is a type annotation with no runtime behavior to mutate.",
-            ),
-            # Bound to repositoryRoot(), the reason explains an import in another file.
-            self.decision(
-                self.root,
-                'import { applicableCases } from "./helpers/action-corpus";',
-                "The import in next-command.test.ts is exercised by every corpus test.",
-            ),
-        ]
+    def test_uniquely_matching_drift_rebinds_but_an_unmatched_quote_is_refused(self):
+        """#4218: the quote authenticates the line, so a unique match re-binds; an unmatched quote refuses.
+
+        The retained S6 report put reasons for one line under the handle of another. Where the quote
+        names exactly one other offered line of the same bytes, the handle was a mechanical slip and
+        the decision is re-bound to the line it describes; a quote naming no offered line is refused.
+        """
+        # Bound to the corpus comment, the reason explains SURFACE: the quote names SURFACE uniquely.
+        to_surface = self.decision(
+            self.comment,
+            self.surface["source_line"],
+            "SURFACE names this client's surface in the shared corpus; a different constant drops every case.",
+        )
+        # Bound to SURFACE, the reason explains CorpusCase.surfaces: the quote names typing uniquely.
+        to_typing = self.decision(
+            self.surface,
+            self.typing["source_line"],
+            "CorpusCase.surfaces is a type annotation with no runtime behavior to mutate.",
+        )
+        bound = self.bind([to_surface, to_typing])
+        self.assertEqual([self.surface["gap_id"], self.typing["gap_id"]], [row["gap_id"] for row in bound])
+        self.assertEqual([self.comment["handle"], self.surface["handle"]], [row["rebound_from"] for row in bound])
+        result = self.assess(bound)
+        self.assertEqual("excepted", result["obligations"][1]["status"])
+        self.assertEqual("excepted", result["obligations"][2]["status"])
+        # Bound to repositoryRoot(), the reason explains an import in another file: no offered line matches.
+        unmatched = self.decision(
+            self.root,
+            'import { applicableCases } from "./helpers/action-corpus";',
+            "The import in next-command.test.ts is exercised by every corpus test.",
+        )
         with self.assertRaises(ValueError) as raised:
-            self.bind(drifted)
+            self.bind([unmatched])
         message = str(raised.exception)
-        for gap in (self.comment, self.surface, self.root):
-            self.assertIn(f"{gap['handle']} quotes ", message)
-            self.assertIn(f"{self.PATH}:{gap['line']}, which is {json.dumps(gap['source_line'])}", message)
+        self.assertIn(f"{self.root['handle']} quotes ", message)
+        self.assertIn(f"{self.PATH}:{self.root['line']}, which is {json.dumps(self.root['source_line'])}", message)
         self.assertIn("must justify that exact line", message)
-        # One drifted row among correct ones still returns the whole report.
+        # One unmatched row among correct ones still returns the whole report.
         correct = self.decision(self.typing, "surfaces: string[];", "A type annotation; tsc checks it.")
-        with self.assertRaisesRegex(ValueError, f"{self.surface['handle']} quotes"):
-            self.bind([correct, drifted[1]])
+        with self.assertRaisesRegex(ValueError, f"{self.root['handle']} quotes"):
+            self.bind([correct, unmatched])
 
     def test_the_mismatch_returns_the_report_before_check_replay_even_after_a_repair(self):
         import autocode_changed_code_review_application as application
@@ -731,7 +739,13 @@ class ExactLineTests(unittest.TestCase):
         value = {
             "verdict": "PASS",
             "checks": [{"exit_code": 0, "evidence_ref": "check-output"}],
-            review.FIELD: [self.decision(self.surface, "surfaces: string[];", "A type annotation.")],
+            review.FIELD: [
+                self.decision(
+                    self.root,
+                    'import { applicableCases } from "./helpers/action-corpus";',
+                    "An import in another file; no offered line matches this quote.",
+                )
+            ],
         }
         for record in (self.record, {**self.record, "report_repaired": True}):
             with self.subTest(record=record), self.assertRaisesRegex(ValueError, "describes a different line"):
@@ -808,3 +822,109 @@ class ExactLineTests(unittest.TestCase):
             str(raised.exception),
         )
         self.assertIn("as source_line", str(raised.exception))
+
+
+class MisquoteRebindTests(unittest.TestCase):
+    """A misquoted handle whose quote names one offered line re-binds; an ambiguous one refuses (#4218)."""
+
+    PATH = "dup.py"
+    DIGEST = "a" * 64
+
+    def setUp(self):
+        self.record = {
+            "stage": "tester",
+            "role": "tester",
+            "source_revision": "source-one",
+            "changed_files": [],
+            "output": "/run/tester.json",
+        }
+        self.refs = {"check:1": "event:verified", self.PATH: "/workspace/dup.py"}
+
+    def texts(self, lines):
+        return {self.PATH: {"sha256": self.DIGEST, "lines": {str(n): t for n, t in lines.items()}}}
+
+    def assessment(self, lines):
+        inventory = [{"path": self.PATH, "sha256": self.DIGEST, "lines": sorted(lines)}]
+        return evidence.assess(
+            inventory, None, None, source_revision="source-one", proof_context="proof-one", texts=self.texts(lines)
+        )
+
+    def bind(self, assessment, decisions):
+        return review.bind(
+            assessment,
+            decisions,
+            self.record,
+            offered_schema=wire(state={"regression_proof": {"changed_code_evidence": assessment}}),
+            verified_refs=self.refs,
+        )
+
+    def decision(self, gap, source_line, reason="The suite exercises this exact line."):
+        return {
+            "gap_id": gap["handle"],
+            "source_line": source_line,
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": reason,
+            "evidence_refs": ["check:1", self.PATH],
+        }
+
+    def test_a_unique_misquote_rebinds_to_the_quoted_line_with_a_receipt(self):
+        lines = {2: "return 0", 3: "return 1"}
+        assessment = self.assessment(lines)
+        first, second = assessment["obligations"]
+        # The handle binds line 2 but the quote names line 3: re-bind to the line the quote authenticates.
+        bound = self.bind(assessment, [self.decision(first, "return 1")])
+        self.assertEqual(second["gap_id"], bound[0]["gap_id"])
+        self.assertEqual(3, bound[0]["line"])
+        self.assertEqual(first["handle"], bound[0]["rebound_from"])
+        again = evidence.assess(
+            [{"path": self.PATH, "sha256": self.DIGEST, "lines": [2, 3]}],
+            None,
+            None,
+            source_revision="source-one",
+            proof_context="proof-one",
+            exceptions=bound,
+            texts=self.texts(lines),
+        )
+        self.assertEqual("reason_required", again["obligations"][0]["status"])
+        self.assertEqual("excepted", again["obligations"][1]["status"])
+
+    def test_an_ambiguous_misquote_is_still_refused(self):
+        # The quote names two other offered lines of the same bytes: it cannot pick one, so it refuses.
+        assessment = self.assessment({2: "return 0", 3: "return 1", 4: "return 1"})
+        first = assessment["obligations"][0]
+        with self.assertRaisesRegex(ValueError, "describes a different line"):
+            self.bind(assessment, [self.decision(first, "return 1")])
+
+    def test_an_unmatched_misquote_is_still_refused(self):
+        assessment = self.assessment({2: "return 0", 3: "return 1"})
+        first = assessment["obligations"][0]
+        with self.assertRaisesRegex(ValueError, "describes a different line"):
+            self.bind(assessment, [self.decision(first, "return 999")])
+
+    def test_a_unique_misquote_passes_preflight_and_rebinds_at_admission(self):
+        import autocode_changed_code_review_application as application
+
+        assessment = self.assessment({2: "return 0", 3: "return 1"})
+        first, second = assessment["obligations"]
+        state = {"regression_proof": {"changed_code_evidence": assessment, "path": "/run/proof.json"}}
+        value = {
+            "verdict": "PASS",
+            "checks": [{"exit_code": 0, "evidence_ref": "check-output"}],
+            review.FIELD: [self.decision(first, "return 1")],
+        }
+        # Preflight no longer refuses the uniquely-matching quote; admission re-binds it.
+        self.assertIsNone(application.require_exact_lines(state, value, self.record))
+        bound = self.bind(assessment, value[review.FIELD])
+        self.assertEqual(second["gap_id"], bound[0]["gap_id"])
+        self.assertEqual(first["handle"], bound[0]["rebound_from"])
+
+    def test_a_rebind_that_collides_with_another_decision_is_still_refused(self):
+        assessment = self.assessment({2: "return 0", 3: "return 1"})
+        first, second = assessment["obligations"]
+        # One decision correctly binds line 3; another misquotes line 2's handle with line 3's quote,
+        # re-binding onto the same gap: the duplicate refusal still holds.
+        correct = self.decision(second, "return 1")
+        drifted = self.decision(first, "return 1")
+        with self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
+            self.bind(assessment, [correct, drifted])
