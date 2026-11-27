@@ -149,6 +149,44 @@ python3 tools/live_token_sampler.py --run-dir /path/to/run \
 Both also work as Python modules (`python3 -m tools.score_autocode_run` and
 `python3 -m tools.live_token_sampler`) from the repository root.
 
+## Where plan quota went
+
+On a Claude or ChatGPT plan the limit is a pool of quota that every stage on that tool draws
+on, not a bill. `autocode usage quota [--workspace PATH] [--since DATE] [--all] [--json]` reads
+the same `usage.jsonl` ledgers as `report` and groups every stage that could draw quota by the pool
+it ran on (`claude`, `codex`, or `other` for an API key or any other route), then by role, model and
+level. For each pool it shows the burn, the burn that was **wasted** (a rejected, timed-out or
+interrupted stage) and the burn over the last 5 hours and 7 days, the two windows the plans limit by.
+
+- **The unit is a weight, not a bill.** Neither plan publishes its quota in dollars, so each stage is
+  the provider's reported cost, else its recorded tokens at the price table (see below). The figures
+  compare models and stages with each other. The report states no plan capacity and no share of one.
+- **Unknown is never zero.** A stage whose usage was never recorded is counted as unknown, and a pool
+  that has one prints its burn as a floor (`*`).
+- **Fake-provider runs are left out** and counted: they use no plan quota. Runner-owned stages are
+  left out too, since they call no model.
+- It reads only ledgers, launches nothing and changes no route. It shows where quota went so a person
+  or a later change can choose cheaper routes; it grants no completion authority.
+
+### Cheaper routes the ledger proves
+
+Under each `claude` and `codex` pool the report adds a **what-if**: for a role that ran on several
+routes (a model at a level) in the same pool, the cheapest route that would have cost less for the same
+stages, and what that would have saved. A route is named only when the ledger itself shows that:
+
+- the same pool and role ran it at least 5 times with a recorded price (`min_attempts` in the JSON);
+- its accept rate (stages the runner took, not stages later judged well done) is at least that of the
+  route it replaces; and
+- its price per attempt is lower, from the stages that have a price. The saving is the price gap times
+  the replaced route's priced attempts, so unknown usage never adds to it.
+
+A route is also dropped when it would put a checker on the same model as the work it checks
+(`autocode_verifier_independence`), judged against every route of the pairing's other role in the
+ledger. Nothing comes from a model table, so a model the ledger never ran for that role is never
+named. The `other` pool is not analysed. This is arithmetic over past runs: tasks differ, an accepted
+stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
+pool says so.
+
 ## How to interpret the numbers
 
 The scorer's `token_usage.estimated_api_equivalent_usd` uses the existing
