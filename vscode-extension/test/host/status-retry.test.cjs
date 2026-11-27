@@ -7,21 +7,11 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
+const { until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
 const python = process.env.AUTOCODE_HOST_PYTHON || (fs.existsSync(path.join(REPO, '.venv/bin/python')) ? path.join(REPO, '.venv/bin/python') : 'python3');
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until(label, probe, timeout = 60_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    try { last = await probe(); if (last) return last; } catch (error) { last = error; }
-    await sleep(250);
-  }
-  throw new Error(`Timed out waiting for ${label}: ${last instanceof Error ? last.message : JSON.stringify(last)}`);
-}
 
 async function executable() {
   if (process.env.AUTOCODE_VSCODE_EXECUTABLE) return process.env.AUTOCODE_VSCODE_EXECUTABLE;

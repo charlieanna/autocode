@@ -19,9 +19,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_quota_report as quota_report
     from . import autocode_registry as registry
     from . import autocode_rejection_classes as rejection_classes
 except ImportError:
+    import autocode_quota_report as quota_report
     import autocode_registry as registry
     import autocode_rejection_classes as rejection_classes
 
@@ -32,6 +34,7 @@ PROVENANCE_ORDER: tuple[str, ...] = ("live", "unknown", "mixed", "fake")
 PLAN_SIZE_ORDER: tuple[str, ...] = ("small", "medium", "large", "unrecorded")
 INTERACTION_EVENTS: tuple[str, ...] = ("first_question", "first_plan", "first_builder")
 OUTCOME_BUCKETS: tuple[str, ...] = ("accepted", "rejected", "report_repair")
+ACTIONS: tuple[str, ...] = ("list", "report", "quota")
 
 _DEFAULT_TARGETS: dict[str, Any] = {
     "schema": 1,
@@ -1020,14 +1023,20 @@ def parser() -> argparse.ArgumentParser:
     """The arguments ``autocode usage`` reads; ``autocode completion`` reads them too."""
     result = argparse.ArgumentParser(
         prog="autocode usage",
-        description="Read per-run usage ledgers (`list`) or aggregate outcomes, rejections, latency and targets (`report`).",
+        description=(
+            "Read per-run usage ledgers (`list`), aggregate outcomes, rejections, latency and targets (`report`), "
+            "or show where each Claude and Codex plan pool's quota went (`quota`)."
+        ),
     )
     result.add_argument(
         "action",
         nargs="?",
-        choices=("list", "report"),
+        choices=ACTIONS,
         default="list",
-        help="What to show: per-run ledger lines (list, default) or cross-run outcome and target tables (report)",
+        help=(
+            "What to show: per-run ledger lines (list, default), cross-run outcome and target tables (report), "
+            "or burn and waste per Claude and Codex plan pool (quota)"
+        ),
     )
     result.add_argument(
         "--workspace",
@@ -1071,11 +1080,11 @@ def _normalize_legacy_path(argv: list[str]) -> list[str]:
         if arg.startswith("-"):
             out.append(arg)
             continue
-        if not saw_action and arg in ("list", "report"):
+        if not saw_action and arg in ACTIONS:
             out.append(arg)
             saw_action = True
             continue
-        if not has_workspace and index == len(argv) - 1 or (not has_workspace and arg not in ("list", "report")):
+        if not has_workspace and index == len(argv) - 1 or (not has_workspace and arg not in ACTIONS):
             out.extend(["--workspace", arg])
             has_workspace = True
             continue
@@ -1093,6 +1102,11 @@ def cli(argv: list[str] | None = None) -> int:
             since_date = dt.date.fromisoformat(args.since)
         except ValueError:
             arg_parser.error(f"Invalid --since date (expected YYYY-MM-DD): {args.since}")
+    if args.action == "quota":
+        rows = collect_rows(args.workspace, all_projects=args.all, since=since_date)
+        quota = quota_report.build(rows, scope="all projects" if args.all else "workspace", since=args.since)
+        print(json.dumps(quota, indent=2) if args.json else quota_report.format_text(quota))
+        return 0
     if args.action == "list" and not args.all and args.since is None:
         project = args.workspace
         print(json.dumps(collect_rows(project), indent=2) if args.json else _format_list(project))
