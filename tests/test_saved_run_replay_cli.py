@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from autocode_taskrun import TaskRun
 
 from scenarios import run as scenario_runner
+from scenarios.harness import fake_changed_code
 
 from .opencode_fixture_cli import entrypoint
 
@@ -398,12 +399,12 @@ class SavedRunReplayCliTest(unittest.TestCase):
                 self.assertEqual("end", replayed_view["replay_progress"]["next_dispatch"])
                 self.assertFalse(marker.exists(), "offline replay invoked a live provider")
 
-    def run_reference(self, scenario_id):
+    def run_reference(self, scenario_id, solution="reference"):
         args = SimpleNamespace(
             provider=None,
             hybrid=False,
             fake=True,
-            fake_solution="reference",
+            fake_solution=solution,
             profile=None,
             out=self.root / "original",
             autocode=[sys.executable, str(ROOT / "tools/autocode.py")],
@@ -420,8 +421,19 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertEqual(initial["runner_status"], "TASK_COMPLETE")
         return scenario, Path(initial["run_dir"])
 
-    def test_entrypoint_guard_authenticates_the_testers_mutation_citation(self):
-        _, source = self.run_reference("greenfield-greeting-cli")
+    def run_citing_greeting(self):
+        """The greeting CLI with one line whose surviving mutant the Tester judges, citing a killed capture.
+
+        The runner settles a line with no mutation site itself (#4218), so the plain reference leaves the
+        Tester no decision and its recording no mutation citation for replay to re-bind.
+        """
+        solution = self.root / "flushed-greeting"
+        shutil.copytree(scenario_runner.catalog.load("greenfield-greeting-cli").dir / "reference", solution)
+        (solution / "greet.py").write_text(fake_changed_code.GREETING_FLUSHED_SOURCE)
+        return self.run_reference("greenfield-greeting-cli", str(solution))
+
+    def test_testers_mutation_citation_is_authenticated(self):
+        _, source = self.run_citing_greeting()
         status = subprocess.run(
             [sys.executable, str(ROOT / "tools/autocode.py"), "--run-dir", str(source), "--status"],
             capture_output=True,
@@ -443,7 +455,7 @@ class SavedRunReplayCliTest(unittest.TestCase):
 
     def test_completed_fake_run_replays_with_real_checks_and_preserves_original_evidence(self):
         root = self.root
-        scenario, source = self.run_reference("greenfield-greeting-cli")
+        scenario, source = self.run_citing_greeting()
         original = evidence_bytes(source)
         command = [sys.executable, str(ROOT / "tools/autocode.py"), "replay"]
         exported = subprocess.run(
