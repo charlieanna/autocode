@@ -93,6 +93,31 @@ class CollectionRepairFeedbackTests(unittest.TestCase):
         self.assertEqual(["test_hello.TestHello.test_greeting"], proof["fail_to_pass"], proof)
         self.assertIn("which only the change adds", " ".join(proof["notes"]), proof)
 
+    def test_a_skipped_test_does_not_veto_the_import_proof(self):
+        # A test the host cannot run (here one that needs a database) is skipped on both sides. It is no
+        # evidence either way, so it does not cancel the proof the passing tests give (#122 in
+        # adaptive-engine-svc, where the Postgres variants of two new tests were skipped).
+        _, run = self.project(
+            {
+                "hello.py": 'def greeting():\n    return "hello"\n',
+                "test_hello.py": (
+                    "import unittest\n"
+                    "class TestHello(unittest.TestCase):\n"
+                    "    def test_greeting(self):\n"
+                    "        from hello import greeting\n"
+                    '        self.assertEqual("hello", greeting())\n'
+                    '    @unittest.skip("needs a database")\n'
+                    "    def test_greeting_stored(self):\n"
+                    "        from hello import greeting\n"
+                    '        self.assertEqual("hello", greeting())\n'
+                ),
+            }
+        )
+        proof = run()
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["test_hello.TestHello.test_greeting"], proof["fail_to_pass"], proof)
+        self.assertIn("which only the change adds", " ".join(proof["notes"]), proof)
+
     def test_builder_can_repair_uncollected_tests_without_relaxing_the_gate(self):
         # A collection failure the base run does not attribute to a name the change adds (here the base's
         # own hello.py imports a module that does not exist) is still not proof: the Builder is told to make
