@@ -96,7 +96,11 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual({"model": HAIKU, "effort": "medium", "offered": True}, builder["default"])
         self.assertIsNone(builder["chosen"])
         self.assertIsNone(builder["reset"])
-        self.assertEqual("Resolver and per-task Planner", self.stage(current, "task_planner")["label"])
+        resolver = self.stage(current, "task_planner")
+        self.assertEqual("Resolver and per-task Planner", resolver["label"])
+        # #4219: it ran 1-5 times a large build at about a fifth of the spend, so the advice must not call it cheap.
+        self.assertNotIn("little cost", resolver["advice"])
+        self.assertIn("a fifth of the spend", resolver["advice"])
         for stage in current["stages"]:
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
 
