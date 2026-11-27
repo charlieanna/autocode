@@ -25,7 +25,9 @@ New sidebar chats start in the run mode shown on the **Run mode** chip beside th
 engine chip. AutoCode lists **Slow lane** (the default: the Plan Reviewer, the
 Tester and the Completion Reviewer each check the work), **Fast lane** (for a
 task you know is small: the plan comes to you without a Plan Reviewer, and one
-combined review checks the build) and **Plan only**. Every chat starts with the
+combined review checks the build), **Plan only** and **Review only** (reviews a
+pull request, branch, patch or uncommitted change and writes only its findings,
+`review/findings.json`). Every chat starts with the
 Requirements conversation (the **Quick plan** mode that skipped it was removed
 on 2026-10-22). The list and each mode's flags come from
 `autocode modes list --json`

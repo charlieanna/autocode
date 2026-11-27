@@ -294,6 +294,7 @@ KEYS: frozenset[str] = frozenset(
         "resolver_human_request",
         "retained_candidate_handoffs",
         "review",
+        "review_only",
         "run_dir",
         "session_rotations",
         "sessions",
@@ -686,6 +687,9 @@ class RunState(TypedDict, total=False):
     # preservation_candidate consumes each writer/source once, recovery_history shows the decision.
     retained_candidate_handoffs: Any
     review: Any  # an earlier runtime's Code Reviewer saved outcome, report digest and source_revision; status inspects freshness
+    # A Review only run's Builder attempts that changed a file outside review/ and were put back, and the latest
+    # Builder's summary of review/findings.json; written and read by autocode_review_only, shown by the chat history.
+    review_only: dict
     session_rotations: list[dict]
     # Person-authorized exact rewords of authenticated peer exclusions (#2467):
     # appended only by autocode_scope_question.record_installed_corrections through

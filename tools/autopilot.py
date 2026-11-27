@@ -28,6 +28,7 @@ try:
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_builder_writes as builder_writes
     from . import autocode_changed_code_review_application as changed_code_review_application
     from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_check_refs as check_refs
@@ -89,6 +90,7 @@ except ImportError:
     import autocode_brief_obligations as brief_obligations
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
+    import autocode_builder_writes as builder_writes
     import autocode_changed_code_review_application as changed_code_review_application
     import autocode_changed_code_rework as changed_code_rework
     import autocode_check_refs as check_refs
@@ -459,8 +461,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         return
     value = planning_unit.metadata.expand_report(state, stage, value)
     planning_unit.resolve_sentence_citations(state, value.get("contract"))
-    # Older saved reports predate explicit, user-backed conflict resolutions.
-    # An absent list supplies no authority to resolve any conflict.
+    # Older saved reports predate explicit, user-backed conflict resolutions; an absent list resolves none.
     if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
@@ -677,8 +678,8 @@ route_builder_failure = partial(
 
 
 def apply_build_result(runtime, state: RunState, value, record, workspace, run_dir):
-    if acceptance_tests.check_untouched(state, workspace):  # spec-first: the Tester's files are fixed (#1200)
-        return  # restored; the Builder goes again with its product work kept
+    if builder_writes.sent_back(state, record, workspace):  # spec-first's fixed tests; Review only's one file
+        return  # restored; the Builder goes again with its other work kept
     assert_within_assignment(state, record)
     support.evidence_hashes(
         support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir

@@ -17,6 +17,7 @@ try:
     from .. import autocode_requirements_faults as requirements_faults
     from .. import autocode_requirements_observations as requirements_observations
     from .. import autocode_requirements_triage as requirements_triage
+    from .. import autocode_review_only as review_only
 except ImportError:
     import autocode_ambiguity_audit as ambiguity_audit
     import autocode_catalog_context as source_catalog
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_requirements_faults as requirements_faults
     import autocode_requirements_observations as requirements_observations
     import autocode_requirements_triage as requirements_triage
+    import autocode_review_only as review_only
 
 
 import copy
@@ -1479,7 +1481,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     except ImportError:
         import autocode_design_manifest as design_manifest
         import autocode_figma as figma
-    figma_instruction = figma.instructions(state["settings"])
+    figma_instruction = figma.instructions(state["settings"]) + review_only.instruction(state)
     manifest_context = design_manifest.planning_context(state["settings"], role=route_for(state, stage))
     if manifest_context:
         packet["design_manifest"] = manifest_context

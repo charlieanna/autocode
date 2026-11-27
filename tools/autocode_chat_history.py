@@ -16,6 +16,7 @@ try:
     from . import autocode_project_delivery as project_delivery
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_review_only as review_only
     from . import autocode_roles as roles
     from . import autocode_scratch_projects as scratch_projects
 except ImportError:
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_project_delivery as project_delivery
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
+    import autocode_review_only as review_only
     import autocode_roles as roles
     import autocode_scratch_projects as scratch_projects
 
@@ -54,7 +56,13 @@ def response(state: RunState) -> str:
         parts.extend(f"{row.get('claim', '')} ({row.get('source', '')})" for row in answer.get("evidence") or [])
         parts.extend(answer.get("questions") or [])
         return "\n\n".join(part for part in parts if part)
-    if workflow == "review":
+    if reviewed := review_only.response(state):
+        branch = state.get("task_branch")
+        return reviewed + (
+            f" It is on branch {branch}; there is nothing to merge." if branch and delivery(state) else ""
+        )
+    if workflow == "review" and state.get("review"):
+        # A review an earlier runtime's Code Reviewer saved; a review on today's path (#3010) ends as a build does.
         review = state.get("review") or {}
         return (
             f"Review complete: {review.get('blocking', 0)} blocking findings, "

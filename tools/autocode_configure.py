@@ -49,6 +49,7 @@ try:
     from . import autocode_requirements_review as requirements_review
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_review_only as review_only
     from . import autocode_review_routing as review_routing
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
@@ -90,6 +91,7 @@ except ImportError:
     import autocode_requirements_review as requirements_review
     import autocode_requirements_triage as requirements_triage
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_review_only as review_only
     import autocode_review_routing as review_routing
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
@@ -507,6 +509,8 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
     if started and plan_only.resume_refused(state.get("settings") or {}, args):
         raise ValueError(f"{plan_only.FLAG} is chosen when a run starts; a saved run keeps its choice")
+    if started and review_only.resume_refused(state.get("settings") or {}, args):
+        raise ValueError(f"{review_only.FLAG} is chosen when a run starts; a saved run keeps its choice")
 
 
 def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str | None) -> None:
@@ -518,6 +522,8 @@ def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str
         settings[requirements_review.SETTING] = True
     if plan_only.new_run_setting(args, joint):
         settings[plan_only.SETTING] = True
+    if review_only.new_run_setting(args, joint):
+        settings[review_only.SETTING] = True
     settings[requirements_triage.SETTING] = requirements_triage.new_run_setting(
         getattr(args, "requirements_triage", None), joint, v2, task=task
     )

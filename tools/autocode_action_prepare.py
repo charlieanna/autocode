@@ -20,6 +20,7 @@ try:
     from . import autocode_owned_operations as owned_operations
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_review_only as review_only
     from . import autocode_support as support
     from . import autocode_workflows as workflows
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_owned_operations as owned_operations
     import autocode_requirements_chat as requirements_chat
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_review_only as review_only
     import autocode_support as support
     import autocode_workflows as workflows
 
@@ -80,9 +82,10 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
             runner.write_json(backup, state)
         lifecycle.migrate(state, fresh=not args.run_dir)
         runner.write_json(state_path, state)
-    if args.workflow:  # after migration: a new run's first stage is begun there
+    # After migration: a new run's first stage is begun there. A review-only run is the review job.
+    if pinned := review_only.workflow(args, state):
         try:
-            workflows.pin(state, args.workflow)
+            workflows.pin(state, pinned)
         except ValueError as error:
             parser.error(str(error))
         runner.write_json(state_path, state)

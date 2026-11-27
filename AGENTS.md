@@ -588,6 +588,15 @@ request's clarity or `sensitive-paths` ("avoid this plan qualifies thing"). A dr
 be approved without one (an open question, a record only the Plan Reviewer may seal, a progressive or design-backed
 plan), and every revision is reviewed as before. Do not skip a later gate without the owner's decision.
 
+**Four run modes, and Review only, owner decision 2026-11-27.** The run modes are the Slow lane, the Fast lane,
+Plan only and **Review only** (`--review-only`, `tools/autocode_review_only.py`), which reviews a pull request,
+branch, patch or uncommitted change and writes nothing but `review/findings.json`. It is the review job on the
+path above, not the retired Code Reviewer: every stage reads its one rule, the runner saves the workspace before
+the Builder and puts back any other file a Builder changes, and completion is refused while one stays changed.
+The owner chose four modes over a bug-fix-only mode (the bug-fix job and its fail-then-pass proof are already
+named by Requirements) and over picking the lane automatically (the person picks it, 2026-11-26): the job is
+read from the request, the mode is the person's.
+
 Stages that belong to one workflow rather than to the build pipeline (`check_design`,
 `investigate_stuck`, `collect_design`, `write_acceptance_tests`) are listed in `tools/autocode_jobs.py`;
 the runner and Autopilot consult that table, so a new one is added there, not in `autocode.py` or
