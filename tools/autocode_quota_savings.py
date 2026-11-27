@@ -12,7 +12,7 @@ well done. Pure functions over ``autocode_quota_pools.summarise`` output; nothin
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 try:
     from . import autocode_names as names
@@ -83,8 +83,8 @@ def _evidence(route: dict[str, Any]) -> dict[str, Any]:
 def _qualifies(candidate: dict[str, Any], base: dict[str, Any], by_role: dict[str, set[str]]) -> bool:
     if _priced(candidate) < MIN_SAMPLE:
         return False
-    cheaper = _per_attempt(candidate)
-    if cheaper is None or cheaper >= _per_attempt(base):
+    cheaper, current = _per_attempt(candidate), _per_attempt(base)
+    if cheaper is None or current is None or cheaper >= current:
         return False
     # accepted/attempts at least as high, compared without dividing
     if candidate["accepted_attempts"] * base["attempts"] < base["accepted_attempts"] * candidate["attempts"]:
@@ -105,7 +105,8 @@ def _opportunity(base: dict[str, Any], routes: list[dict[str, Any]], by_role: di
             route["effort"],
         ),
     )
-    saving = (_per_attempt(base) - _per_attempt(best)) * _priced(base)
+    # Both are priced: the caller passes only a priced base, and _qualifies admits only a priced candidate.
+    saving = (cast(float, _per_attempt(base)) - cast(float, _per_attempt(best))) * _priced(base)
     return {
         "role": base["role"],
         "from": _evidence(base),
