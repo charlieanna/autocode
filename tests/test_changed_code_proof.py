@@ -383,6 +383,71 @@ class ChangedCodeProofTests(unittest.TestCase):
         Path(killed["output"]).write_text("Changed capture.")
         self.assertFalse(proof_policy.ready(proof, result, None))
 
+    def test_retention_context_projects_out_only_the_candidate_trees_own_digest(self):
+        context = {
+            "test_command": "python -m unittest",
+            "contract_identity": "contract",
+            "cases_identity": "cases",
+            "identity": {
+                "source_revision": "one",
+                "source_metadata": "metadata",
+                "runtime_sources": "runtime",
+                "dependencies": ["deps"],
+                "reuse_supported": True,
+            },
+        }
+        projected = proof_policy.retention_context(context)
+        self.assertEqual({"runtime_sources", "dependencies", "reuse_supported"}, set(projected["identity"]))
+        self.assertEqual(context["test_command"], projected["test_command"])
+        # A Builder edit changes only the two projected fields; everything else still refuses retention.
+        edited = {**context, "identity": {**context["identity"], "source_revision": "two", "source_metadata": "other"}}
+        self.assertEqual(projected, proof_policy.retention_context(edited))
+        for key, value in (("runtime_sources", "other"), ("dependencies", []), ("reuse_supported", False)):
+            with self.subTest(key=key):
+                changed = {**context, "identity": {**context["identity"], key: value}}
+                self.assertNotEqual(projected, proof_policy.retention_context(changed))
+        self.assertNotEqual(projected, proof_policy.retention_context({**context, "test_command": "other"}))
+        self.assertNotEqual(projected, proof_policy.retention_context({**context, "cases_identity": "other"}))
+        self.assertEqual(None, proof_policy.retention_context(None))
+
+    def test_retention_identity_binds_every_input_except_the_changed_product_files(self):
+        files = {"calc.py": "product", "other.py": "untouched", "tests/test_calc.py": "test", "data.json": "fixture"}
+        base = proof_policy.retention_identity(files, [("calc.py", "modified")])
+        self.assertEqual(
+            base, proof_policy.retention_identity({**files, "calc.py": "edited"}, [("calc.py", "modified")])
+        )
+        for name in ("other.py", "tests/test_calc.py", "data.json"):
+            with self.subTest(name=name):
+                self.assertNotEqual(
+                    base, proof_policy.retention_identity({**files, name: "changed"}, [("calc.py", "modified")])
+                )
+        # A different set of changed product files is a different binding: nothing transfers by luck.
+        self.assertNotEqual(
+            base, proof_policy.retention_identity(files, [("calc.py", "modified"), ("other.py", "modified")])
+        )
+
+    def test_self_custody_authenticates_the_prior_proof_against_itself(self):
+        self.assertTrue(proof_policy.self_custody(self.proof))
+        capture = Path(self.mutation_receipt["output"])
+        original = capture.read_bytes()
+        for damage in ("capture", "artifact", "study", "receipts", "missing"):
+            with self.subTest(damage=damage):
+                proof = copy.deepcopy(self.proof)
+                if damage == "capture":
+                    capture.write_text("tampered")
+                elif damage == "artifact":
+                    self.path.write_text(json.dumps({**self.result, "verdict": "FAIL"}))
+                elif damage == "study":
+                    proof["mutation_check"] = {"collected": True}
+                elif damage == "receipts":
+                    proof["changed_code_receipts"] = []
+                else:
+                    proof.pop("path")
+                self.assertFalse(proof_policy.self_custody(proof))
+                capture.write_bytes(original)
+                self.path.write_text(json.dumps(self.result))
+        self.assertTrue(proof_policy.self_custody(self.proof))
+
 
 class SelectedTestsTests(unittest.TestCase):
     """The mutation check runs the proof command the runner can narrow to the observed proving tests."""

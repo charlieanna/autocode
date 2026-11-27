@@ -132,15 +132,6 @@ def collect(
         source_revision=source_revision,
         proof_context=context,
     )
-    if previous is not None and (
-        previous.get("execution_context") != execution_context or not intact(previous, result)
-    ):
-        raise ValueError("Retained changed-code evidence is not intact in this execution context")
-    coverage_outputs = {row["output"] for row in coverage_receipts}
-    receipts = [
-        row for row in (previous or {}).get("changed_code_receipts", []) if row["output"] not in coverage_outputs
-    ]
-    evidence = Path(evidence_dir) if evidence_dir is not None else Path(out) / "mutation-check"
     # Scratch copies contain the nested repository's files, not its Git
     # metadata. Compare copyable file inventories rather than a submodule's
     # revision token against a flattened directory. Still pin the full original
@@ -148,6 +139,33 @@ def collect(
     expected = source_snapshot.inventory(workspace, paths=source_paths)
     baseline = source_snapshot.copied_files(tree, expected)
     original_workspace = source_snapshot.snapshot(workspace, paths=source_paths)
+    retention = retention_identity(original_workspace.get("files") or {}, files)
+    if previous is not None:
+        if previous.get("changed_code_inputs") == result.get("changed_code_inputs"):
+            # The identical candidate a continuation window measures: every prior input and receipt
+            # must still authenticate this exact measurement, in this exact execution context.
+            if previous.get("execution_context") != execution_context or not intact(previous, result):
+                raise ValueError("Retained changed-code evidence is not intact in this execution context")
+        else:
+            # A changed candidate (#4217) retains per file, so its own product bytes are authenticated
+            # site by site in the study. Everything that decides whether a prior observation still
+            # means the same thing is bound here exactly as before: the command, framework, runner,
+            # interpreter, dependencies, environment, contract, cases and base. Only the candidate
+            # tree's own content digest is projected out, and `retention` binds every other input.
+            if retention_context(previous.get("execution_context")) != retention_context(execution_context):
+                raise ValueError("Retained changed-code evidence is not intact in this execution context")
+            if not self_custody(previous):
+                raise ValueError("Retained changed-code evidence is not intact in this execution context")
+            if (previous.get("changed_code_inputs") or {}).get("retention_identity") != retention:
+                # A test, fixture or other delivered input changed, or the candidate changes a
+                # different set of product files. No prior outcome transfers: the whole study is
+                # measured again, exactly as a first proof, and nothing unauthenticated is retained.
+                previous = None
+    coverage_outputs = {row["output"] for row in coverage_receipts}
+    receipts = [
+        row for row in (previous or {}).get("changed_code_receipts", []) if row["output"] not in coverage_outputs
+    ]
+    evidence = Path(evidence_dir) if evidence_dir is not None else Path(out) / "mutation-check"
     package, suite, selected = selected_tests(framework, result)
 
     def run(command, label, limit):
@@ -226,6 +244,9 @@ def collect(
         "command_outputs": [receipt["output"] for receipt in proof["changed_code_receipts"]],
         "custody_gaps": custody_gaps,
         "line_texts": texts,
+        # Every delivered input outside this candidate's own changed product files (#4217): the next
+        # proof retains an unchanged file's observations only while this digest is the same.
+        "retention_identity": retention,
         # Recorded so a reviewer sees what the inventory left out, and why (#3164).
         "installed_dependencies": installed,
         **({"test_selection": report["test_selection"]} if isinstance(report.get("test_selection"), dict) else {}),
@@ -352,6 +373,65 @@ def intact(proof, result):
         except (OSError, ValueError, KeyError, TypeError):
             return False
     return True
+
+
+# The candidate tree's own content digest: a Builder edit changes these two fields of the execution
+# identity on every round, while the runner, dependencies, environment, contract and cases stay put.
+# They are the only fields per-file retention projects out (#4217); every other input is bound by
+# `retention_identity`, and each retained product file by its exact bytes and site inventory.
+CANDIDATE_IDENTITY_KEYS = ("source_revision", "source_metadata")
+
+
+def retention_context(execution_context):
+    """The execution context without the candidate tree's own content digest (#4217).
+
+    A fresh proof of an edited candidate cannot have the same workspace digest as the proof it retains
+    from. Everything else is compared exactly as it is: a changed command, framework, interpreter,
+    dependency tree, environment, generated input, contract, cases or base still refuses retention.
+    """
+    if not isinstance(execution_context, dict) or not isinstance(execution_context.get("identity"), dict):
+        return execution_context
+    return {
+        **execution_context,
+        "identity": {
+            key: value for key, value in execution_context["identity"].items() if key not in CANDIDATE_IDENTITY_KEYS
+        },
+    }
+
+
+def retention_identity(workspace_files, files):
+    """Every delivered workspace input except the candidate's own changed product files (#4217).
+
+    The product files the change touches are authenticated per file by the mutation study (exact bytes
+    and whole site inventory). Every other input — each test file, fixture and generated source a
+    retained observation was measured against — is bound here by its exact content, so a Builder edit
+    to a test transfers no prior outcome even when the passing test IDs are unchanged.
+    """
+    product = {path for path, _ in files}
+    return util.digest({name: value for name, value in workspace_files.items() if name not in product})
+
+
+def self_custody(previous):
+    """Whether the prior proof still authenticates itself in its own directory (#4217).
+
+    A changed candidate has its own inputs, so the prior proof is checked against itself, never against
+    the new measurement: its artifact is the pinned bytes its receipt hash names, every receipt it
+    recorded still has its intact completed capture (``intact``), its coverage report is still pinned,
+    and the study and receipts offered for retention are exactly what that pinned artifact recorded.
+    """
+    try:
+        path = previous["path"]
+        if util.file_hash(path) != previous.get("receipt_sha256"):
+            return False
+        original = util.read(path)
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+    return (
+        isinstance(original, dict)
+        and intact(previous, original)
+        and previous.get("mutation_check") == original.get("mutation_check")
+        and previous.get("changed_code_receipts") == original.get("changed_code_receipts")
+    )
 
 
 def cited_mutation_pins(proof, refs, *, source_revision):

@@ -650,3 +650,186 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(0, continuation.allowance(state))
         state["settings"]["limits"]["max_seconds"] = 0
         self.assertEqual(3600, continuation.allowance(state))
+
+
+OTHER_BASE = "def pick(n):\n    return n\n"
+OTHER = "def pick(n):\n    if n > 1:\n        return n\n    return 0\n"
+CALC = "def limit(n):\n    if n > 10:\n        return 9\n    return n\n"
+STRONG_TEST = (
+    "import unittest\n\nfrom calc import limit\nfrom other import pick\n\n\n"
+    "class LimitTests(unittest.TestCase):\n"
+    "    def test_t1_caps_large_values(self):\n"
+    "        self.assertEqual(9, limit(50))\n"
+    "        self.assertEqual(9, limit(11))\n"
+    "        self.assertEqual(10, limit(10))\n"
+    "        self.assertEqual(2, pick(2))\n"
+    "        self.assertEqual(0, pick(1))\n"
+    "        self.assertEqual(0, pick(-1))\n"
+)
+
+
+class FreshRetentionTests(unittest.TestCase):
+    """#4217: a fresh proof of an edited candidate retains an unchanged file's authenticated observations.
+
+    Through the public entry point: two real proofs of one project with two changed product files, a
+    Builder edit to one of them between the proofs, and the custody the second proof's completion still
+    needs. The measured waste was the fresh caller never offering the prior study, so every proof
+    re-burned the budget on the same sites. No model is launched.
+    """
+
+    def setUp(self):
+        fixtures.ProofTests.setUp(self)
+        # A second product file in the base, so the candidate changes two files and the Builder can
+        # edit one while the other stays byte-identical.
+        (self.root / "calc.py").write_text(fixtures.LIMIT)
+        (self.root / "tests" / "test_calc.py").unlink()
+        (self.root / "other.py").write_text(OTHER_BASE)
+        fixtures.git(self.root, "add", "-A")
+        fixtures.git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "other")
+        self.state["base_commit"] = fixtures.git(self.root, "rev-parse", "HEAD")
+        (self.root / "calc.py").write_text(CALC)
+        (self.root / "other.py").write_text(OTHER)
+        (self.root / "tests" / "test_calc.py").write_text(STRONG_TEST)
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        self.state["settings"]["regression"] = {"python": isolated_python(self)}
+
+    def prove(self):
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof.get("failures", []) + proof.get("unverified", []))
+        return proof
+
+    def edit_other(self):
+        (self.root / "other.py").write_text(OTHER + "# builder edit\n")
+
+    def rows(self, proof):
+        return {file["path"]: file["mutants"] for file in proof["mutation_check"]["files"]}
+
+    def outputs(self, proof):
+        return {row["output"] for row in proof["changed_code_receipts"]}
+
+    def offered(self, proof):
+        """The prior study the fresh measurement was offered, or None."""
+        with mock.patch.object(changed_code, "collect", wraps=changed_code.collect) as collect:
+            result = self.prove()
+        return collect.call_args.kwargs.get("previous"), result
+
+    def test_an_unchanged_file_keeps_its_observations_when_the_builder_edits_another(self):
+        first = self.prove()
+        before = Path(first["path"]).read_bytes()
+        self.edit_other()
+        second = self.prove()
+        kept, rerun = self.rows(first), self.rows(second)
+        self.assertEqual(kept["calc.py"], rerun["calc.py"], "the unchanged file's outcomes are retained verbatim")
+        self.assertNotEqual(kept["other.py"], rerun["other.py"], "the edited file is measured again")
+        old = self.outputs(first)
+        self.assertTrue(all(row["evidence"] for row in rerun["calc.py"]))
+        self.assertTrue(all(ref in old for row in rerun["calc.py"] for ref in row["evidence"]))
+        self.assertTrue(all(ref not in old for row in rerun["other.py"] for ref in row["evidence"]))
+        self.assertEqual(before, Path(first["path"]).read_bytes(), "the prior proof stays immutable")
+        # Every carried receipt stays inside the root this proof's own artifact pins.
+        self.assertTrue(changed_code.intact(second, util.read(second["path"])))
+        self.assertEqual("PASS", second["changed_code_evidence"]["status"], second["changed_code_evidence"])
+        self.assertTrue(regression.complete(self.state, second["source_revision"], all_due=True))
+
+    def test_the_fresh_measurement_is_offered_the_prior_study(self):
+        first = self.prove()
+        self.edit_other()
+        previous, _ = self.offered(first)
+        self.assertIs(first, previous, "the fresh proof must pass the saved proof, not measure from scratch")
+
+    def test_a_changed_execution_context_retains_nothing(self):
+        first = self.prove()
+        self.edit_other()
+        self.state["settings"]["regression"]["test_timeout"] = 1200
+        previous, second = self.offered(first)
+        self.assertTrue(previous is None, "a changed execution context offers no prior study")
+        self.assertNotEqual(self.rows(first)["calc.py"], self.rows(second)["calc.py"])
+        self.assertTrue(changed_code.intact(second, util.read(second["path"])))
+
+    def test_a_missing_or_tampered_prior_capture_retains_nothing_and_still_proves(self):
+        for damage in ("missing", "tampered"):
+            with self.subTest(damage=damage):
+                first = self.prove()
+                victim = self.rows(first)["calc.py"][0]["evidence"][0]
+                if damage == "missing":
+                    Path(victim).unlink()
+                else:
+                    Path(victim).write_text("tampered capture")
+                self.edit_other()
+                previous, second = self.offered(first)
+                self.assertTrue(previous is None, "a prior proof that cannot authenticate itself is not offered")
+                rerun = self.rows(second)["calc.py"]
+                self.assertNotEqual(self.rows(first)["calc.py"], rerun)
+                self.assertTrue(all(victim not in row["evidence"] for row in rerun))
+                self.assertTrue(changed_code.intact(second, util.read(second["path"])))
+                self.assertTrue(regression.complete(self.state, second["source_revision"], all_due=True))
+                self.state.pop("regression_proof")
+
+    def test_a_changed_test_file_retains_nothing_even_with_the_same_proving_test_ids(self):
+        first = self.prove()
+        self.edit_other()
+        # The same test ID still passes, but its bytes changed: a prior kill measured against the old
+        # assertion is no longer evidence about this candidate.
+        (self.root / "tests" / "test_calc.py").write_text(
+            STRONG_TEST.replace("self.assertEqual(9, limit(11))", "self.assertEqual(9, limit(12))")
+        )
+        _, second = self.offered(first)
+        self.assert_measured_again(first, second)
+
+    def test_a_new_proving_test_transfers_no_prior_outcome(self):
+        first = self.prove()
+        self.edit_other()
+        (self.root / "tests" / "test_calc.py").write_text(
+            STRONG_TEST + "    def test_t2_boundary(self):\n        self.assertEqual(9, limit(11))\n"
+        )
+        _, second = self.offered(first)
+        self.assert_measured_again(first, second)
+
+    def assert_measured_again(self, first, second):
+        """No prior outcome transferred: the unchanged file was measured again, with its own captures."""
+        rerun = self.rows(second)["calc.py"]
+        self.assertNotEqual(self.rows(first)["calc.py"], rerun)
+        old = self.outputs(first)
+        self.assertTrue(all(ref not in old for row in rerun for ref in row["evidence"]))
+        self.assertTrue(changed_code.intact(second, util.read(second["path"])))
+
+    def collect_changed(self, prior, context):
+        """The gate as the fresh caller meets it: a result with no measured inputs yet, and a prior proof."""
+        result = util.read(prior["path"])
+        result.pop("changed_code_inputs", None)
+        proof = {**copy.deepcopy(prior), "verdict": verify.UNVERIFIED}
+        out = self.root.parent / "gate-out"
+        out.mkdir(exist_ok=True)
+        changed_code.collect(proof, result, None, self.root, out, self.root, context, previous=prior)
+        return proof
+
+    def test_the_gate_accepts_a_changed_candidate_whose_prior_proof_authenticates_itself(self):
+        first = self.prove()
+        self.edit_other()
+        proof = self.collect_changed(first, first["execution_context"])
+        self.assertTrue(
+            self.outputs(first) <= {row["output"] for row in proof["changed_code_receipts"]},
+            "the prior receipts are carried forward for the retained observations",
+        )
+        self.assertEqual(
+            first["changed_code_inputs"]["retention_identity"], proof["changed_code_inputs"]["retention_identity"]
+        )
+
+    def test_the_gate_still_refuses_a_changed_execution_context(self):
+        first = self.prove()
+        for key, value in (("test_command", "another command"), ("contract_identity", "another contract")):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    self.collect_changed(first, {**first["execution_context"], key: value})
+
+    def test_the_gate_still_refuses_a_prior_proof_whose_own_custody_is_broken(self):
+        first = self.prove()
+        Path(self.rows(first)["calc.py"][0]["evidence"][0]).write_text("tampered capture")
+        with self.assertRaises(ValueError):
+            self.collect_changed(first, first["execution_context"])
+
+    def test_the_gate_still_refuses_a_prior_artifact_that_is_not_the_pinned_bytes(self):
+        first = self.prove()
+        Path(first["path"]).write_text(json.dumps({**util.read(first["path"]), "verdict": "FAIL"}))
+        with self.assertRaises(ValueError):
+            self.collect_changed(first, first["execution_context"])
