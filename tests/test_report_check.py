@@ -182,6 +182,79 @@ class ReportCheckUnitTests(unittest.TestCase):
         }
         self.assertEqual([], report_check.check_report(json.dumps(valid), spec=spec))
 
+    def test_planning_flags_a_test_superseded_on_two_criteria(self):
+        """#4220: the duplicate-listing refusal validate_body raises at install, caught pre-submit."""
+        schema = _schema_obj(["contract"], {"contract": {"type": "object"}})
+        state = {"task": "Fix the shipping fee.", "user_events": [], "brief_feedback": []}
+        spec = report_check.build_spec(stage="draft_plan", workspace=Path("/tmp"), schema=schema, state=state)
+        entry = {"file": "tests/test_shipping.py", "test": "test_fifty_dollar_order_pays_standard_fee"}
+        milestones = [{"id": "M1", "depends_on": [], "acceptance_criteria": ["C1", "C2"]}]
+        twice = {
+            "contract": _planning_contract(
+                milestones=milestones,
+                criteria=[
+                    {"id": "C1", "verification_method": "test: test_new_fee", "supersedes": [entry]},
+                    {"id": "C2", "verification_method": "test: test_other", "supersedes": [entry]},
+                ],
+            )
+        }
+        self.assertTrue(
+            any("superseded twice" in err for err in report_check.check_report(json.dumps(twice), spec=spec))
+        )
+        corrected = {
+            "contract": _planning_contract(
+                milestones=milestones,
+                criteria=[
+                    {"id": "C1", "verification_method": "test: test_new_fee", "supersedes": [entry]},
+                    {"id": "C2", "verification_method": "test: test_other", "supersedes": []},
+                ],
+            )
+        }
+        self.assertEqual([], report_check.check_report(json.dumps(corrected), spec=spec))
+
+    def test_planning_flags_a_verification_command_needing_a_marker_outside_affected_paths(self):
+        """#4220: the scaffolding refusal validate_body raises at install, caught pre-submit."""
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            schema = _schema_obj(["contract"], {"contract": {"type": "object"}})
+            state = {"task": "Add a greeting.", "user_events": [], "brief_feedback": []}
+            spec = report_check.build_spec(stage="draft_plan", workspace=workspace, schema=schema, state=state)
+            method = "python3 -m unittest discover -s tests -t ."
+            criteria = [{"id": "C1", "verification_method": method}]
+            bad = {
+                "contract": _planning_contract(
+                    milestones=[
+                        {
+                            "id": "M1",
+                            "depends_on": [],
+                            "acceptance_criteria": ["C1"],
+                            "affected_paths": ["greet.py", "tests/test_greet.py"],
+                        }
+                    ],
+                    criteria=criteria,
+                )
+            }
+            self.assertTrue(
+                any(
+                    "requires tests/__init__.py" in err and "outside affected_paths" in err
+                    for err in report_check.check_report(json.dumps(bad), spec=spec)
+                )
+            )
+            corrected = {
+                "contract": _planning_contract(
+                    milestones=[
+                        {
+                            "id": "M1",
+                            "depends_on": [],
+                            "acceptance_criteria": ["C1"],
+                            "affected_paths": ["greet.py", "tests/test_greet.py", "tests/__init__.py"],
+                        }
+                    ],
+                    criteria=criteria,
+                )
+            }
+            self.assertEqual([], report_check.check_report(json.dumps(corrected), spec=spec))
+
     def test_validator_checks_check_refs_and_missing_evidence_files(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
