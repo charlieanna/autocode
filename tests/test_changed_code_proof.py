@@ -383,6 +383,90 @@ class ChangedCodeProofTests(unittest.TestCase):
         Path(killed["output"]).write_text("Changed capture.")
         self.assertFalse(proof_policy.ready(proof, result, None))
 
+    def no_site_proof(self, outcome=None):
+        """A chubby-shaped proof: engine.py:3 is a no-site line, engine.py:5 carries a killed mutant.
+
+        ``outcome`` replaces the line-5 mutant's outcome, or adds a line-3 mutant when it is a budget
+        or survivor observation, so the same fixture exercises the lines that must NOT auto-settle.
+        """
+        common = {"source_revision": "source-one", "proof_context": "context-one"}
+        digest = "a" * 64
+        inventory = [{"path": "engine.py", "sha256": digest, "lines": [3, 5]}]
+        coverage = {**common, "files": [{"path": "engine.py", "sha256": digest, "executed_lines": [3, 5]}]}
+        mutants = [{"line": 5, "outcome": "killed", "failed_tests": ["test_engine"], "evidence": ["receipt:m5"]}]
+        if outcome is not None:
+            mutants.append({"line": 3, "outcome": outcome, "failed_tests": [], "evidence": []})
+        mutation = {**common, "files": [{"path": "engine.py", "sha256": digest, "mutants": mutants}]}
+        inputs = {"inventory": inventory, "coverage": coverage, "mutation": mutation}
+        assessment = policy.assess(inventory, coverage, mutation, **common)
+        return {**common, "verdict": "PASS", "changed_code_inputs": inputs, "changed_code_evidence": assessment}
+
+    def test_runner_settles_a_no_site_line_and_the_tester_veto_reopens_it(self):
+        import autocode_changed_code_rework as rework
+
+        proof = self.no_site_proof()
+        settled = proof_policy.reviewed(proof, [])
+        # The runner records the no-site reason itself: the PASS no longer needs a model decision.
+        self.assertEqual("PASS", settled["status"])
+        no_site = settled["obligations"][0]
+        self.assertEqual(3, no_site["line"])
+        self.assertEqual("excepted", no_site["status"])
+        self.assertEqual(policy.RUNNER_NO_SITE, no_site["fallback"])
+        self.assertEqual([], no_site["mutation_outcomes"])
+
+        # The demand path no longer asks the Tester to decide the settled no-site line on a PASS.
+        offer = review.generation_schema(
+            {"properties": {review.FIELD: review.SCHEMA}}, proof["changed_code_evidence"], "tester"
+        )
+        self.assertEqual([], review.tester_only_gaps(settled, [], offer, "tester"))
+        schema = self.root / "no-site.schema.json"
+        schema.write_text(json.dumps(offer))
+        state = {"regression_proof": {"changed_code_evidence": settled, "path": "/run/proof.json"}}
+        record = {"stage": "tester", "source_revision": "source-one", "schema": str(schema)}
+        self.assertIsNone(
+            review_application.require_tester_decisions(
+                state, {"verdict": "PASS", "changed_code_exceptions": []}, record
+            )
+        )
+
+        # An explicit Tester reject vetoes the machine reason and routes back through the existing rework.
+        common = {"source_revision": "source-one", "proof_context": "context-one"}
+        reject = {
+            **common,
+            **{key: no_site[key] for key in ("gap_id", "path", "sha256", "line")},
+            "accepted": False,
+            "reason": "This import is read at load time; add a test that fails without it.",
+            "evidence": ["/run/tester.json"],
+        }
+        reopened = proof_policy.reviewed(proof, [reject])
+        self.assertEqual("UNVERIFIED", reopened["status"])
+        self.assertEqual("reason_required", reopened["obligations"][0]["status"])
+        rework_state = {
+            "status": "RUNNING",
+            "iteration": 1,
+            "regression_proof": {**proof, "changed_code_evidence": reopened},
+            "current_task": {"id": "task-1"},
+            "goal_contract": {"hash": "h" * 64, "revision": 1},
+        }
+        rework_record = {
+            "stage": "tester",
+            "role": "tester",
+            "source_revision": "source-one",
+            "output": "/run/tester.json",
+        }
+        self.assertTrue(rework.route(rework_state, rework_record, investigation_enabled=False, rejected=[reject]))
+        self.assertEqual("builder", rework_state["next_stage"])
+        self.assertEqual("builder", rework_state["regression_proofs"][-1]["action"])
+
+    def test_runner_never_settles_a_budget_or_survivor_line(self):
+        for outcome in ("not_run", "survived"):
+            with self.subTest(outcome=outcome):
+                proof = self.no_site_proof(outcome)
+                assessed = proof_policy.reviewed(proof, [])
+                self.assertEqual("UNVERIFIED", assessed["status"])
+                self.assertEqual("reason_required", assessed["obligations"][0]["status"])
+                self.assertTrue(assessed["obligations"][0]["mutation_outcomes"])
+
 
 class SelectedTestsTests(unittest.TestCase):
     """The mutation check runs the proof command the runner can narrow to the observed proving tests."""

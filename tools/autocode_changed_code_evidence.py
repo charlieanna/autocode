@@ -42,6 +42,14 @@ OVERLAP_LIMIT = 3
 # An obligation in one of these states has its evidence: a test that fails when the line breaks, or an
 # independently accepted reason. Every other obligation is still open.
 SETTLED = ("tested", "excepted")
+# A changed line the mutator processed but gave no site: no operator applies to it, so no Builder test
+# can mark it tested. The runner records this reason itself and the Tester keeps an explicit veto
+# (#4218, AGENTS.md "AutoCode decides the reason itself; the Tester checks it").
+RUNNER_NO_SITE = "runner_no_site"
+NO_SITE_REASON = "No mutation operator applies to this line; the mutator produced no site on it."
+# A stable, deterministic citation for the runner's own no-site observation. It names no run path, so a
+# replay re-derives the identical exception (architecture rule 7).
+NO_SITE_EVIDENCE = "runner:mutation-no-site"
 
 
 def outstanding(obligations):
@@ -217,6 +225,30 @@ def _mutation(row, line):
     return demonstrated, outcomes, evidence
 
 
+def _no_site(changes, line):
+    """True when the mutator processed this file but produced no mutant starting on ``line``.
+
+    The file must be present with matching bytes and a well-formed mutants list (the runner's
+    authenticated observation); a line none of its mutants starts on has no mutation site. This is
+    distinct from a ``not_run`` budget gap or a ``survived`` mutant, which DO start on the line and
+    carry outcomes, and from an unprocessed or malformed file, which fails closed (#4218).
+    """
+    mutants = changes.get("mutants") if isinstance(changes, dict) else None
+    if not isinstance(mutants, list) or any(
+        not isinstance(item, dict) or type(item.get("line")) is not int or item["line"] < 1 for item in mutants
+    ):
+        return False
+    return not any(item["line"] == line for item in mutants)
+
+
+def _vetoed(exceptions, obligation):
+    """True when an independent Tester rejected this exact gap: its veto over the runner's reason."""
+    return any(
+        isinstance(row, dict) and row.get("gap_id") == obligation["gap_id"] and row.get("accepted") is False
+        for row in exceptions
+    )
+
+
 def _overlapping_mutations(row, line):
     """Show nonpositive parent-span observations without granting child-line credit."""
     mutants = row.get("mutants") if isinstance(row, dict) else None
@@ -279,7 +311,9 @@ def _exception(exceptions, obligation, source_revision, proof_context):
 LISTED_LINES = 40
 
 
-def assess(inventory, coverage, mutation, *, source_revision, proof_context, exceptions=(), texts=None):
+def assess(
+    inventory, coverage, mutation, *, source_revision, proof_context, exceptions=(), texts=None, settle_no_site=False
+):
     """Return deterministic PASS/UNVERIFIED, per-line obligations and chosen fallbacks.
 
     Empty, well-formed inventories have no executable obligation. Malformed or
@@ -288,6 +322,14 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
     collection success or an empty survivor list is never enough. ``texts`` maps a
     path to ``line_texts`` of its measured bytes; an obligation whose file hash it
     pins carries that line's ``source_line``.
+
+    ``settle_no_site`` is the runner's own admission (#4218): a changed line the
+    mutator processed but gave no site has no behavioral evidence a Builder test
+    could add, so the runner records a deterministic, digest-bound exception
+    (``runner_no_site``) rather than demanding a model decision. An independent
+    Tester ``reject`` of that line vetoes the machine reason and keeps it open; a
+    Tester ``accept`` still takes precedence. ``not_run`` (budget) and ``survived``
+    lines carry outcomes and are never settled here.
     """
     result = {
         "schema": 1,
@@ -353,7 +395,23 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
                         "reason": decision["reason"],
                         "exception": decision,
                     }
-                obligation["fallback"] = "reviewer_reason" if decision is not None else "reviewer_reason_required"
+                    obligation["fallback"] = "reviewer_reason"
+                elif settle_no_site and _no_site(changes, line) and not _vetoed(exceptions, obligation):
+                    # The runner settles a line no mutation operator applies to: no Builder test can mark
+                    # it tested, so the runner records the reason itself and the Tester keeps a veto (#4218).
+                    obligation = {
+                        **obligation,
+                        "status": "excepted",
+                        "reason": NO_SITE_REASON,
+                        "exception": {
+                            "reason": NO_SITE_REASON,
+                            "evidence": [NO_SITE_EVIDENCE],
+                            "reason_kind": RUNNER_NO_SITE,
+                        },
+                    }
+                    obligation["fallback"] = RUNNER_NO_SITE
+                else:
+                    obligation["fallback"] = "reviewer_reason_required"
             result["obligations"].append(obligation)
     result["fallback"] = sorted({row["fallback"] for row in result["obligations"] if row["fallback"] != "none"})
     gaps = [row for row in result["obligations"] if row["status"] == "reason_required"]

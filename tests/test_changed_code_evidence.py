@@ -225,5 +225,85 @@ class ChangedCodeEvidenceTests(unittest.TestCase):
         self.assertNotEqual(gap, assess(inventory=changed)["obligations"][0]["gap_id"])
 
 
+class NoSiteSettlementTests(unittest.TestCase):
+    """The runner settles a line the mutator gave no site; the Tester keeps an explicit veto (#4218)."""
+
+    def settle(self, mut, *, exceptions=(), cov=None, inventory=INVENTORY):
+        return evidence.assess(
+            inventory,
+            coverage() if cov is None else cov,
+            mut,
+            source_revision=SOURCE,
+            proof_context=CONTEXT,
+            exceptions=exceptions,
+            settle_no_site=True,
+        )
+
+    def test_a_processed_line_with_no_mutation_site_settles_without_a_model_decision(self):
+        # app.py:3 is killed; app.py:4 has no mutant starting on it (an import, a decorator, __future__).
+        result = self.settle(mutations([mutant(3)]))
+        self.assertEqual("PASS", result["status"])
+        no_site = result["obligations"][1]
+        self.assertEqual("excepted", no_site["status"])
+        self.assertEqual([], no_site["mutation_outcomes"])
+        self.assertEqual(evidence.RUNNER_NO_SITE, no_site["fallback"])
+        self.assertEqual(evidence.RUNNER_NO_SITE, no_site["exception"]["reason_kind"])
+        self.assertEqual(evidence.NO_SITE_REASON, no_site["reason"])
+        self.assertEqual([evidence.NO_SITE_EVIDENCE], no_site["exception"]["evidence"])
+        self.assertIn(evidence.RUNNER_NO_SITE, result["fallback"])
+        # The exception is bound to the exact gap, file bytes and line.
+        self.assertEqual(no_site["gap_id"], evidence.gap_id(SOURCE, CONTEXT, "app.py", FILE_HASH, 4))
+
+    def test_a_whole_file_the_mutator_gave_no_sites_settles_its_lines(self):
+        result = self.settle(mutations([]))
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual({"excepted"}, {row["status"] for row in result["obligations"]})
+        self.assertEqual([evidence.RUNNER_NO_SITE], result["fallback"])
+
+    def test_not_run_budget_and_survived_lines_are_never_auto_settled(self):
+        for outcome in ("not_run", "survived", "timeout", "unsupported", "error", "unknown"):
+            with self.subTest(outcome=outcome):
+                result = self.settle(mutations([mutant(3), mutant(4, outcome)]))
+                self.assertEqual("UNVERIFIED", result["status"])
+                self.assertEqual("reason_required", result["obligations"][1]["status"])
+                self.assertTrue(result["obligations"][1]["mutation_outcomes"])
+
+    def test_an_unprocessed_empty_or_malformed_mutation_file_is_not_settled(self):
+        malformed = mutations([{"line": True, "outcome": "killed"}])
+        for mut in (None, envelope([]), malformed):
+            with self.subTest(mut=mut):
+                result = self.settle(mut)
+                self.assertEqual("UNVERIFIED", result["status"])
+                self.assertEqual("reason_required", result["obligations"][0]["status"])
+        # Bytes other than the inventoried file are not a processed observation.
+        other = mutations([mutant(3)])
+        other["files"][0]["sha256"] = "b" * 64
+        self.assertEqual("UNVERIFIED", self.settle(other)["status"])
+
+    def test_a_tester_reject_vetoes_the_machine_reason_and_keeps_the_line_open(self):
+        no_site = self.settle(mutations([mutant(3)]))["obligations"][1]
+        reject = {**exception(no_site), "accepted": False}
+        result = self.settle(mutations([mutant(3)]), exceptions=[reject])
+        self.assertEqual("UNVERIFIED", result["status"])
+        self.assertEqual("reason_required", result["obligations"][1]["status"])
+        self.assertEqual("reviewer_reason_required", result["obligations"][1]["fallback"])
+
+    def test_a_tester_accept_takes_precedence_over_the_machine_reason(self):
+        no_site = self.settle(mutations([mutant(3)]))["obligations"][1]
+        accept = exception(no_site)
+        result = self.settle(mutations([mutant(3)]), exceptions=[accept])
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual("reviewer_reason", result["obligations"][1]["fallback"])
+        self.assertEqual(accept["reason"], result["obligations"][1]["reason"])
+
+    def test_without_the_runner_admission_a_no_site_line_still_needs_a_reason(self):
+        # The pure policy default is unchanged: only the runner (collect/reviewed) admits no-site reasons.
+        result = evidence.assess(
+            INVENTORY, coverage(), mutations([mutant(3)]), source_revision=SOURCE, proof_context=CONTEXT
+        )
+        self.assertEqual("UNVERIFIED", result["status"])
+        self.assertEqual("reason_required", result["obligations"][1]["status"])
+
+
 if __name__ == "__main__":
     unittest.main()
