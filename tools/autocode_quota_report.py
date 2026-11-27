@@ -11,8 +11,10 @@ from typing import Any
 
 try:
     from . import autocode_quota_pools as pools
+    from . import autocode_quota_savings as savings
 except ImportError:
     import autocode_quota_pools as pools
+    import autocode_quota_savings as savings
 
 SCHEMA = 1
 BASIS = (
@@ -40,6 +42,7 @@ def build(
         "basis": BASIS,
         "attempts": summary["attempts"],
         "pools": summary["pools"],
+        "savings": savings.suggest(summary["pools"]),
     }
 
 
@@ -90,6 +93,25 @@ def _pool_lines(name: str, pool: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _saving_lines(pool: dict[str, Any], found: dict[str, Any], minimum: int) -> list[str]:
+    if not found["opportunities"]:
+        return [f"  what-if: no cheaper route has {minimum} priced attempts that match or beat the accept rate yet."]
+    lines = []
+    for item in found["opportunities"]:
+        old, new = item["from"], item["to"]
+        lines.append(
+            f"  what-if: {item['role']}: {old['model']} {old['effort']} -> {new['model']} {new['effort']}, "
+            f"${old['usd_per_attempt']:.2f} -> ${new['usd_per_attempt']:.2f} per attempt, "
+            f"saves ${item['saving_usd']:.2f} of ${item['baseline_usd']:.2f} "
+            f"(accepted {old['accepted_attempts']}/{old['attempts']} -> {new['accepted_attempts']}/{new['attempts']})"
+        )
+    lines.append(
+        f"  what-if total: ${found['saving_usd']:.2f} of ${pool['burn_usd']:.2f} burned "
+        f"({_share(found['saving_usd'], pool['burn_usd'])})"
+    )
+    return lines
+
+
 def format_text(payload: dict[str, Any]) -> str:
     """Render ``build`` as the pool lines a person reads."""
     since = f", since: {payload['since']}" if payload.get("since") else ""
@@ -103,8 +125,13 @@ def format_text(payload: dict[str, Any]) -> str:
     if not payload["pools"]:
         lines.append(EMPTY)
         return "\n".join(lines)
+    found = payload.get("savings") or {}
     for name, pool in payload["pools"].items():
         lines.extend(_pool_lines(name, pool))
+        if name in found.get("pools", {}):
+            lines.extend(_saving_lines(pool, found["pools"][name], found["min_attempts"]))
     if any(route["unknown_attempts"] for pool in payload["pools"].values() for route in pool["routes"]):
         lines.extend(["", "* some attempts have no recorded usage, so that burn is a floor."])
+    if found.get("pools"):
+        lines.extend(["", found["basis"]])
     return "\n".join(lines)

@@ -168,6 +168,25 @@ interrupted stage) and the burn over the last 5 hours and 7 days, the two window
 - It reads only ledgers, launches nothing and changes no route. It shows where quota went so a person
   or a later change can choose cheaper routes; it grants no completion authority.
 
+### Cheaper routes the ledger proves
+
+Under each `claude` and `codex` pool the report adds a **what-if**: for a role that ran on several
+routes (a model at a level) in the same pool, the cheapest route that would have cost less for the same
+stages, and what that would have saved. A route is named only when the ledger itself shows that:
+
+- the same pool and role ran it at least 5 times with a recorded price (`min_attempts` in the JSON);
+- its accept rate (stages the runner took, not stages later judged well done) is at least that of the
+  route it replaces; and
+- its price per attempt is lower, from the stages that have a price. The saving is the price gap times
+  the replaced route's priced attempts, so unknown usage never adds to it.
+
+A route is also dropped when it would put a checker on the same model as the work it checks
+(`autocode_verifier_independence`), judged against every route of the pairing's other role in the
+ledger. Nothing comes from a model table, so a model the ledger never ran for that role is never
+named. The `other` pool is not analysed. This is arithmetic over past runs: tasks differ, an accepted
+stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
+pool says so.
+
 ## How to interpret the numbers
 
 The scorer's `token_usage.estimated_api_equivalent_usd` uses the existing
