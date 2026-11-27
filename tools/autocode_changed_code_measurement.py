@@ -406,7 +406,12 @@ def mutation_envelope(report, *, source_revision, proof_context, receipts, root)
             if eligible and row.get("source_sha256") == file.get("sha256") and _names(references):
                 mutant_selected = row.get("selected_tests", selected)
                 rule = row.get("selection_rule")
-                valid_rule = rule is None or rule in ("all_selected_tests", "import_closure", "symbol_closure")
+                valid_rule = rule is None or rule in (
+                    "all_selected_tests",
+                    "import_closure",
+                    "symbol_closure",
+                    mutation_results.PRIOR_KILL_RULE,
+                )
                 if not valid_rule:
                     pass
                 elif mutant_selected == []:

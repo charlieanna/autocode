@@ -12,6 +12,10 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 STOP_POLICY = "stop_after_selected_failure_v1"
+# A mutant run again on a changed candidate with only the tests that killed it on the prior candidate
+# (#4217). It is a selection rule like the affected-test ones: a kill it observes is a kill on this
+# candidate by a subset of the selected tests, and a pass sends the mutant to its whole site selection.
+PRIOR_KILL_RULE = "prior_kill"
 
 
 def stop_command(command):

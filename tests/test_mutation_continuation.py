@@ -287,6 +287,114 @@ class PerFileRetentionTests(unittest.TestCase):
         )
 
 
+class KillConfirmationTests(unittest.TestCase):
+    """#4217 review: a kill is a fact about the whole candidate, so it never transfers to another one.
+
+    ``app.py``'s mutants are killed by its strong tests. The Builder then edits only ``other.py`` and, in the
+    masking case, that edit makes every test pass whatever ``app.py`` does, as ``total = 30`` in place of
+    ``total = rate() * 10`` would. ``app.py``'s bytes, site inventory and selected tests are unchanged, so
+    per-file retention alone would have kept its mutants ``killed`` on a candidate where no test notices them.
+    """
+
+    MASK = "# masks app.py\n"
+
+    def setUp(self):
+        fixtures.RunnerTests.setUp(self)
+        (self.tree / "other.py").write_text(OTHER)
+
+    def collect(self, calls, *, previous=None):
+        strong = fixtures.FakeRun(self.tree, fixtures.STRONG)
+
+        def run(command, label, timeout):
+            calls.append(label)
+            selected = [test for test in (fixtures.C1, fixtures.C2) if test in command] or [fixtures.C1, fixtures.C2]
+            row = strong(command, label, timeout)
+            passed, failed = row["results"]["passed"], row["results"]["failed"]
+            if (self.tree / "other.py").read_text().endswith(self.MASK):
+                passed, failed = passed + failed, []
+            passed, failed = [t for t in passed if t in selected], [t for t in failed if t in selected]
+            return {
+                "output": str(self.evidence / f"{len(calls)}-{label}.log"),
+                "command": command,
+                "exit_code": 1 if failed else 0,
+                "timed_out": False,
+                "duration_seconds": 0.5,
+                "results": {
+                    "complete": True,
+                    "passed": passed,
+                    "failed": failed,
+                    "skipped": [],
+                    "total": len(passed) + len(failed),
+                    "collection_errors": [],
+                },
+            }
+
+        return mutation.collect_selected_tests(
+            "unittest",
+            fixtures.COMMAND,
+            [fixtures.C1, fixtures.C2],
+            self.tree,
+            self.evidence,
+            [("app.py", "modified"), ("other.py", "modified")],
+            lambda chosen: TWO_DIFFS[chosen[0][0]],
+            run,
+            clock=fixtures.Clock(),
+            enforcement=True,
+            previous=previous,
+        )
+
+    def app(self, study):
+        return next(file["mutants"] for file in study["files"] if file["path"] == "app.py")
+
+    def first(self):
+        study = self.collect([])
+        killed = [row for row in self.app(study) if row["outcome"] == "killed"]
+        self.assertTrue(killed, "the strong tests kill app.py's mutants on the first candidate")
+        return study, killed
+
+    def test_an_edit_elsewhere_that_masks_a_kill_leaves_the_line_untested(self):
+        first, killed = self.first()
+        (self.tree / "other.py").write_text(OTHER + self.MASK)
+        calls = []
+        second = self.collect(calls, previous=first)
+        self.assertTrue(second["collected"])
+        rows = {row["site_id"]: row for row in self.app(second)}
+        for prior in killed:
+            row = rows[prior["site_id"]]
+            # Its killing tests pass now, so it ran on every test the site selects, and survived.
+            self.assertEqual("survived", row["outcome"], row)
+            self.assertEqual([], row["failed_tests"])
+            self.assertEqual("survived", row["kill_confirmation"]["outcome"])
+            self.assertEqual(prior["failed_tests"], row["kill_confirmation"]["tests"])
+            self.assertTrue(set(row["evidence"]).isdisjoint(prior["evidence"]))
+        self.assertTrue(any(label.endswith("-kill") for label in calls))
+        self.assertEqual(fixtures.WINDOW, (self.tree / "app.py").read_text())
+
+    def test_a_kill_that_still_holds_is_observed_again_with_only_its_killing_tests(self):
+        first, killed = self.first()
+        (self.tree / "other.py").write_text(OTHER + "# builder edit\n")
+        calls = []
+        second = self.collect(calls, previous=first)
+        rows = {row["site_id"]: row for row in self.app(second)}
+        for prior in killed:
+            row = rows[prior["site_id"]]
+            self.assertEqual("killed", row["outcome"], row)
+            self.assertEqual("prior_kill", row["selection_rule"])
+            self.assertEqual(prior["failed_tests"], row["selected_tests"])
+            self.assertEqual(prior["failed_tests"], row["failed_tests"])
+            self.assertTrue(set(row["evidence"]).isdisjoint(prior["evidence"]), "a fresh capture, not the old one")
+            self.assertNotIn("kill_confirmation", row)
+        # One run per kill, on its killing tests alone: never the site's whole selection after a kill.
+        self.assertEqual(len(killed), sum(label.endswith("-kill") for label in calls))
+
+    def test_an_identical_candidate_still_keeps_its_kills_verbatim(self):
+        first, killed = self.first()
+        calls = []
+        second = self.collect(calls, previous=first)
+        self.assertEqual(self.app(first), self.app(second))
+        self.assertEqual(["unmutated"], calls)
+
+
 class ProofTests(unittest.TestCase):
     def setUp(self):
         fixtures.ProofTests.setUp(self)
@@ -719,11 +827,22 @@ class FreshRetentionTests(unittest.TestCase):
         self.edit_other()
         second = self.prove()
         kept, rerun = self.rows(first), self.rows(second)
-        self.assertEqual(kept["calc.py"], rerun["calc.py"], "the unchanged file's outcomes are retained verbatim")
         self.assertNotEqual(kept["other.py"], rerun["other.py"], "the edited file is measured again")
         old = self.outputs(first)
-        self.assertTrue(all(row["evidence"] for row in rerun["calc.py"]))
-        self.assertTrue(all(ref in old for row in rerun["calc.py"] for ref in row["evidence"]))
+        prior = {row["site_id"]: row for row in kept["calc.py"]}
+        self.assertEqual(set(prior), {row["site_id"] for row in rerun["calc.py"]})
+        self.assertTrue(any(row["outcome"] == "killed" for row in kept["calc.py"]))
+        for row in rerun["calc.py"]:
+            was = prior[row["site_id"]]
+            self.assertTrue(row["evidence"])
+            if was["outcome"] == "killed":
+                # A kill is observed again on the edited candidate, with only the tests that killed it (#4217).
+                self.assertEqual(("killed", "prior_kill"), (row["outcome"], row["selection_rule"]))
+                self.assertEqual(was["failed_tests"], row["selected_tests"])
+                self.assertTrue(all(ref not in old for ref in row["evidence"]))
+            else:
+                self.assertEqual(was, row, "an outcome that claims no kill is retained verbatim")
+                self.assertTrue(all(ref in old for ref in row["evidence"]))
         self.assertTrue(all(ref not in old for row in rerun["other.py"] for ref in row["evidence"]))
         self.assertEqual(before, Path(first["path"]).read_bytes(), "the prior proof stays immutable")
         # Every carried receipt stays inside the root this proof's own artifact pins.

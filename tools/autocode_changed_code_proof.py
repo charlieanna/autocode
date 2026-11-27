@@ -140,6 +140,8 @@ def collect(
     baseline = source_snapshot.copied_files(tree, expected)
     original_workspace = source_snapshot.snapshot(workspace, paths=source_paths)
     retention = retention_identity(original_workspace.get("files") or {}, files)
+    # True when the prior proof measured another candidate: only then is a prior kill observed again.
+    changed_candidate = False
     if previous is not None:
         if previous.get("changed_code_inputs") == result.get("changed_code_inputs"):
             # The identical candidate a continuation window measures: every prior input and receipt
@@ -156,6 +158,9 @@ def collect(
                 raise ValueError("Retained changed-code evidence is not intact in this execution context")
             if not self_custody(previous):
                 raise ValueError("Retained changed-code evidence is not intact in this execution context")
+            # A kill depends on every changed file, not only the one it mutates: an edit elsewhere can
+            # leave the same tests passing with the line broken. Each prior kill is observed again.
+            changed_candidate = True
             if (previous.get("changed_code_inputs") or {}).get("retention_identity") != retention:
                 # A test, fixture or other delivered input changed, or the candidate changes a
                 # different set of product files. No prior outcome transfers: the whole study is
@@ -191,6 +196,7 @@ def collect(
             run,
             enforcement=True,
             previous=previous.get("mutation_check") if previous is not None else None,
+            confirm_kills=changed_candidate,
             deadline=deadline,
             progress=progress,
         )

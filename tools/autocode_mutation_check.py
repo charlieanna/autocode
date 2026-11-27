@@ -279,8 +279,25 @@ def _retained_measurement_matches(prior, tests, mutant_tests, site_selection) ->
     prior_rule = prior.get("selection_rule")
     if prior_rule == affected_tests.RULE_ALL and prior_tests == list(tests):
         return True
+    if prior_rule == mutation_results.PRIOR_KILL_RULE:
+        # A kill re-observed on this same candidate with the tests that killed it on an earlier one: any of
+        # this site's current tests failing is a kill, so it transfers while they are all still selected.
+        return prior.get("outcome") == "killed" and bool(_killers(prior, mutant_tests))
     rule = site_selection["rule"] if site_selection is not None else affected_tests.RULE_ALL
     return prior_rule == rule and prior_tests == list(mutant_tests)
+
+
+def _killers(prior, mutant_tests) -> list[str]:
+    """The tests that killed ``prior``'s mutant, when each is still one of this site's ``mutant_tests``."""
+    failed = prior.get("failed_tests")
+    if (
+        not isinstance(failed, list)
+        or not failed
+        or not all(isinstance(test, str) and test for test in failed)
+        or not set(failed) <= set(mutant_tests)
+    ):
+        return []
+    return sorted(set(failed))
 
 
 def collect(
@@ -350,6 +367,7 @@ def collect_selected_tests(
     deadline=None,
     enforcement=False,
     previous=None,
+    confirm_kills=False,
     progress=None,
 ):
     """Report mutations against independently observed passing tests, without inventing named cases.
@@ -358,6 +376,10 @@ def collect_selected_tests(
     pass again, with complete results, before any mutant runs. An optional absolute deadline includes
     the caller's discovery and initial test run in the same 900-second allowance. Unknown command
     ownership is never converted into a report-only note or permission to clean up its tree.
+
+    ``confirm_kills`` says ``previous`` measured another candidate (#4217): a kill there was observed
+    against other bytes of the change, so it never transfers. Its mutant runs again on this candidate,
+    first with only the tests that killed it, and with the site's whole selection when they now pass.
     """
     framework_name = runner_name(framework_name, command)
     if framework_name not in FRAMEWORKS:
@@ -384,6 +406,7 @@ def collect_selected_tests(
             strict=True,
             enforcement=enforcement,
             previous=previous,
+            confirm_kills=confirm_kills,
             progress=progress,
             outer_deadline=outer,
         )
@@ -408,6 +431,7 @@ def _collect(
     strict=False,
     enforcement=False,
     previous=None,
+    confirm_kills=False,
     progress=None,
     outer_deadline=None,
 ) -> dict:
@@ -493,6 +517,11 @@ def _collect(
                 continue
             for item in prior_mutants:
                 retained[item["site_id"]] = item
+        # A study whose own files differ from the prior one's measured another candidate, whatever the
+        # caller says: its kills are observed again (the caller also knows of changed files it never mutates).
+        confirm_kills = confirm_kills or [
+            (file.get("path"), file.get("sha256")) for file in previous.get("files", [])
+        ] != [(row["path"], row.get("sha256")) for row in rows]
     evidence.mkdir(parents=True, exist_ok=True)
     if deadline is None:
         deadline, reference_limit = clock() + BUDGET_SECONDS, BUDGET_SECONDS
@@ -582,6 +611,7 @@ def _collect(
     # budget accumulates coverage across proofs (#4217). A re-run is a site whose prior outcome exists but
     # no longer transfers (a symbol-narrowed survivor, a changed selection, or a never-launched site).
     retained_sites: set[str] = set()
+    confirm_sites: dict[str, tuple[list[str], str]] = {}
     rerun_paths: set[str] = set()
     for row, _, _, _, mutant in planned:
         prior = retained.get(mutant.id)
@@ -589,6 +619,20 @@ def _collect(
             continue
         site_selection = selection_by_site.get((row["path"], mutant.line)) if enforcement else None
         mutant_tests = site_selection["tests"] if site_selection is not None else tests
+        if confirm_kills and prior.get("outcome") == "killed":
+            # Whether a test notices this mutant depends on the whole candidate, not on this file's bytes:
+            # an edit to another changed file can leave the same tests passing with this line broken. So a
+            # kill measured on another candidate never transfers. The mutant runs again here, first with
+            # only the tests that killed it, which is usually one fast test that stops at its failure.
+            killers = _killers(prior, mutant_tests)
+            narrowed_kill = (
+                proof_stability.narrow(framework_name, command, killers) if killers and not observe else None
+            )
+            if narrowed_kill and (not python or python_tests.parse(narrowed_kill, include_owned=True) is not None):
+                confirm_sites[mutant.id] = (killers, narrowed_kill)
+            else:
+                rerun_paths.add(row["path"])
+            continue
         guessed = prior.get("selection_rule") == affected_tests.RULE_SYMBOL and prior.get("outcome") == "survived"
         if (
             not guessed
@@ -622,13 +666,17 @@ def _collect(
             # launched, or whose measurement no longer authenticates this site, get another command.
             row["mutants"].append(copy.deepcopy(retained[mutant.id]))
             continue
+        confirming = confirm_sites.get(mutant.id)
+        site_rule = site_selection["rule"] if site_selection is not None else affected_tests.RULE_ALL
+        if confirming is not None:
+            entry.update(selected_tests=list(confirming[0]), selection_rule=mutation_results.PRIOR_KILL_RULE)
         # Symbol narrowing only shortens a run: a test that never names a definition can still run it, when a
         # decorator or base class hands it to an object the tests use (``@app.post`` on a FastAPI handler reached
         # through ``TestClient(app)``). So a survivor of a symbol-narrowed run is run again on every selected test.
         symbol_narrowed = (
             enforcement and site_selection is not None and site_selection["rule"] == affected_tests.RULE_SYMBOL
         )
-        label = f"mutant-{number:02d}"
+        label = f"mutant-{number:02d}" if confirming is None else f"mutant-{number:02d}-kill"
         if enforcement and not mutant_tests:
             # No selected test imports the file: proven unobserved after passing the unmutated reference.
             # Retain as survived with no kill rather than running unrelated tests.
@@ -644,7 +692,9 @@ def _collect(
                 break
             limit = min(remaining, bound)
             active_command = mutant_command
-            if enforcement and python and site_selection is not None and site_selection.get("command"):
+            if confirming is not None:
+                active_command = mutation_results.stop_command(confirming[1]) if python else confirming[1]
+            elif enforcement and python and site_selection is not None and site_selection.get("command"):
                 active_command = mutation_results.stop_command(site_selection["command"])
             if progress is not None:
                 elapsed = round(max(0.0, time.monotonic() - started_wall), 1)
@@ -701,7 +751,7 @@ def _collect(
                     f"{row['path']}:{mutant.line}: the {mutant.operator} mutant did not build; not a site"
                 )
                 break
-            expected_tests = mutant_tests if enforcement else passed
+            expected_tests = (mutant_tests if confirming is None else confirming[0]) if enforcement else passed
             judged = receipt if python else mutation_results.selected(receipt, expected_tests)
             outcome, observed = (
                 mutation_results.outcome(
@@ -715,6 +765,17 @@ def _collect(
             survived = observed if outcome == "survived" else []
             if enforcement:
                 entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
+            if confirming is not None and outcome != "killed":
+                # The tests that killed this mutant on the prior candidate no longer do. Kept beside the run
+                # that decides, which is every test this site selects, exactly as a first measurement.
+                entry["kill_confirmation"] = {
+                    "tests": list(confirming[0]),
+                    "outcome": outcome,
+                    "evidence": entry["evidence"],
+                }
+                entry.update(selected_tests=list(mutant_tests), selection_rule=site_rule, failed_tests=[], evidence=[])
+                confirming, label = None, f"mutant-{number:02d}"
+                continue
             if strict and outcome == "survived" and set(survived) != set(expected_tests):
                 outcome, survived = "not_run", []
             if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
