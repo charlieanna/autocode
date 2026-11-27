@@ -185,6 +185,7 @@ START_FLAGS = (
     "--sol-reasoning-effort",
     "--tester-reasoning-effort",
     "--plan-only",  # a planning-flow switch: the run ends at the plan the person accepts
+    "--review-only",  # a new-run switch: the review job, and nothing written but its findings
     "--spec-first",
     "--status",
     "--summary",
