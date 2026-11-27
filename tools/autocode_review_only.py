@@ -53,7 +53,6 @@ except ImportError:
 SETTING = "review_only"
 FLAG = "--review-only"
 WORKFLOW = "review"
-KEY = "review_only"
 WRITES = ("review/",)
 REPORT = "review/findings.json"
 # Builder attempts that changed a file outside WRITES and were sent straight back, per contract, before the
@@ -139,9 +138,9 @@ def capture_start(state: RunState, workspace, directory=None) -> None:
 
     Every file outside WRITES must stay exactly so; ``restore_from_start`` puts one back from this object. A
     workspace Git cannot capture (a nested repository) keeps the attempt-snapshot restore of stray_writes."""
-    if not enabled(state) or (state.get(KEY) or {}).get("start"):
+    if not enabled(state) or (state.get("review_only") or {}).get("start"):
         return
-    entry = state.setdefault(KEY, {"builder_edits": [], "findings": None})
+    entry = state.setdefault("review_only", {"builder_edits": [], "findings": None})
     try:
         entry["start"] = code_checkpoints.capture_tree(workspace, source_snapshot.snapshot(workspace), directory)
     except (OSError, ValueError, KeyError) as problem:
@@ -150,7 +149,7 @@ def capture_start(state: RunState, workspace, directory=None) -> None:
 
 def restore_from_start(state: RunState, workspace, paths) -> tuple[list[str], list[str]]:
     """Put ``paths`` back as the saved start had them (absent there: removed); return (restored, kept)."""
-    commit = (state.get(KEY) or {}).get("start")
+    commit = (state.get("review_only") or {}).get("start")
     root, restored, kept = Path(workspace), [], []
     for path in paths:
         listed = subprocess.run(
@@ -192,7 +191,7 @@ def check_writes(state: RunState, record: dict, workspace) -> bool:
     if not enabled(state):
         return False
     stray = outside(record.get("changed_files"))
-    entry = state.setdefault(KEY, {"builder_edits": [], "findings": None})
+    entry = state.setdefault("review_only", {"builder_edits": [], "findings": None})
     if not stray:
         for row in entry.get("builder_edits") or []:
             row["resolved"] = True  # a clean attempt: the Builder's prompt stops naming the old edit
@@ -225,7 +224,9 @@ def record_findings(state: RunState, workspace) -> None:
     """Save the summary of REPORT as the Builder left it, for the chat's result; None when it is unreadable."""
     if not enabled(state):
         return
-    state.setdefault(KEY, {"builder_edits": [], "findings": None})["findings"] = summary(Path(workspace) / REPORT)
+    state.setdefault("review_only", {"builder_edits": [], "findings": None})["findings"] = summary(
+        Path(workspace) / REPORT
+    )
 
 
 def summary(path: Path) -> dict | None:
@@ -262,12 +263,12 @@ def response(state: RunState) -> str | None:
     """The finished review as the chat shows it: verdict, counts and the blocking findings; None off this mode."""
     if not enabled(state) or state.get("status") != "TASK_COMPLETE":
         return None
-    found = (state.get(KEY) or {}).get("findings")
+    found = (state.get("review_only") or {}).get("findings")
     if not isinstance(found, dict):
         return f"Review complete. The findings are in {REPORT}; nothing else was changed."
     reviewed = f" of {found['change_under_review']}" if found.get("change_under_review") else ""
     lines = [
-        f"Review{reviewed} complete: {VERDICTS.get(found.get('verdict'), found.get('verdict'))}. "
+        f"Review{reviewed} complete: {VERDICTS.get(str(found.get('verdict')), found.get('verdict'))}. "
         f"{found.get('blocking_count', 0)} blocking, {found.get('advisory_count', 0)} advisory. "
         "Nothing in the project was changed.",
     ]
@@ -328,7 +329,7 @@ def rejection(state: RunState, current) -> str:
 
 
 def _unresolved(state: RunState) -> list[str]:
-    edits = (state.get(KEY) or {}).get("builder_edits") or []
+    edits = (state.get("review_only") or {}).get("builder_edits") or []
     current = (state.get("goal_contract") or {}).get("hash")
     last = edits[-1] if edits else {}
     return list(last.get("paths") or []) if last.get("contract_hash") == current and not last.get("resolved") else []
