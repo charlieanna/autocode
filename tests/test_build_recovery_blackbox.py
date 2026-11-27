@@ -37,6 +37,7 @@ class RecoveryBlackbox(unittest.TestCase):
     invoke = bb.BuildBlackbox.invoke
     seed = bb.BuildBlackbox.seed
     state = bb.BuildBlackbox.state
+    review_after_proof_round = bb.BuildBlackbox.review_after_proof_round
     events = bb.BuildBlackbox.events
     build = bb.BuildBlackbox.build
     candidate = bb.BuildBlackbox.candidate
@@ -513,7 +514,7 @@ class RecoveryBlackbox(unittest.TestCase):
         self.seed(spec)
         self.build()
         self.candidate()
-        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.review_after_proof_round()
         self.assertEqual("FAIL", self.state()["validation"]["verdict"])
         self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
         self.assertEqual(self.original_contract, self.state()["goal_contract"])

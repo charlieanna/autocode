@@ -424,6 +424,19 @@ class BuildBlackbox(unittest.TestCase):
         self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
         self.assertEqual(self.original_contract, self.state()["goal_contract"])
 
+    def review_after_proof_round(self):
+        """Review a candidate whose regression proof fails, through to the Tester's verdict.
+
+        A failing proof first sends the change back to the same Builder once, before any Tester (#4211).
+        The scripted Builder delivers the same bytes again, so the second failing proof goes to the Tester.
+        """
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        state = self.state()
+        self.assertEqual(("builder", "FAIL"), (state["next_stage"], state["regression_proof"]["verdict"]))
+        self.build()
+        self.candidate()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+
     def candidate(self):
         state = self.state()
         self.assertEqual("tester", state["next_stage"])
@@ -965,7 +978,7 @@ class BuildBlackbox(unittest.TestCase):
         self.assertNotEqual(0, check.returncode)
         self.assertIn("HTTP Error 404", check.stderr)
         (self.root / "independent-integration-failure.txt").write_text(check.stdout + check.stderr)
-        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.review_after_proof_round()
         self.assertEqual("FAIL", self.state()["validation"]["verdict"])
         self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
 
