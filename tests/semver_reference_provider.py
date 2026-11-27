@@ -153,7 +153,7 @@ def report(stage, data):
                 for row in assessment.get("obligations") or []
                 if row.get("path") == "src/semver/jsonio.py"
                 for gap in row.get("gaps") or []
-                if gap.get("status") == "reason_required"
+                if gap.get("status") in ("reason_required", "excepted")
                 and gap.get("source_line", "").strip() == '", ".join(repr(key) for key in unknown)'
             ]
             if proof.get("verdict") != "PASS" or len(gaps) != 1:
@@ -174,7 +174,15 @@ def report(stage, data):
                 .get("enum", [])
             )
             identity = gap.get("handle") if gap.get("handle") in allowed else gap.get("gap_id")
-            if identity not in allowed:
+            # #4218: the runner settles this no-site line itself (excepted, runner_no_site), so the
+            # launch enum — which offers only reason_required gaps — does not offer it. Validation
+            # widens to every current obligation, so its handle binds there. The Tester vetoes the
+            # settlement with a missing_test reject the source-bound controls authenticate.
+            if gap.get("status") == "excepted":
+                if gap.get("mutation_outcomes"):
+                    raise SystemExit("Scoped fixture holds: a settled diagnostic line carries mutation outcomes")
+                identity = gap.get("handle") or identity
+            elif identity not in allowed:
                 raise SystemExit("Scoped fixture holds: target obligation was not offered")
             refs = []
             for filename, digest in (

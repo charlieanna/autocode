@@ -57,10 +57,9 @@ EQUIVALENT_TEST = (
     "        self.assertEqual(10, adjust(10))\n"
     "        self.assertEqual(0, adjust(0))\n"
 )
-# An import has no mutation site, so the mutator has nothing on line 2: no Builder test can mark it
-# tested, and only the independent Tester's decision settles it.
 # A None bound to a name has no supported mutation site: None has no other constant to become. (An import
-# was this example until #2815 gave imports a site of their own.)
+# was this example until #2815 gave imports a site of their own.) No Builder test can mark line 2 tested,
+# so the runner records the no-site reason itself and the Tester keeps an explicit veto (#4218).
 NO_SITE_SOURCE = "def adjust(n):\n    floor = None\n    return min(n, 10) if floor is None else floor\n"
 NO_SITE_REASON = (
     "Binding None to floor has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) "
@@ -423,24 +422,22 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertFalse(any(row["repair"] for row in attempts), self.diagnostic())
         self.assertEqual(EQUIVALENT_SOURCE, (self.workspace / "calc.py").read_text())
 
-    def test_a_line_no_test_can_settle_goes_to_the_tester_not_the_builder(self):
+    def test_a_line_no_test_can_settle_is_settled_by_the_runner_without_a_tester_demand(self):
         view = self.start(no_site=True)
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         attempts = self.attempts()
-        # Before the Tester was asked, its silent PASS sent the unchanged code back to the Builder twice.
+        # The runner records the no-site reason itself (#4218): the Tester's silent PASS is no longer sent
+        # back for a decision no Builder test could give, and the unchanged code is not returned twice.
         self.assertEqual(1, sum(row["stage"] == "builder" for row in attempts), self.diagnostic())
         self.assertFalse(any(row["stage"] == "investigate_stuck" for row in attempts), self.diagnostic())
+        self.assertFalse(any(row["repair"] for row in attempts), self.diagnostic())
         testers = [row for row in attempts if row["stage"] == "tester"]
-        self.assertEqual([False, True], [row["repair"] for row in testers], self.diagnostic())
-        self.assertIn("calc.py:2", testers[1]["error"])
-        self.assertIn("no mutation outcome", testers[1]["error"])
-        # An incomplete report is already rejectable before any clean replay. Its
-        # repaired report must still execute that independent verification.
+        self.assertTrue(testers, self.diagnostic())
+        self.assertFalse(any("no mutation outcome" in (row.get("error") or "") for row in testers), self.diagnostic())
+        # The accepted PASS still executed its own independent clean replay.
         replay = self.run.run_dir / "check-replay"
-        original_stem = Path(testers[0]["output"]).stem
-        repaired_stem = Path(testers[1]["output"]).stem
-        self.assertFalse(list(replay.glob(original_stem + "-*")), "incomplete report spent a clean replay")
-        self.assertTrue(list(replay.glob(repaired_stem + "-*")), "repaired report bypassed clean verification")
+        stem = Path(testers[0]["output"]).stem
+        self.assertTrue(list(replay.glob(stem + "-*")), "accepted PASS bypassed clean verification")
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         self.assertEqual(self.routes, view["routes"])
@@ -448,7 +445,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual("PASS", changed["status"], changed)
         settled = next(row for row in changed["obligations"] if row["line"] == 2)
         self.assertEqual(("excepted", []), (settled["status"], settled["mutation_outcomes"]), settled)
-        self.assertEqual(NO_SITE_REASON, settled["exception"]["reason"])
+        self.assertEqual("runner_no_site", settled["fallback"], settled)
+        self.assertEqual("runner_no_site", settled["exception"]["reason_kind"], settled)
         self.assertEqual(NO_SITE_SOURCE, (self.workspace / "calc.py").read_text())
 
     def test_unexecuted_branch_returns_exact_line_to_builder_then_completes(self):

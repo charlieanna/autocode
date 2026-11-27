@@ -216,6 +216,7 @@ def collect(
         source_revision=source_revision,
         proof_context=context,
         texts=texts,
+        settle_no_site=True,
     )
     if custody_gaps:
         assessment["reason"] = "Changed-code input custody failed: " + ", ".join(custody_gaps[:20])
@@ -286,6 +287,7 @@ def reviewed(proof, exceptions):
         proof_context=original.get("proof_context"),
         exceptions=exceptions,
         texts=inputs.get("line_texts"),
+        settle_no_site=True,
     )
     if inputs.get("inventory") is None and inputs.get("custody_gaps"):
         result["reason"] = "Changed-code input custody failed: " + ", ".join(inputs["custody_gaps"][:20])

@@ -233,6 +233,43 @@ class ChangedCodeReportTests(unittest.TestCase):
             self.assertIn(f"src/value.py:{row['line']}", markdown)
         self.assertEqual(markdown, document.render(json.loads(json.dumps(report, sort_keys=True))))
 
+    def test_runner_no_site_reason_is_labelled_as_runner_recorded_not_tester_accepted(self):
+        # A machine-authored no-site exception (#4218) must not display as an independently accepted
+        # Tester reason: it has no reviewer, and its provenance is the runner's own observation.
+        proof = {
+            "changed_code_evidence": {
+                "status": "PASS",
+                "reason": "Every changed executable line has current behavioral evidence or an independently checked reason.",
+                "source_revision": "a" * 64,
+                "proof_context": "b" * 64,
+                "fallback": ["runner_no_site"],
+                "obligations": [
+                    {
+                        "gap_id": "changed-code:" + "c" * 64,
+                        "path": "greet.py",
+                        "line": 2,
+                        "sha256": "d" * 64,
+                        "source_line": "from __future__ import annotations",
+                        "status": "excepted",
+                        "executed": False,
+                        "mutation_demonstrated": False,
+                        "mutation_outcomes": [],
+                        "fallback": "runner_no_site",
+                        "reason": "No mutation operator applies to this line; the mutator produced no site on it.",
+                        "exception": {
+                            "reason": "No mutation operator applies to this line; the mutator produced no site on it.",
+                            "evidence": ["runner:mutation-no-site"],
+                            "reason_kind": "runner_no_site",
+                        },
+                    }
+                ],
+            }
+        }
+        rendered = "\n".join(document._changed_code_lines(proof, []))
+        self.assertIn("Runner-recorded reason (no mutation site)", rendered)
+        self.assertIn("runner:mutation-no-site", rendered)
+        self.assertNotIn("Independently accepted Tester reason", rendered)
+
     def test_new_gate_document_pair_authenticates_and_tampered_decision_is_refused(self):
         report = value(self.changed_view())
         with tempfile.TemporaryDirectory() as folder:
