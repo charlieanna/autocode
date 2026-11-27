@@ -29,6 +29,7 @@ try:
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_goals as goals
     from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_proof_incident as proof_incident
     from .. import autocode_providers
     from .. import autocode_quota_route as quota_route
     from .. import autocode_recovery_novelty as novelty
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
+    import autocode_proof_incident as proof_incident
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_recovery_novelty as novelty
@@ -320,6 +322,7 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
     request = execution_request(state, "review_completion", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
+    _incident_proof(data)
     data.update(
         stage=stage,
         resolution_request=state["resolution_request"],
@@ -348,6 +351,17 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
     )
     metrics = {**request.metrics, "estimated_prompt_tokens": (len(prompt) + 3) // 4}
     return ModelRequest("task_planner", "resolver", prompt, metrics, schema, False)
+
+
+def _incident_proof(data):
+    """Carry the borrowed review handoff's regression proof as a diagnosis reads it (#4219).
+
+    The Completion Reviewer judges the whole per-mutant and per-line record; the Resolver diagnoses one
+    failure, so it gets the open lines, unkilled mutants and abnormal receipts whole and the rest listed,
+    with the proof file's path for anything more (autocode_proof_incident).
+    """
+    if isinstance(data.get("regression_proof"), dict):
+        data["regression_proof"] = proof_incident.view(data["regression_proof"])
 
 
 # The one correction a Resolver blocker may name: the saved test or regression command is wrong.
@@ -453,6 +467,7 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     )
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
+    _incident_proof(data)
     data.update(
         stage=stage,
         diagnosis_request=state["diagnosis_request"],
