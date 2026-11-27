@@ -12,10 +12,12 @@ from pathlib import Path
 
 try:
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_approval_provenance as approval_provenance
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_roles as roles
     import autocode_util as util
 
@@ -530,7 +532,8 @@ def _changed_code_lines(proof, repairs):
     if assessment:
         lines += [
             "Runner gate: **" + text(assessment.get("status")) + "**. " + text(assessment.get("reason")),
-            "Each changed executable line needs behavioral evidence or an independently accepted Tester reason. "
+            "Each changed executable line needs behavioral evidence or a recorded reason (an independently "
+            "accepted Tester reason, or a runner-recorded no-site reason). "
             "Unresolved obligations block completion; missing tools do not count as a pass.",
             f"Source: {text(assessment.get('source_revision'))}. Proof context: {text(assessment.get('proof_context'))}.",
             "Deterministic fallback: " + text(", ".join(assessment.get("fallback") or []) or "none") + ".",
@@ -547,7 +550,10 @@ def _changed_code_lines(proof, repairs):
             refs = list(row.get("evidence") or [])
             accepted = mapping(row.get("exception")) if row.get("status") == "excepted" else {}
             if accepted:
-                reason = "Independently accepted Tester reason: " + str(accepted.get("reason") or reason)
+                if accepted.get("reason_kind") == changed_code_evidence.RUNNER_NO_SITE:
+                    reason = "Runner-recorded reason (no mutation site): " + str(accepted.get("reason") or reason)
+                else:
+                    reason = "Independently accepted Tester reason: " + str(accepted.get("reason") or reason)
                 if accepted.get("reason_kind"):
                     reason += " (" + str(accepted["reason_kind"]) + ")"
                 refs += accepted.get("evidence") or []
