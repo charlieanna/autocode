@@ -9,3 +9,5 @@ If a concern exposes an unknown real integration or a proposed reduction to mock
 scope, ask a blocking question. Do not settle it by adding an agent_proposed assumption
 that the requested real behavior will remain unverified. Testing mocks is not implementing
 the real requirement. Preserve the user's outcome until they explicitly change it.
+Before finishing, run the handoff's `report_check_command` (`autocode report-check`) on the revised
+contract and fix every error it reports; a draft the runner refuses costs a full re-draft.

@@ -553,3 +553,31 @@ def require_scaffolding(workspace, paths, methods):
                     "is outside affected_paths. Assign the package marker explicitly or use a test "
                     "command compatible with the approved scope before asking for approval."
                 )
+
+
+def scaffolding_refusal(workspace, body) -> str | None:
+    """The scaffolding refusal ``validate_body`` raises for a plan body, as ``autocode report-check`` reads it (#4220).
+
+    Calls the same ``require_scaffolding`` rule for the initial task and each milestone with the paths and
+    methods the gate uses, so a finished draft catches an impossible package-marker assignment before it is
+    submitted and the runner pays a full re-draft. A pure function of the body and workspace; no model call.
+    """
+    if not isinstance(body, dict):
+        return None
+    criteria = [row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)]
+    assignments = []
+    first = body.get("initial_task")
+    if isinstance(first, dict) and not (first.get("kind") == "none" and body.get("open_blocking_questions")):
+        assignments.append((first.get("affected_paths") or [], first.get("validation_plan") or []))
+    for milestone in body.get("milestones") or []:
+        if not isinstance(milestone, dict):
+            continue
+        covered = set(milestone.get("acceptance_criteria") or [])
+        methods = [row.get("verification_method", "") for row in criteria if row.get("id") in covered]
+        assignments.append((milestone.get("affected_paths") or [], methods))
+    for paths, methods in assignments:
+        try:
+            require_scaffolding(workspace, paths, methods)
+        except ValueError as exc:
+            return str(exc)
+    return None

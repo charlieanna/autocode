@@ -36,4 +36,6 @@ interface; say which in alternatives. A file several parts need, such as a packa
 tests/__init__.py, belongs to one of those milestones or an earlier core milestone; it never merges them.
 Declare affected_paths for each milestone, including its tests and shared files.
 Autopilot dispatches the Builder scheduler using approved dependencies and disjoint path ownership.
+Before finishing, run the handoff's `report_check_command` (`autocode report-check`) on the draft
+contract and fix every error it reports; a draft the runner refuses costs a full re-draft.
 Do not implement. You may challenge assumptions and propose better approaches.

@@ -65,6 +65,33 @@ def _defines(text: str, name: str) -> bool:
     return name in text  # a node:test or Vitest name is a string, such as 'fifty dollars ships free'
 
 
+def _twice(name: str, test: str) -> str:
+    """The one refusal text for an original test listed on more than one criterion (#4220)."""
+    return f"{name}::{test} is superseded twice; list it on one criterion"
+
+
+def superseded_twice(criteria) -> str | None:
+    """The first original test listed on more than one criterion, as ``validate`` refuses it (#4220).
+
+    A pure function of the plan's criteria, so ``autocode report-check`` catches the listing error before the
+    draft is submitted and the runner pays a full re-draft. ``validate`` reads the same refusal text; its file
+    and test-name checks need the run's protected-test inventory, which a pre-submit draft does not carry, so
+    only this listing rule is projected here.
+    """
+    seen: set[tuple[str, str]] = set()
+    for row in criteria or []:
+        if not isinstance(row, dict):
+            continue
+        for entry in row.get(KEY) or []:
+            if not isinstance(entry, dict):
+                continue
+            name, test = str(entry.get("file") or ""), str(entry.get("test") or "")
+            if (name, test) in seen:
+                return _twice(name, test)
+            seen.add((name, test))
+    return None
+
+
 def validate(state: RunState, criteria) -> None:
     """Refuse a draft whose ``supersedes`` cannot name exactly one original test.
 
@@ -100,7 +127,7 @@ def validate(state: RunState, criteria) -> None:
                     "of this run; name the file exactly as the protected-test inventory lists it"
                 )
             if (name, test) in seen:
-                raise ValueError(f"{name}::{test} is superseded twice; list it on one criterion")
+                raise ValueError(_twice(name, test))
             seen.add((name, test))
             wanted.append((row.get("id"), name, test))
     with store.opened(record, state.get("workspace") or ".") as root:
