@@ -149,6 +149,31 @@ class GreetingTests(unittest.TestCase):
 """
 
 
+# A greeting variant whose two redundant guards each carry a surviving bound mutant: a valid name has
+# already passed the nonempty check, so neither guard ever fires and a bound mutation of it changes nothing
+# the tests observe. Unlike a no-site line (which the runner settles itself, #4218), a survived line keeps a
+# mutation outcome and stays reason_required until the independent Tester accepts or rejects it. The
+# report-repair diagnostics fixture scripts this exact source so its open gaps survive no-site settlement.
+GREETING_REDUNDANT_SOURCE = """import sys
+
+def main():
+    if len(sys.argv) != 2 or not sys.argv[1].strip():
+        print("A nonempty name is required", file=sys.stderr)
+        return 2
+    name = sys.argv[1]
+    if len(name) < 1: return 2
+    greeting = "Hello, " + name
+    if len(greeting) < 7: return 2
+    print(greeting)
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+# The exact redundant-guard lines whose surviving mutants the scripted Tester reviews.
+GREETING_REDUNDANT_GUARDS = ("if len(name) < 1: return 2", "if len(greeting) < 7: return 2")
+
+
 GOODBYE_SOURCE = """import sys
 print('Goodbye, ' + sys.argv[1])
 """
@@ -397,7 +422,11 @@ def scripted_files_changed_code_reasons(data, files):
                 "evidence_refs": [proof["path"], path],
             }
         )
-    return decisions + _scripted_oracle_equivalence(proof, files, mutation)
+    return (
+        decisions
+        + _scripted_oracle_equivalence(proof, files, mutation)
+        + _scripted_greeting_equivalence(proof, files, mutation)
+    )
 
 
 def _scripted_oracle_equivalence(proof, files, mutation):
@@ -454,6 +483,63 @@ def _scripted_oracle_equivalence(proof, files, mutation):
         and row.get("line") == 8
         and row.get("status") == "reason_required"
         and row.get("mutation_outcomes") == ["survived"]
+    ]
+
+
+def _scripted_greeting_equivalence(proof, files, mutation):
+    """Review the exact redundant-guard greeting's surviving bound mutants, never arbitrary survivors.
+
+    A survived line keeps a mutation outcome, so the runner's no-site settlement (#4218) never closes it:
+    only the independent Tester's accept/reject does. This scripts accept for the two redundant guards of
+    the exact scripted greeting, each pinned to its observed surviving mutant and both greeting tests.
+    """
+    path = "greet.py"
+    if (
+        proof.get("verdict") != "PASS"
+        or files.get(path) != GREETING_REDUNDANT_SOURCE
+        or files.get("test_greeting.py") != GREETING_TESTS
+        or mutation.get("collected") is not True
+    ):
+        return []
+    digest = hashlib.sha256(GREETING_REDUNDANT_SOURCE.encode()).hexdigest()
+    lines = GREETING_REDUNDANT_SOURCE.splitlines()
+    guard_lines = {number for number, text in enumerate(lines, 1) if text.strip() in GREETING_REDUNDANT_GUARDS}
+    required_tests = {
+        "test_greeting.GreetingTests.test_greets_a_valid_name",
+        "test_greeting.GreetingTests.test_rejects_empty_and_whitespace_names",
+    }
+    survived_lines = {
+        mutant.get("line")
+        for entry in mutation.get("files") or []
+        if entry.get("path") == path and entry.get("sha256") == digest
+        for mutant in entry.get("mutants") or []
+        if mutant.get("line") in guard_lines
+        and mutant.get("outcome") == "survived"
+        and mutant.get("source_sha256") == digest
+        and mutant.get("failed_tests") == []
+        and required_tests.issubset(mutant.get("survived_tests") or [])
+    }
+    if not survived_lines:
+        return []
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": (
+                f"The exact scripted greeting guard at {path}:{row['line']} is redundant: a valid name already "
+                "passed the nonempty check, so this guard never fires. Its surviving bound mutant changes no "
+                "greeting output or exit code, and both test_greeting tests passed independently under that "
+                "exact mutant."
+            ),
+            "evidence_refs": [proof["path"], path],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("path") == path
+        and row.get("sha256") == digest
+        and row.get("line") in survived_lines
+        and row.get("status") == "reason_required"
+        and "survived" in (row.get("mutation_outcomes") or [])
     ]
 
 
