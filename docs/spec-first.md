@@ -32,6 +32,27 @@ on, and nothing is planned until you approve. A follow-up turn gives Requirement
 before it as well (`follow_up.earlier_turns`, bounded), so "go with your first option" names an answer
 from several turns back.
 
+### An answer, not the question said back (#4237)
+
+A discussion Requirements answers itself completes only on `findings`: one row for each thing it found
+(`finding`), looked for and did not find (`negative_finding`), or could not settle from what it read
+(`evidence_gap`), each naming the requirement ids it answers. A finding or negative finding cites
+`evidence` among the files the report read (its `source_refs`); an evidence gap says what would settle it
+(`would_settle`). "No path calls it", with the file that shows it, answers a question, and so does "this
+cannot be read from here, and this would settle it". The answer shows each row under **Findings**.
+
+Before, the answer was the reply text alone, and admission checked only its schema, its citations and its
+quotes. A read-only review cited seven source files, replied with what the person had asked, and reached
+`TASK_COMPLETE`. Now the report is refused, and repaired like any other refused report, when it has no
+rows, a requirement no row answers, a finding without evidence it read, an evidence gap without
+`would_settle`, or a statement that restates the request: a copy of one of its sentences or clauses, or the
+request's own words framed as asking or process ("You want to know whether ...", "Determine whether
+..."), in whatever inflection ("staged" where you wrote "stages"). `autocode report-check` gives the same
+answer before a stage finishes. The restatement test is
+lexical: a statement that adds a claim of its own (a function, a value, which option holds) passes it, and
+whether the claim is right stays with its evidence and with you. Every other job, and a discussion written
+into a file, keeps `findings` empty (`tools/autocode_discussion_answer.py`).
+
 ### How Requirements would do it (#4171)
 
 Beside what it understood, Requirements sketches how it would do the job (`approach`): the mechanism

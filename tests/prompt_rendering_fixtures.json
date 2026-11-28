@@ -364,24 +364,24 @@
     "sha256": "a3c36f1b3e8e73099655b2a9bed24b948019feda5f95d402d5368561dc91e4d5"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 41162,
-    "sha256": "6b1a04c49e0e6ed6c83f5ea57e1253edb3dbab37c6d5854fd545eea141ff62e0"
+    "bytes": 42099,
+    "sha256": "2ec6f3671f28d4707172527f65bc18abc2bc466b121b0ee84c320b4c766dc37e"
   },
   "planning/requirements_gather/design": {
-    "bytes": 42274,
-    "sha256": "bf9ab9fb9b7a59c64d4af426f1b77f464ff4a8189c756c2adf4cf637fd34b340"
+    "bytes": 43211,
+    "sha256": "c16a6405164127ccc098de4bcc384e5aebeac50ab7ad80a7f622ad342eb2f2d4"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 42050,
-    "sha256": "947d4e8de934bd5bacdb9ddaed0fcfbd0a15c6575e5ea514f9b50b9fcda2f161"
+    "bytes": 42987,
+    "sha256": "f48f76c5ab2be434e107a34432721e1d289f47041b3b021135fdc599846c75f6"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 42078,
-    "sha256": "a8a2dbc62da7851c30cb77ecc8872e925bf20a8d0a845564cb4460ff38722f67"
+    "bytes": 43015,
+    "sha256": "1252c3a85e6bb8573a4b6c13a691e0fdb2466ef1546dc740ee0a936c468bc9fb"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 41162,
-    "sha256": "6b1a04c49e0e6ed6c83f5ea57e1253edb3dbab37c6d5854fd545eea141ff62e0"
+    "bytes": 42099,
+    "sha256": "2ec6f3671f28d4707172527f65bc18abc2bc466b121b0ee84c320b4c766dc37e"
   },
   "planning/review_plan/adaptive": {
     "bytes": 61928,
@@ -572,12 +572,12 @@
     "sha256": "c41533aa11c59e369e71b775ec1edd4c59fa33cf236de6573ae2bd63670b4b30"
   },
   "requirements-final/batch": {
-    "bytes": 50157,
-    "sha256": "47eb4d553eccd1cb095a948fbdf78452bc88f8427a251ae372ef23f2582c1cdd"
+    "bytes": 51524,
+    "sha256": "9664afe9703e654363eab49be794640a90d5fc2cd73402c8b97ffd3eef96c13f"
   },
   "requirements-final/conversational": {
-    "bytes": 51709,
-    "sha256": "7bde720cf4212e11e0dd3ca9e5ac963704952559b7af3f2361ba1d44a593026e"
+    "bytes": 53076,
+    "sha256": "510c5d8e8523cc069dcc208e7fbd0c411d5050f16c63cf0dbfc9971392555a60"
   },
   "resolver/diagnose": {
     "bytes": 18031,

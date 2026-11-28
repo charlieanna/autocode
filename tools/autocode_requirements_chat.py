@@ -175,12 +175,7 @@ def answer_now(state: RunState, record: dict) -> bool:
         return False
     report = (state.get("requirements_handoff") or {}).get("report") or {}
     known = (state.get("workflow") or {}).get("kind")
-    if known not in (None, "discuss") or not requirements_answer.conversational(
-        {**report, "job": known or report.get("job")}
-    ):
-        return False
-    answered = state.get("answers") or {}
-    if any(row.get("id") not in answered for row in report.get("open_questions") or []):
+    if not requirements_answer.answers_itself(report, known_kind=known, answered=state.get("answers") or {}):
         return False
     if known is None:
         workflows.from_requirements(state, report, record)

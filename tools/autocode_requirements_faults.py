@@ -7,7 +7,9 @@ questions of a ``requirements_gather`` report:
 - does each local ``source_refs`` entry name an existing workspace file and in-bounds lines, in
   ``require``'s line syntax (``code_citations.required_citation``), and, in admission, one the stage
   read (the read-aware ``verify_citation`` admission binds as ``cite``);
-- is each requirement's ``source_quote`` the person's own text (``requirement_quotes.problems``).
+- is each requirement's ``source_quote`` the person's own text (``requirement_quotes.problems``);
+- does a discussion Requirements answers itself answer what was asked, in findings rather than the
+  request said back (``discussion_faults``, #4237); acceptance raises on the same list.
 
 Before, report-check reimplemented only the quote check, so a report it called "OK" was refused
 (#3865), and admission raised on its first failing check, so each repair round revealed one more
@@ -29,15 +31,19 @@ try:
     from . import autocode_acceptance_examples as acceptance_examples
     from . import autocode_ambiguity_audit as ambiguity_audit
     from . import autocode_code_citations as code_citations
+    from . import autocode_discussion_answer as discussion_answer
     from . import autocode_requirement_cues as requirement_cues
     from . import autocode_requirement_quotes as requirement_quotes
+    from . import autocode_requirements_answer as requirements_answer
     from . import autocode_source_log as source_log
 except ImportError:
     import autocode_acceptance_examples as acceptance_examples
     import autocode_ambiguity_audit as ambiguity_audit
     import autocode_code_citations as code_citations
+    import autocode_discussion_answer as discussion_answer
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_quotes as requirement_quotes
+    import autocode_requirements_answer as requirements_answer
     import autocode_source_log as source_log
 
 # The report-check spec key holding ``context``.
@@ -75,17 +81,48 @@ def local_source_refs(refs, inputs) -> list[str]:
     return [ref for ref in cited_source_refs(refs, inputs) if not ref.startswith("catalog/")]
 
 
+def discussion_context(state: RunState) -> dict:
+    """The public inputs ``discussion_faults`` needs: what was asked, the person's inputs, and whether the run
+    would let Requirements answer the discussion itself (its job and the person's answer ids)."""
+    return {
+        "source_texts": [str(text) for text in requirement_cues.source_texts(state) if str(text)],
+        "input_refs": sorted(input_refs(state)),
+        "has_workflow": "workflow" in state,
+        "workflow_kind": (state.get("workflow") or {}).get("kind"),
+        "answered": sorted(str(key) for key in state.get("answers") or {}),
+    }
+
+
 def context(state: RunState) -> dict:
     """The JSON-serializable public inputs ``faults`` needs, taken from the run state."""
     return {
-        "source_texts": [str(text) for text in requirement_cues.source_texts(state) if str(text)],
+        **discussion_context(state),
         "coverage_checklist": [str(item) for item in requirement_cues.coverage_checklist(state)],
         "audit_source_ids": sorted(ambiguity_audit.source_ids(state, {})),
-        "input_refs": sorted(input_refs(state)),
         "inherited": bool(state.get("current_task") or state.get("goal_contract")),
         "workspace": str(state.get("workspace") or ""),
         "has_inventory": not code_citations.greenfield(state),
     }
+
+
+def discussion_faults(report: dict, ctx: dict) -> list[str]:
+    """Why a discussion Requirements would answer itself does not answer what was asked (#4237).
+
+    Empty unless the run would end the turn on this report's own answer
+    (``requirements_answer.answers_itself``); then the findings must answer each requirement, with evidence
+    from what the report read, never restating the request (``discussion_answer.problems``). A context
+    without the run's job (an older report-check spec) decides nothing."""
+    if "answered" not in ctx or not ctx.get("has_workflow"):
+        return []
+    if not requirements_answer.answers_itself(
+        report, known_kind=ctx.get("workflow_kind"), answered=set(ctx["answered"])
+    ):
+        return []
+    return discussion_answer.problems(
+        report,
+        request_texts=ctx.get("source_texts") or [],
+        local_refs=cited_source_refs(report.get(FIELD), set(ctx.get("input_refs") or [])),
+    )
 
 
 def faults(report: dict, ctx: dict, *, cite=None, catalog_ok=None) -> list[str]:
@@ -135,4 +172,5 @@ def faults(report: dict, ctx: dict, *, cite=None, catalog_ok=None) -> list[str]:
         )
     # JSON acceptance examples must discriminate a duplicate-accepting or build-dropping decoder (#3912).
     found += acceptance_examples.problems(report.get("acceptance_tests"))
+    found += discussion_faults(report, ctx)
     return found

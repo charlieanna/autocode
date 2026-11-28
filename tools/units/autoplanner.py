@@ -57,6 +57,7 @@ try:
     from .. import autocode_compact_planning as compact_planning
     from .. import autocode_context
     from .. import autocode_design_plan as design_plan
+    from .. import autocode_discussion_answer as discussion_answer
     from .. import autocode_draft_examples as examples
     from .. import autocode_draft_failure_correction as failure_correction
     from .. import autocode_failures as failures
@@ -99,6 +100,7 @@ except ImportError:
     import autocode_compact_planning as compact_planning
     import autocode_context
     import autocode_design_plan as design_plan
+    import autocode_discussion_answer as discussion_answer
     import autocode_draft_examples as examples
     import autocode_draft_failure_correction as failure_correction
     import autocode_failures as failures
@@ -768,6 +770,9 @@ SCHEMAS["requirements_gather"]["properties"][ambiguity_audit.FIELD] = ambiguity_
 # How the work would be achieved, confirmed with the understanding (autocode_approach_sketch, #4171): optional
 # for saved reports, required on the wire.
 SCHEMAS["requirements_gather"]["properties"][approach_sketch.FIELD] = approach_sketch.SCHEMA
+# What a discussion Requirements answers itself found, each row answering requirement ids
+# (autocode_discussion_answer, #4237): optional for saved reports, required on the wire.
+SCHEMAS["requirements_gather"]["properties"][discussion_answer.FIELD] = discussion_answer.SCHEMA
 for _stage in planning_scope.STAGES:
     SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY

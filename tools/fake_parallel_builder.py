@@ -233,6 +233,18 @@ def write_report(result):
             result.setdefault(
                 "approach", {"summary": "", "pieces": [], "band": "", "alternatives": [], "out_of_scope": []}
             )
+            if "findings" in props:
+                # #4237: no source settles the scripted discussion, so it answers with one evidence gap.
+                ids = [str(r["id"]) for r in result.get("requirements") or [] if isinstance(r, dict) and r.get("id")]
+                gap = {
+                    "requirement_ids": ids,
+                    "kind": "evidence_gap",
+                    "statement": "The scripted provider read no source that settles this.",
+                    "evidence": [],
+                    "would_settle": "A real model reading the repository.",
+                }
+                answers = not (result.get("required_behaviors") or result.get("acceptance_tests"))
+                result.setdefault("findings", [gap] if answers else [])
         if "counterexample" in props:
             result.setdefault("counterexample", {"file": "", "find": "", "replace": ""})
         if "project_notes" in props:

@@ -226,6 +226,23 @@ def _default_ambiguity_audit(payload):
     }
 
 
+def _default_findings(payload):
+    """#4237: a discussion Requirements answers itself answers in findings. The scripted report read
+    nothing that settles it, so it says so as one evidence gap answering every requirement."""
+    if payload.get("required_behaviors") or payload.get("acceptance_tests"):
+        return []
+    ids = [str(r["id"]) for r in payload.get("requirements") or [] if isinstance(r, dict) and r.get("id")]
+    return [
+        {
+            "requirement_ids": ids,
+            "kind": "evidence_gap",
+            "statement": "The scripted provider read no source that settles this.",
+            "evidence": [],
+            "would_settle": "A real model reading the repository.",
+        }
+    ]
+
+
 def _conform_ledger(payload, schema_obj, default_ref):
     if not isinstance(payload, dict) or not isinstance(schema_obj, dict):
         return
@@ -239,6 +256,8 @@ def _conform_ledger(payload, schema_obj, default_ref):
     if "approach" in props and "approach" not in payload:
         # #4171: no sketch, so Requirements asks nothing more about the approach.
         payload["approach"] = {"summary": "", "pieces": [], "band": "", "alternatives": [], "out_of_scope": []}
+    if "approach" in props and "findings" in props and "findings" not in payload:
+        payload["findings"] = _default_findings(payload)
     q_props = ((props.get("open_questions") or {}).get("items") or {}).get("properties") or {}
     if "convention_ref" in q_props:
         for q in payload.get("open_questions") or []:

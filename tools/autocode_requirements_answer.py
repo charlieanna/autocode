@@ -7,8 +7,12 @@ job wrote before it was removed (``render`` here shows it, autocode_chat_history
 with ``answered_by: "requirements_gather"``; the run finishes the turn. The person's next message is a
 follow-up turn that starts at Requirements again (autocode_follow_up), and may ask for a change.
 
-Pure over the state dict; imports only autocode_run_status, so the Requirements chat policy can use it
-without importing the discuss job's probe machinery.
+Which reports Requirements answers itself is ``answers_itself``, read by the chat policy that answers and by
+the acceptance gate that first holds such a report to findings that answer the request
+(autocode_discussion_answer, #4237): a reply that only restated the request used to complete the turn.
+
+Pure over the state dict; imports only autocode_run_status and autocode_discussion_answer, so the
+Requirements chat policy can use it without importing the discuss job's probe machinery.
 """
 
 from __future__ import annotations
@@ -22,8 +26,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_discussion_answer as discussion_answer
     from . import autocode_run_status as run_status
 except ImportError:
+    import autocode_discussion_answer as discussion_answer
     import autocode_run_status as run_status
 
 STAGE = "requirements_gather"
@@ -41,6 +47,18 @@ def conversational(report: dict) -> bool:
         and not report.get("required_behaviors")
         and not report.get("acceptance_tests")
     )
+
+
+def answers_itself(report: dict, *, known_kind, answered) -> bool:
+    """Whether Requirements answers this report's discussion itself once it is accepted.
+
+    The run's job is still open or is ``discuss`` (``known_kind``), the report is ``conversational`` under
+    that job, and every open question it asks is among ``answered`` (the person's answer ids). The chat
+    policy answers exactly these (autocode_requirements_chat.answer_now), and acceptance holds exactly these
+    to findings that answer the request (autocode_discussion_answer)."""
+    if known_kind not in (None, "discuss") or not conversational({**report, "job": known_kind or report.get("job")}):
+        return False
+    return all(row.get("id") in answered for row in report.get("open_questions") or [])
 
 
 # A small turn's message is only greeting or small talk: exact word sequences after contraction
@@ -127,10 +145,14 @@ def names_no_goal(message) -> bool:
 def answer_from_requirements(state: RunState, report: dict, record: dict) -> None:
     """Record Requirements' reply as this turn's answer and finish the turn: nothing is planned or built.
 
-    The reply is the chat's assistant_reply, or the report's summary on a run without a chat. Its
-    source_refs were already checked against the workspace when the handoff was accepted, so each one
-    is kept as a file the answer was read from, not as a claim a probe showed."""
+    The reply is the chat's assistant_reply, or the report's summary on a run without a chat, followed by
+    its findings (autocode_discussion_answer.lines). Its source_refs were already checked against the
+    workspace when the handoff was accepted: each finding's evidence is kept as the source its statement
+    was read from, and every other one as a file read while answering, not as a claim a probe showed."""
     text = str(report.get("assistant_reply") or "").strip() or str(report.get("summary") or "").strip()
+    findings = discussion_answer.lines(report)
+    if findings:
+        text = (text + "\n\n" if text else "") + "\n".join(findings)
     # The person's own messages and answers are cited by ID; they are what was asked, not where it was read.
     asked = {"task", *(state.get("answers") or {})}
     asked.update(str(event.get("id")) for event in state.get("user_events") or [] if event.get("id"))
@@ -139,12 +161,25 @@ def answer_from_requirements(state: RunState, report: dict, record: dict) -> Non
         for ref in report.get("source_refs") or []
         if str(ref).strip() and str(ref) not in asked and not str(ref).startswith(("http://", "https://"))
     ]
+    evidence: list[dict] = []
+    for row in discussion_answer.rows(report):
+        claim = str(row.get("statement") or "").strip()
+        if row.get("kind") == "evidence_gap" and not claim.lower().startswith("not settled"):
+            claim = "Not settled: " + claim
+        evidence += [
+            {"claim": claim, "source": str(ref).strip(), "example": "", "probe": ""}
+            for ref in row.get("evidence") or []
+            if str(ref).strip() and str(ref) not in asked and not str(ref).startswith(("http://", "https://"))
+        ]
+    cited = {discussion_answer.ref_path(row["source"]) for row in evidence}
+    evidence += [
+        {"claim": "Read while answering", "source": ref, "example": "", "probe": ""}
+        for ref in dict.fromkeys(sources)
+        if discussion_answer.ref_path(ref) not in cited
+    ]
     state["answer"] = {
         "answer": text,
-        "evidence": [
-            {"claim": "Read while answering", "source": ref, "example": "", "probe": ""}
-            for ref in dict.fromkeys(sources)
-        ],
+        "evidence": evidence,
         "questions": [],
         "note_path": "",
         "output": record.get("output"),

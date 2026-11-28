@@ -1995,6 +1995,22 @@ def report_for(stage: str, data: dict) -> dict:
                     *earlier,
                     *({**row, "id": f"R{len(earlier) + number}"} for number, row in enumerate(fresh, start=1)),
                 ]
+            if "findings" in OUTPUT_SCHEMA.get("properties", {}) and not report.get("required_behaviors"):
+                # A discussion Requirements answers itself answers in findings, never the request said back
+                # (#4237): one finding from a file it read, or an evidence gap when the workspace has none.
+                read = [ref for ref in report["source_refs"] if ref != "task"]
+                ids = [row["id"] for row in report["requirements"]]
+                report["findings"] = [
+                    {
+                        "requirement_ids": ids,
+                        "kind": "finding" if read else "evidence_gap",
+                        "statement": f"The scripted answer rests on {read[0]}, which it read."
+                        if read
+                        else "The scripted provider read no source that settles this.",
+                        "evidence": read[:1],
+                        "would_settle": "" if read else "A real model reading the repository.",
+                    }
+                ]
         if "workspace_scope" in OUTPUT_SCHEMA.get("properties", {}):
             # A scripted request belongs to this repository alone (#2066); a scenario that spans two sets it.
             report.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
