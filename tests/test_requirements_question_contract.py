@@ -78,7 +78,9 @@ class RequirementsQuestionContractTests(unittest.TestCase):
                 )
                 self.assertIn("says in why which fork it is", text)
                 self.assertIn(
-                    "offers two to four concrete options, and sets proposed_default to the option you recommend", text
+                    "offers two to four concrete options (as many as there are real choices, never padded), and sets "
+                    "proposed_default to the option you recommend",
+                    text,
                 )
                 self.assertIn("up to five questions", text)
                 self.assertNotIn("up to three", text)
@@ -97,6 +99,31 @@ class RequirementsQuestionContractTests(unittest.TestCase):
         self.assertIn('category="technical", kind="inferable"', policy)
         conversation = flat(prompts.get("fragments/autoplanner/requirements-conversation.md"))
         self.assertIn("ask the concrete forks you found together, each with its options", conversation)
+
+    def test_no_question_is_padded_with_a_catch_all_option(self):
+        """#4223: "add dark mode" got a fourth option "Something else, which you describe in your own words."
+        The rule was only in TIER 1; TIER 2 and QUESTION FRAMING asked for "two to four" options with none."""
+        for conversational, text in self.rendered():
+            with self.subTest(conversational=conversational):
+                self.assertIn("concrete options (as many as there are real choices, never padded)", text)
+        framing = flat(prompts.get("fragments/autoplanner/question-policy.md"))
+        self.assertIn('Never add a catch-all such as "something else", "other" or "none of these', framing)
+
+    def test_a_named_means_for_a_stated_goal_is_asked_and_not_taken_as_an_engineering_choice(self):
+        """#4222: "use sqlite instead of the json file so it is faster" was planned as SQLite without asking
+        whether SQLite or the speed is what the person needs: the rule sat in a preservation paragraph,
+        and "libraries and other engineering choices are yours" read as covering the named database."""
+        for conversational, text in self.rendered():
+            with self.subTest(conversational=conversational):
+                tier2 = text.index("TIER 2, CODE-GROUNDED FORKS")
+                named = text.index("A NAMED MEANS FOR A STATED GOAL is a fork.")
+                self.assertLess(tier2, named)
+                self.assertLess(named, text.index("Never park a fork in proposed_assumptions"))
+                self.assertIn("ask once, in this round, whether that means is required or the goal is what", text)
+                self.assertIn(
+                    'Do not ask it when the person named the means with no goal ("store todos in sqlite")', text
+                )
+                self.assertIn("A technology the person named is not one of yours", text)
 
     def test_the_audit_and_every_citation_are_explained_as_checked_against_what_was_read(self):
         for conversational, text in self.rendered():

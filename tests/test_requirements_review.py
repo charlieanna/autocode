@@ -599,6 +599,53 @@ class SettingTests(unittest.TestCase):
         )
         self.assertEqual([[fork]], [row["questions"] for row in fork_queued])
 
+    def test_a_catch_all_option_is_removed_before_the_person_sees_the_question(self):
+        """#4223: run 20261127-035250-add-dark-mode offered "Something else, which you describe in your own
+        words." as a fourth option; the person can always answer in their own words."""
+        import autocode_requirements_handoff as handoff
+
+        task = "add dark mode"
+        readings = ["Colored list output for dark terminals", "A per-run switch: python todo.py list --dark"]
+        padded = {
+            "id": "Q1",
+            "question": "What should 'dark mode' mean for this todo tool?",
+            "why": "Two readings",
+            "options": [*readings, "Something else, which you describe in your own words."],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }
+        state = {"task": task, "settings": {}, "stages": [], "workflow": {"kind": None, "then": "draft_plan"}}
+        queued: list[dict] = []
+        handoff.accept(
+            state,
+            {
+                "job": "build",
+                "summary": "Dark mode.",
+                "intended_outcome": "",
+                "requirements": [{"id": "R1", "text": task, "source_quote": task}],
+                "required_behaviors": [],
+                "constraints": [],
+                "acceptance_tests": [],
+                "source_refs": ["task"],
+                "proposed_assumptions": [],
+                "ignored_statements": [],
+                "conflicts": [],
+                "proposed_reframes": [],
+                "open_questions": [padded],
+            },
+            {"output": "iter/001/req-01.json"},
+            check_code_refs=lambda *_: None,
+            queue=lambda *args, **kwargs: queued.append(kwargs),
+        )
+        self.assertEqual([readings], [row["options"] for row in queued[0]["questions"]])
+        self.assertEqual(readings, state["requirements_handoff"]["report"]["open_questions"][0]["options"])
+        self.assertEqual(
+            [{"question": "Q1", "option": padded["options"][2]}],
+            state["requirements_handoff"]["dropped_catch_all_options"],
+        )
+
 
 class RequirementsReviewCliTests(unittest.TestCase):
     def setUp(self):

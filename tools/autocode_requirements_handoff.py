@@ -12,7 +12,8 @@ change is that continuing goes through autocode_run_status, which also retires a
 State keys written: requirements_history, requirements_handoff (with its validated workspace_scope
 and any dropped_external_parts, autocode_workspace_scope; the ids of the answers it was written with,
 ``answers_seen``; and, in an unattended run, its assumptions confirmed by that choice,
-``confirmed_assumptions``, autocode_requirements_review), status/phase/next_stage, discovery_summary.
+``confirmed_assumptions``, autocode_requirements_review; the catch-all options it removed,
+``dropped_catch_all_options``, autocode_catch_all_options), status/phase/next_stage, discovery_summary.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from pathlib import Path
 
 try:
     from . import autocode_acceptance_examples as acceptance_examples
+    from . import autocode_catch_all_options as catch_all_options
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_chat as plan_chat
@@ -44,6 +46,7 @@ try:
     from . import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_acceptance_examples as acceptance_examples
+    import autocode_catch_all_options as catch_all_options
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
@@ -114,6 +117,10 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     questions, dropped_confirmations = requirements_review.without_summary_confirmations(state, value)
     if dropped_confirmations:
         value = {**value, "open_questions": questions}
+    # A "Something else, in your own words" option tells the person nothing they cannot already do (#4223).
+    questions, dropped_options = catch_all_options.without_catch_all(questions)
+    if dropped_options:
+        value = {**value, "open_questions": questions}
     # Validate the reported scope before any state is written (#2066 grounding, and a
     # coordinated member's role-noun label refused so the bounded report repair
     # attempts the correction, #2420; never a silent drop).
@@ -178,6 +185,8 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
         state["requirements_handoff"]["dropped_external_parts"] = dropped
     if dropped_confirmations:
         state["requirements_handoff"]["dropped_confirmation_questions"] = dropped_confirmations
+    if dropped_options:
+        state["requirements_handoff"]["dropped_catch_all_options"] = dropped_options
     project_memory.capture(state, value)
     requirements_review.delegate_assumptions(state)
     remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
