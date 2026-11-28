@@ -27,6 +27,9 @@ for _p in (str(ROOT), str(TOOLS), str(SCENARIOS)):
 # A fixture run's checks never go to a real Claude Code, Codex or Gemini CLI signed in on this machine
 # (autocode_second_vendor.OFF_SWITCH); every child process inherits it. A test of the second vendor clears it.
 os.environ["AUTOCODE_SECOND_VENDOR"] = "off"
+# A fixture run records no measured route suggestion from a ledger on this machine (autocode_route_suggestion);
+# the tests of the suggestion turn it on themselves.
+os.environ["AUTOCODE_AUTO_CHOICE"] = "off"
 
 # Every `git commit` (also merge, fetch, a push's receive-pack) starts
 # `git maintenance run --auto --detach`, which outlives the command. On CI's Git

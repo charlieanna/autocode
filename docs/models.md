@@ -383,6 +383,35 @@ launch prints why and uses the fixed routes, and `--auto-select` refuses. `autoc
 shows the installed version's row; a new version qualifies once
 `tools/provider_conformance.py` has passed on it and its row is added.
 
+### Measured suggestions, in shadow
+
+Each new run also records what its own past runs would suggest for each stage, beside the route it
+runs, as `settings.route_suggestion` (#4251). It changes no route: this is how the restart of
+automatic choice from measured outcomes (#2049) is judged before any run may take a suggestion.
+
+The suggestion reads `autocode usage scoreboard` over the project's ledger
+([How each model did at each job](cost-reporting.md#how-each-model-did-at-each-job)) for the run's
+own backend, and each stage's record says what ran, what would be suggested and why:
+
+- **Your choice is kept.** A stage a flag, the project's file, Stage models, this conversation or
+  `--single-model` named gets no suggestion.
+- **Only the Builder and the Planner are judged**, because only their work is seen being sent back by a
+  later stage. The checking stages and the others say they are not judged.
+- **Enough evidence, beyond chance.** The running route and the candidate each need 8 counted attempts,
+  and the candidate's 95% range must sit wholly above the running route's.
+- **Independence holds.** A suggestion its checker would share a family with is recorded as blocked.
+- **No checker weaker than the work it checks.** AutoCode has no answer yet for how models compare across
+  a vendor or a tier, so a suggestion stands only when it moves to a model of the same family that the
+  price table does not price above the running one. Any other is recorded as blocked, with the reason.
+
+`autocode stages auto off` turns it off and a new run then records nothing; `autocode stages auto shadow`
+turns it back on, and `AUTOCODE_AUTO_CHOICE=off|shadow` wins over the saved switch. A ledger that cannot be
+read is recorded as unavailable and never stops a launch.
+
+On 208 saved runs the rules held, and nothing was suggested: every run had used one route per stage, so
+there was no second route to compare ([the replay](bugs/2026-11-28-route-suggestion-backtest.md),
+`tools/autocode_route_backtest.py`).
+
 ### Ranking your own models by measurement
 
 Automatic selection ranks only the models it has evidence for. Until now that was the shipped

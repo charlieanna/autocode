@@ -821,6 +821,11 @@ def record(path, state: RunState):
             **totals,
             **extra,
         }
+        # The shadow route suggestion a new run recorded (autocode_route_suggestion, #4251), so the
+        # scoreboard's suggestions can be judged across runs from the ledger alone.
+        shadow = (state.get("settings") or {}).get("route_suggestion")
+        if isinstance(shadow, dict):
+            row["route_suggestion"] = shadow
         _upsert(run_dir.parent.parent / LEDGER, row)
         _written[str(run_dir)] = signature
     except Exception as error:

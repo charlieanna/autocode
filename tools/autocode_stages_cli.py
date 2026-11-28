@@ -29,6 +29,7 @@ try:
     from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from . import autocode_route_fit as route_fit
+    from . import autocode_route_suggestion as route_suggestion
     from . import autocode_run_stage_models as run_stage_models
     from . import autocode_stage_choices as stage_choices
     from .providers import env_prep
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_project_config as project_config
     import autocode_providers as providers
     import autocode_route_fit as route_fit
+    import autocode_route_suggestion as route_suggestion
     import autocode_run_stage_models as run_stage_models
     import autocode_stage_choices as stage_choices
     from providers import env_prep
@@ -62,11 +64,15 @@ def parser():
     result.add_argument(
         "action",
         nargs="?",
-        choices=("list", "choose", "set", "reset", "models"),
+        choices=("list", "choose", "set", "reset", "models", "auto"),
         default="list",
         help="What to do",
     )
-    result.add_argument("stage", nargs="?", help=f"The stage to set or reset: {', '.join(STAGE_NAMES)}")
+    result.add_argument(
+        "stage",
+        nargs="?",
+        help=f"The stage to set or reset: {', '.join(STAGE_NAMES)}; for auto, off or shadow",
+    )
     result.add_argument("--model", help="set: the model the stage runs, one the backend offers")
     result.add_argument(
         "--effort",
@@ -495,6 +501,28 @@ def _configured(workspace, run_options: list[str]) -> tuple[dict | None, str | N
     return configured, engine, provider
 
 
+def _auto(value, *, as_json=False) -> int:
+    """Show or set the measured-suggestion switch (autocode_route_suggestion): shadow records, off records nothing."""
+    folder = providers.user_config_path().parent
+    if value is not None:
+        try:
+            route_suggestion.save_mode(folder, value)
+        except ValueError as error:
+            print(f"autocode stages auto: {error}", file=sys.stderr)
+            return 2
+    current = route_suggestion.mode(folder)
+    if as_json:
+        print(json.dumps({"mode": current, "modes": list(route_suggestion.MODES)}))
+    elif current == route_suggestion.OFF:
+        print("Measured suggestions are off: new runs record none.")
+    else:
+        print(
+            "Measured suggestions are in shadow: each new run records what the scoreboard would suggest for its "
+            "stages beside the routes it runs, and changes none. `autocode stages auto off` turns them off."
+        )
+    return 0
+
+
 def _stage(name):
     return ALIASES.get(name.replace("_", "-"), name) if name else None
 
@@ -504,6 +532,8 @@ def cli(argv=None) -> int:
     cut = raw.index("--") if "--" in raw else None
     head, run_options = (raw[:cut], raw[cut + 1 :]) if cut is not None else (raw, [])
     args = parser().parse_args(head)
+    if args.action == "auto":
+        return _auto(args.stage, as_json=args.json)
     stage = _stage(args.stage)
     if run_options and (args.run_dir is not None or args.action != "list"):
         print(
