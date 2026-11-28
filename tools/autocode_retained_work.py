@@ -15,13 +15,17 @@ try:
     from . import autocode_assignment as assignment
     from . import autocode_contract_identity as contracts
     from . import autocode_preservation_candidate as preservation
+    from . import autocode_retained_receipts as retained_receipts
     from . import autocode_util as util
+    from . import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
     import autocode_contract_identity as contracts
     import autocode_preservation_candidate as preservation
+    import autocode_retained_receipts as retained_receipts
     import autocode_util as util
+    import autocode_verification_plan as verification_plan
 
 
 def _reapproved_scope(state: RunState, previous, task):
@@ -154,6 +158,8 @@ def validated_candidate(state: RunState, value, record, workspace, current_revis
     if record.get("rolled_back") or record.get("changed_files") or not isinstance(value.get("changed_files"), list):
         return None
     declared = set(value["changed_files"])
+    if not declared:
+        return _revalidated_candidate(state, record, current_revision)
     affected = set((state.get("current_task") or {}).get("affected_paths") or [])
     if (
         not declared
@@ -192,6 +198,48 @@ def validated_candidate(state: RunState, value, record, workspace, current_revis
                 "criteria": sorted(criteria),
                 "declared_paths": sorted(declared),
             }
+    return None
+
+
+def _revalidated_candidate(state: RunState, record, revision):
+    """A reapproved plan may recheck the same tested commit without manufacturing a source edit."""
+    task = state.get("current_task") or {}
+    contract = state.get("goal_contract") or {}
+    if (
+        not state.get("run_dir")
+        or task.get("kind") != "implement"
+        or task.get("contract_hash") != contract.get("hash")
+        or task.get("source_revision") != revision
+        or record.get("source_revision") != revision
+        or record.get("task_id") != task.get("id")
+    ):
+        return None
+    for previous in reversed(state.get("task_archive") or []):
+        if (
+            previous.get("rolled_back")
+            or previous.get("kind") != "implement"
+            or previous.get("contract_hash") == contract.get("hash")
+            or {path.rstrip("/") for path in previous.get("affected_paths") or []}
+            != {path.rstrip("/") for path in task.get("affected_paths") or []}
+            or set(previous.get("milestone_ids") or [previous.get("milestone_id")])
+            != set(task.get("milestone_ids") or [task.get("milestone_id")])
+            or not _reapproved_scope(state, previous, task)
+        ):
+            continue
+        for archived in reversed(state.get("validation_archive") or []):
+            validation = archived.get("validation") or {}
+            if any(row.get(key) for row in (archived, validation) for key in ("rolled_back", "checked_earlier")):
+                continue
+            pins = retained_receipts.checked_source(validation, state["run_dir"], revision, previous)
+            if pins:
+                return {
+                    "source_revision": revision,
+                    "reapproved_from": previous["contract_hash"],
+                    "reapproved_to": contract["hash"],
+                    "receipt_pins": pins,
+                    "fresh_verification_required": True,
+                    "checks_to_run": verification_plan.approved_commands(state),
+                }
     return None
 
 

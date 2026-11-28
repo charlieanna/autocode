@@ -333,6 +333,39 @@ def launch_commands(state: RunState, *, progressive_context=None):
     return list(dict.fromkeys(result))
 
 
+def check_kind(method):
+    """The approved method's intent, never a claim inferred from a successful exit."""
+    return {
+        "compile": "compile",
+        "suite": "full_suite",
+        "test": "named_regression",
+        "guard": "named_guard",
+    }.get(str(method).strip().partition(":")[0].lower(), "command")
+
+
+def command_kind(state: RunState, command, *, progressive_context=None):
+    """Resolve explicit intent for this exact command; a test obligation always outranks compilation."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    task = state.get("current_task") or {}
+    selected = set(task.get("acceptance_criteria") or [])
+    methods = list(task.get("validation_plan") or []) + [
+        row.get("verification_method", "")
+        for row in body.get("acceptance_criteria") or []
+        if not row.get("human_review") and (not selected or row.get("id") in selected)
+    ]
+    if progressive_context:
+        methods += [row["method"] for row in progressive_context.get("required_checks", [])]
+    kinds = {check_kind(method) for method in methods if command in commands(method)}
+    regression = state.get("settings", {}).get("regression") or {}
+    if command == regression.get("test_command"):
+        kinds.add("full_suite")
+    if command == regression.get("regression_command"):
+        kinds.add("named_regression")
+    return next(
+        (kind for kind in ("named_regression", "named_guard", "full_suite", "compile") if kind in kinds), "command"
+    )
+
+
 def obligations(state: RunState, *, progressive_context=None):
     """Project the plan before approval without inventing executable coverage.
 
@@ -359,6 +392,7 @@ def obligations(state: RunState, *, progressive_context=None):
                 "purpose": "human_review" if row.get("human_review") else "approved_acceptance",
                 "claim": row.get("criterion"),
                 "method": method,
+                "check_kind": check_kind(method),
                 "collected_test_ids": None,
                 "environment": None,
                 "uncertainty": ["Test inventory and execution conditions require runner collection"],
@@ -371,6 +405,7 @@ def obligations(state: RunState, *, progressive_context=None):
                 "commands": commands(method),
                 "purpose": "approved_task_check",
                 "claim": method,
+                "check_kind": check_kind(method),
                 "collected_test_ids": None,
                 "environment": None,
                 "uncertainty": ["Exact CID-to-test coverage is not declared by a command string"],
@@ -381,8 +416,13 @@ def obligations(state: RunState, *, progressive_context=None):
             {
                 "command": command,
                 "collector": schedule.collection_kind(command),
-                "minimum_tests": 1 if schedule.collection_kind(command) else None,
-                "require_complete_ids_for_reuse": True,
+                "minimum_tests": 0
+                if check["check_kind"] == "compile"
+                else 1
+                if check["check_kind"] in ("full_suite", "named_regression", "named_guard")
+                or schedule.collection_kind(command)
+                else None,
+                "require_complete_ids_for_reuse": check["check_kind"] != "compile",
             }
             for command in check["commands"]
         ]
