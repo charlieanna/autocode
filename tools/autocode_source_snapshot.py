@@ -70,7 +70,9 @@ def is_canonical_paths(paths):
         return False
 
 
-def _identity(path, info):
+def _identity(path, info, withhold=None):
+    if withhold is not None and withhold(path.name):
+        return "withheld"
     if stat.S_ISLNK(info.st_mode):
         return "symlink:" + os.readlink(path)
     if stat.S_ISREG(info.st_mode):
@@ -78,7 +80,7 @@ def _identity(path, info):
     raise ValueError("Unsupported source file type: " + str(path))
 
 
-def _include(root, relative, files):
+def _include(root, relative, files, withhold=None):
     # Never dereference a parent symlink. Even an in-repository target can move
     # after this check, so the link itself is part of source, not its contents.
     if symlinked_parent(root, relative):
@@ -96,7 +98,7 @@ def _include(root, relative, files):
         return
     if stat.S_ISDIR(info.st_mode):
         if (path / ".git").exists():
-            files[relative.as_posix()] = "submodule:" + util.snapshot(path)["revision"]
+            files[relative.as_posix()] = "submodule:" + util.snapshot(path, withhold=withhold)["revision"]
             return
         for child in sorted(path.iterdir()):
             if (
@@ -104,12 +106,12 @@ def _include(root, relative, files):
                 and child.name not in project_kinds.BYTECODE_DIRS
                 and not child.name.endswith(project_kinds.BYTECODE_SUFFIXES)
             ):
-                _include(root, child.relative_to(root), files)
+                _include(root, child.relative_to(root), files, withhold)
     else:
-        files[relative.as_posix()] = _identity(path, info)
+        files[relative.as_posix()] = _identity(path, info, withhold)
 
 
-def snapshot(workspace, *, paths=(), base_snapshot=None):
+def snapshot(workspace, *, paths=(), base_snapshot=None, withhold=None):
     """Hash Git-visible source and selected outputs without altering Git state.
 
     Omitted paths preserve the legacy snapshot exactly. A nonempty policy is
@@ -119,18 +121,22 @@ def snapshot(workspace, *, paths=(), base_snapshot=None):
     """
     selected = literal_paths(paths)
     root = Path(workspace)
-    original = (base_snapshot or util.snapshot)(root)
+    if withhold is None:
+        original = (base_snapshot or util.snapshot)(root)
+    else:
+        original = util.snapshot(root, withhold=withhold)
     if not selected:
         return original
     # A supplied reader may return a cached value. Do not mutate its inventory.
     result = {**original, "files": dict(original["files"])}
     for name in selected:
-        _include(root, Path(name), result["files"])
+        _include(root, Path(name), result["files"], withhold)
     for name, identity in list(result["files"].items()):
         if identity.startswith("submodule:"):
             nested = nested_paths(root, selected, name)
             if nested:
-                result["files"][name] = "submodule:" + snapshot(root / name, paths=nested)["revision"]
+                nested_revision = snapshot(root / name, paths=nested, withhold=withhold)["revision"]
+                result["files"][name] = "submodule:" + nested_revision
     if result["files"] != original["files"]:
         result["revision"] = util.digest({"head": result["head"], "files": result["files"]})
     result["source_paths"] = selected

@@ -24,6 +24,7 @@ from pathlib import Path
 try:
     from . import autocode_dependency_dirs as dependency_dirs
     from . import autocode_joint_inputs as joint_inputs
+    from . import autocode_source_privacy as privacy
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from . import autocode_verification_failure as verification_failure
@@ -33,6 +34,7 @@ try:
 except ImportError:
     import autocode_dependency_dirs as dependency_dirs
     import autocode_joint_inputs as joint_inputs
+    import autocode_source_privacy as privacy
     import autocode_source_snapshot as source
     import autocode_util as util
     import autocode_verification_failure as verification_failure
@@ -522,6 +524,9 @@ def create(
             dependency_dirs.expose(original.resolve(), target, view, live=[root], tree=tree)
     if source.snapshot(root, paths=source_paths) != before:
         raise ValueError("Source changed while preparing verification copy")
+    # What a contained check can re-derive: the stage's sandbox refuses (macOS) or masks (Linux) the
+    # files privacy.withheld names, so its freshness check compares their presence, not their bytes.
+    contained = source.snapshot(root, paths=source_paths, withhold=privacy.withheld)["revision"]
     _remaining(deadline, "Verification source authentication")
     paths = list(tree.rglob("*"))
     files = {str(p.relative_to(tree)): _identity(p) for p in paths if p.is_symlink() or p.is_file()}
@@ -532,6 +537,7 @@ def create(
         "tree": str(tree),
         "source_revision": before["revision"],
         "source_paths": before.get("source_paths", []),
+        "contained_source_revision": contained,
         "files": files,
         "joint_inputs": retained_joint_inputs,
         "directories": [str(p.relative_to(tree)) for p in paths if p.is_dir() and not p.is_symlink()],
@@ -585,9 +591,17 @@ def execution(manifest, expected_hash, workspace):
         or sealed not in (None, SEAL)
     ):
         raise ValueError("Unexpected verification copy layout")
+    # A manifest from before #4246 has no contained revision and keeps its full-content check.
+    contained = "contained_source_revision" in data
+    if contained:
+        current = source.snapshot(root, paths=data.get("source_paths", []), withhold=privacy.withheld)["revision"]
+        expected_revision = data["contained_source_revision"]
+    else:
+        current = source.snapshot(root, paths=data.get("source_paths", []))["revision"]
+        expected_revision = data["source_revision"]
     if (
         tree.resolve() != tree
-        or source.snapshot(root, paths=data.get("source_paths", []))["revision"] != data["source_revision"]
+        or current != expected_revision
         or joint_inputs.inventory(root) != data.get("joint_inputs", {})
         or joint_inputs.inventory(tree) != data.get("joint_inputs", {})
     ):
@@ -609,10 +623,15 @@ def execution(manifest, expected_hash, workspace):
             raise ValueError("Verification directory changed: " + name)
     for name, expected in data["files"].items():
         relative = Path(name)
+        if contained and privacy.withheld(name):
+            # Its bytes are refused here too; it must still be the copied entry, not gone.
+            unchanged = os.path.lexists(tree / relative) and expected != "deleted"
+        else:
+            unchanged = _identity(tree / relative) == expected
         if (
             relative.is_absolute()
             or ".." in relative.parts
-            or _identity(tree / relative) != expected
+            or not unchanged
             or (sealed and not _marked(tree / relative))
         ):
             raise ValueError("Verification input changed: " + name)
