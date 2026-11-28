@@ -12,7 +12,7 @@ const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {privateHostEnvironment, ownedWarmHostSteps, settleFixture} = require('../owned-fixture-cleanup.cjs');
 const {afterApproval} = require('../python-semantic-transition.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -81,10 +81,7 @@ test('real editor drives the scoped SemVer reference repair', {timeout: 1_200_00
     assert.equal(identity.status, 0, identity.stderr); editorStarted = JSON.parse(identity.stdout).started;
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({timeout: 120_000});
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     phase = 'opening scoped SemVer history';
     await openHistoryRow(win.locator('.monaco-list-row', {hasText: 'Implement the python-semver library JSON interchange'}).first(), chat, 'scoped SemVer M1');
     let frame;

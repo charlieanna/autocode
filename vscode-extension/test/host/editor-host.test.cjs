@@ -19,7 +19,7 @@ const path = require('node:path');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
-const { sleep, until } = require('./wait.cjs');
+const { answerFrom, evaluateIn, frameWith, sleep, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -83,18 +83,11 @@ function ownedEditor(operation) {
   return JSON.parse(result.stdout);
 }
 
-/** The webview frame that holds ``selector``: the chat view or a Run details panel. */
-async function frameWith(selector) {
-  return until(`a webview with ${selector}`, async () => {
-    for (const frame of win.frames()) {
-      if (await frame.$(selector).catch(() => null)) return frame;
-    }
-    return null;
-  });
-}
-const chat = () => frameWith('#chat-tabs');
-const chatText = async () => (await chat()).evaluate(() => document.body.textContent);
-const chatError = async () => (await chat()).evaluate(() => document.querySelector('#chat-error')?.textContent ?? '');
+const chat = () => frameWith(win, '#chat-tabs', 'the chat webview');
+/** ``read`` in the chat webview, found again and bounded on every try (#4215). */
+const inChat = (what, read) => evaluateIn(chat, what, read);
+const chatText = () => inChat('the chat text', () => document.body.textContent);
+const chatError = () => inChat('the chat error', () => document.querySelector('#chat-error')?.textContent ?? '');
 const statusBar = () => win.locator('.statusbar').innerText();
 
 async function command(title) {
@@ -222,10 +215,9 @@ after(async () => {
 }, { timeout: HOOK_TIMEOUT_MS });
 
 test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why its models cannot change', { timeout: TEST_TIMEOUT_MS }, rememberFailure(async () => {
-  const frame = await chat();
-  const expand = frame.locator('#header-collapse[aria-expanded="false"]');
-  if (await expand.count()) await expand.click();
-  const rows = await frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pipeline tbody tr')]
+  const collapsed = await inChat('the header state', () => Boolean(document.querySelector('#header-collapse[aria-expanded="false"]')));
+  if (collapsed) await (await chat()).click('#header-collapse');
+  const rows = await inChat('the pipeline rows', () => Object.fromEntries([...document.querySelectorAll('#pipeline tbody tr')]
     .map((row) => [row.dataset.job, { state: row.className, mark: row.querySelector('.mark')?.textContent }])));
   assert.deepEqual(rows.Requirements, { state: 'ran', mark: '✓' });
   assert.deepEqual(rows.Planner, { state: 'ran stopped', mark: '✗' }, 'the Planner is the visible failed stage');
@@ -235,9 +227,10 @@ test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why
   assert.match(text, /AutoCode is blocked on internal recovery/);
   assert.match(text, /The model provider rejected the saved credentials \(HTTP 401\)/);
   assert.match(text, /This run cannot continue automatically\./);
-  assert.ok(await frame.$('#start-new-conversation'), 'the blocked chat offers a new conversation');
+  assert.ok(await inChat('the new conversation offer', () => Boolean(document.querySelector('#start-new-conversation'))),
+    'the blocked chat offers a new conversation');
 
-  const models = await frame.evaluate(() => {
+  const models = await inChat('the models picker', () => {
     const chip = document.querySelector('#models-picker');
     return { disabled: chip.disabled, reason: chip.title };
   });
@@ -245,13 +238,10 @@ test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why
   await until('the blocked status bar', async () => /blocked on internal recovery/.test(await statusBar()));
 
   // Run details lists each recorded attempt: the Planner ran exactly once.
-  await frame.click('#details');
-  const report = await until('the Run details panel', async () => {
-    for (const each of win.frames()) {
-      const body = await each.evaluate(() => document.body?.textContent ?? '').catch(() => '');
-      if (/Stages that ran/i.test(body) && body.includes('Attempts')) return body;
-    }
-    return null;
+  await (await chat()).click('#details');
+  const { value: report } = await answerFrom(win, 'the Run details panel', async (frame) => {
+    const body = await frame.evaluate(() => document.body?.textContent ?? '');
+    return /Stages that ran/i.test(body) && body.includes('Attempts') ? body : null;
   });
   assert.match(report, /Stopped at Planner/);
   assert.match(report, /Planner: ran once/);
@@ -259,7 +249,7 @@ test('a scripted Planner HTTP 401 shows the failed stage, a blocked chat and why
 
   // The editor only read: the saved run still records the one Planner attempt.
   const status = spawnSync(fixture.cli[0], [...fixture.cli.slice(1), '--run-dir', fixture.runDir, '--status', '--json'], {
-    cwd: fixture.workspace, encoding: 'utf8', env: environment,
+    cwd: fixture.workspace, encoding: 'utf8', env: environment, timeout: 15_000,
   });
   assert.equal(status.status, 0, status.stderr);
   const view = JSON.parse(status.stdout).view ?? JSON.parse(status.stdout);

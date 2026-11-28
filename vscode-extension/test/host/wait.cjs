@@ -36,4 +36,41 @@ async function until(what, probe, timeout = 60_000) {
   }
 }
 
-module.exports = { sleep, until };
+// How long one frame may take to answer one question while the others are asked (#4215). A webview
+// frame VS Code is replacing can stop answering without being detached; asked one after another,
+// such a frame held every probe until the deadline, though the frame being looked for answered.
+const FRAME_ANSWER_MS = 5_000;
+
+/**
+ * The first answer ``read(frame)`` gives that is truthy, from any of ``page``'s frames: every frame
+ * is asked at once and each for at most FRAME_ANSWER_MS, so one that does not answer is passed over.
+ * Polls like ``until``; returns ``{ frame, value }``.
+ */
+function answerFrom(page, what, read, timeout = 60_000) {
+  return until(what, async () => {
+    const frames = page.frames();
+    const answers = await Promise.all(
+      frames.map((frame) => bounded(() => read(frame), FRAME_ANSWER_MS).catch(() => null)),
+    );
+    const index = answers.findIndex(Boolean);
+    return index < 0 ? null : { frame: frames[index], value: answers[index] };
+  }, timeout);
+}
+
+/** The frame of ``page`` that holds ``selector`` (a webview: the chat, a Run details panel). */
+async function frameWith(page, selector, what = `a webview with ${selector}`, timeout = 60_000) {
+  return (await answerFrom(page, what, (frame) => frame.$(selector), timeout)).frame;
+}
+
+/**
+ * ``read`` evaluated in the frame ``find()`` returns. A direct ``frame.evaluate`` has no timeout of its
+ * own, so each try gets FRAME_ANSWER_MS, and a try that fails or does not answer finds the frame again.
+ * ``read`` may return any value, falsy ones included.
+ */
+async function evaluateIn(find, what, read, timeout = 60_000) {
+  const attempt = async () => [await (await find()).evaluate(read)];
+  const [value] = await until(what, () => bounded(attempt, FRAME_ANSWER_MS), timeout);
+  return value;
+}
+
+module.exports = { answerFrom, evaluateIn, frameWith, sleep, until };

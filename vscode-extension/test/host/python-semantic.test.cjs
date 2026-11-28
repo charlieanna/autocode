@@ -8,7 +8,7 @@ const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
 const { afterApproval } = require('../python-semantic-transition.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -79,10 +79,7 @@ async function completeInEditor({ kind, fixtureFile, prompt, overviewText, crite
     assert.equal(identified.status, 0, identified.stderr);
     editorStarted = JSON.parse(identified.stdout).started;
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     status = () => {
       const result = spawnSync(python, [cli, '--run-dir', fixture.run_dir, '--workspace', fixture.workspace, '--status', '--json'], {
         cwd: fixture.workspace, env, encoding: 'utf8', timeout: 30_000,
