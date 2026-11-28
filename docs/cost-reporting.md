@@ -211,6 +211,33 @@ named. The `other` pool is not analysed. This is arithmetic over past runs: task
 stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
 pool says so.
 
+## How each model did at each job
+
+`autocode usage scoreboard [--workspace PATH] [--since DATE] [--all] [--json]` reads the same
+`usage.jsonl` ledgers and counts, for each backend, job, model and level, how much of its work
+survived (#4251). It is the first step of restarting automatic model choice from measured outcomes
+(#2049): it suggests nothing and changes no route.
+
+- **Only live runs that completed count.** A run's row must be live evidence and its run must have
+  passed the completion gate. Fake, mixed and undeclared runs and runs that paused are left out and
+  counted by reason. Runner-owned stages, a saved run's speculative pass and a running stage are left
+  out too. A ledger row is rewritten as its run moves on, so a run that stops being complete stops
+  counting.
+- **Sent back is read from the order of the run's attempts.** A Builder attempt is sent back when a
+  later Builder attempt works on the same task, whatever returned it (the regression proof, the
+  Tester, the Completion Reviewer or a stronger Builder). A Planner attempt is sent back when another
+  Planner attempt follows it before any Builder starts, so a plan the Plan Reviewer or the person
+  returned counts and a follow-up request after building does not.
+- **Other jobs are judged only on whether the runner took the answer.** Whether a review was right
+  is not visible in the ledger, so their `back` column is `-`.
+- **First time right** is an attempt that was accepted and not sent back. Its rate is over the
+  attempts that were not report repairs (a repair is counted apart; the attempt it repaired is
+  already rejected), with a 95% Wilson range so a few attempts show how little they prove. Each
+  route's counts are split by plan size, because a model given harder tasks looks worse on the
+  same rate.
+- `$/run` is the route's API-equivalent burn, every attempt included, over the counted runs it
+  took part in, a floor (`*`) when some usage was not recorded.
+
 ## How to interpret the numbers
 
 The scorer's `token_usage.estimated_api_equivalent_usd` uses the existing
