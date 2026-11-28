@@ -194,6 +194,22 @@ class Observe(unittest.TestCase):
         self.assertIn("| demo | python | unittest | passing | 3 |", (out / "summary.md").read_text())
         self.assertFalse((out / "demo" / "checkout").exists())
 
+    def test_a_difference_carries_the_end_of_its_prepare_log_into_the_job_output(self):
+        # #4212: the job log is what stays readable when the uploaded artifacts are not.
+        repos = self.folder / "repos.json"
+        expect = {**EXPECT, "base": "failing"}
+        differing = entry(git=self.url, commit=self.commit, prepare=["echo WARN skipped optional dependency"])
+        matching = entry(id="same", git=self.url, commit=self.commit, prepare=["echo installed"])
+        repos.write_text(json.dumps({"repositories": [{**differing, "expect": expect}, matching]}))
+        out = self.folder / "tail"
+        self.assertEqual(setup_sweep.main(["run", "--repos", str(repos), "--out", str(out)]), 1)
+        results = {row["id"]: row for row in json.loads((out / "results.json").read_text())}
+        self.assertIn(
+            "prepare tail: $ echo WARN skipped optional dependency\nWARN skipped optional dependency\n",
+            results["demo"]["notes"],
+        )
+        self.assertEqual(results["same"]["notes"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

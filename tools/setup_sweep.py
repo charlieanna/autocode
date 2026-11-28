@@ -59,6 +59,9 @@ SUITE_SECONDS = 900
 # Files a person's global ignore keeps out of every checkout: the environments `prepare` creates.
 LOCAL_IGNORES = (".venv/", "node_modules/", "vendor/", "target/", ".gradle/", "build/")
 TARGETED_TESTS = 2
+# How much of a log a difference carries into the job's own output, which stays readable when the
+# uploaded artifacts are not (#4212: a lint failure's tail held only its stack, not the missing module).
+TAIL_CHARACTERS = 2000
 
 
 class EntryError(ValueError):
@@ -216,7 +219,7 @@ def observe(entry, out: Path) -> dict:
     seen["tests"] = {key: len(results.get(key) or []) for key in ("passed", "failed", "skipped")}
     seen["base_log"] = receipt.get("output")
     if base["health"] != "passing" and receipt.get("tail"):
-        seen["notes"].append("base tail: " + receipt["tail"][-600:])
+        seen["notes"].append("base tail: " + receipt["tail"][-TAIL_CHARACTERS:])
 
     chosen = pick_tests(results.get("passed") or [])
     narrowed = proof_stability.narrow(framework.name, framework.suite, chosen) if chosen else None
@@ -292,6 +295,15 @@ def differences(entry, seen) -> list[str]:
     ]
 
 
+def prepare_tail(log: Path) -> str:
+    """The end of a repository's prepare log, for a difference: what it installed, and what it skipped."""
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return "prepare tail: no prepare log"
+    return "prepare tail: " + (text[-TAIL_CHARACTERS:] or "(empty)")
+
+
 def table(rows) -> str:
     lines = [
         "| Repository | Language | Runner | Base | Tests passed | Targeted | Mutation | Coverage | Result |",
@@ -350,6 +362,8 @@ def main(argv=None) -> int:
         print(f"== {entry['id']}", flush=True)
         seen = observe(entry, args.out.resolve())
         problems = differences(entry, seen)
+        if problems:
+            seen["notes"].append(prepare_tail(args.out / entry["id"] / "prepare.log"))
         rows.append((entry, seen, problems))
         print(json.dumps({**seen, "problems": problems}, indent=2), flush=True)
         if not args.keep:

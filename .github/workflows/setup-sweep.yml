@@ -78,6 +78,30 @@ jobs:
           rustup default 1.100.0
           python3 -m venv .venv
           .venv/bin/python -m pip install -e .
+      # Maven Central refuses a busy runner range with HTTP 429 (the jvm job on 2026-11-27: every entry's
+      # base failed resolving its parent POM or a Gradle plugin). The JVM entries download the same
+      # plugins and dependencies every night, so the night keeps them and the next one starts from them.
+      - name: Restore the JVM dependency cache
+        if: matrix.group.name == 'jvm'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: setup-sweep-jvm-${{ hashFiles('tools/setup_sweep_repos.json') }}-${{ github.run_id }}
+          restore-keys: |
+            setup-sweep-jvm-${{ hashFiles('tools/setup_sweep_repos.json') }}-
+            setup-sweep-jvm-
+      - name: Record the toolchains
+        run: |
+          # A base outcome that flips with no change to its pin is read against these (#4212).
+          for command in "node --version" "npm --version" "pnpm --version" "yarn --version" "python3 --version" \
+            "go version" "rustc --version" "java --version" "mvn --version" "ruby --version" "php --version"; do
+            printf '%s: ' "$command"; ($command 2>&1 || echo missing) | head -1
+          done
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
       - name: Run the sweep
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
@@ -88,6 +112,16 @@ jobs:
           for language in $LANGUAGES; do args+=(--language "$language"); done
           for id in $ONLY; do args+=(--only "$id"); done
           .venv/bin/python tools/setup_sweep.py run --out "$RUNNER_TEMP/setup-sweep" "${args[@]}"
+      # Saved even on a red night: what it did download is not downloaded again.
+      - name: Save the JVM dependency cache
+        if: always() && matrix.group.name == 'jvm' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: setup-sweep-jvm-${{ hashFiles('tools/setup_sweep_repos.json') }}-${{ github.run_id }}
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@v4
