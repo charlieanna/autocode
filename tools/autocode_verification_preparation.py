@@ -154,6 +154,7 @@ def execute(
     review_mutation_deadline=None,
     acceptance_preflight=False,
     python=None,
+    check_kind="command",
 ):
     """Transport scratch inputs without changing their ordinary runner semantics."""
     supply = parameters.get("ignored_inputs")
@@ -163,6 +164,8 @@ def execute(
             raise ValueError("Owned preparation needs explicit launch-input Supply transport")
         parameters = {**parameters, "ignored_inputs": encode()}
     payload = {**parameters, "tests": list(tests), "command": command, "timeout": timeout}
+    if check_kind != "command":
+        payload["check_kind"] = check_kind
     if python:
         payload["python"] = str(python)
     if acceptance_preflight:
