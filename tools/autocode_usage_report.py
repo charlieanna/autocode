@@ -22,10 +22,12 @@ try:
     from . import autocode_quota_report as quota_report
     from . import autocode_registry as registry
     from . import autocode_rejection_classes as rejection_classes
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_quota_report as quota_report
     import autocode_registry as registry
     import autocode_rejection_classes as rejection_classes
+    import autocode_roles as roles
 
 SCHEMA = 1
 LEDGER = "usage.jsonl"
@@ -807,6 +809,63 @@ def _evaluate_targets(
     }
 
 
+def _aggregate_requirements(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """First Requirements attempt per run, plus all recorded repair time (including failed repairs)."""
+    routes: dict[tuple[str, str, str], dict[str, Any]] = {}
+    repair = {"attempts": 0, "seconds": 0.0, "complete": True, "recorded_runs": 0, "not_recorded_runs": 0}
+    job = roles.screen_name("requirements_gather")
+    for row in rows:
+        first = _dict(row.get("requirements_first_pass"))
+        accepted = first.get("accepted")
+        if type(accepted) is bool:
+            key = _route_key(first.get("route"))
+            group = routes.setdefault(key, {"route": _route_dict(key), "accepted_runs": 0, "rejected_runs": 0})
+            group["accepted_runs" if accepted else "rejected_runs"] += 1
+
+        outcomes = _dict(row.get("outcomes"))
+        jobs = outcomes.get("by_job")
+        if not isinstance(jobs, dict):
+            repair["not_recorded_runs"] += 1
+            repair["complete"] = False
+            continue
+        source = (
+            _dict(_dict(jobs[job]).get("report_repair"))
+            if job in jobs
+            else {"attempts": 0, "seconds": 0.0, "complete": True}
+        )
+        attempts, seconds = _nonneg_int(source.get("attempts")), _nonneg_float(source.get("seconds"))
+        repair["recorded_runs"] += 1
+        repair["attempts"] += attempts or 0
+        repair["seconds"] = round(repair["seconds"] + (seconds or 0.0), 3)
+        if (
+            attempts is None
+            or seconds is None
+            or source.get("complete") is not True
+            or outcomes.get("complete") is False
+        ):
+            repair["complete"] = False
+
+    by_route = []
+    for key in sorted(routes):
+        group = routes[key]
+        by_route.append(
+            {**group, "acceptance_rate": group["accepted_runs"] / (group["accepted_runs"] + group["rejected_runs"])}
+        )
+    accepted_runs = sum(group["accepted_runs"] for group in by_route)
+    rejected_runs = sum(group["rejected_runs"] for group in by_route)
+    recorded = accepted_runs + rejected_runs
+    return {
+        "first_pass": {
+            "accepted_runs": accepted_runs,
+            "rejected_runs": rejected_runs,
+            "not_recorded_runs": len(rows) - recorded,
+            "acceptance_rate": accepted_runs / recorded if recorded else None,
+            "by_route": by_route,
+        },
+        "report_repair": repair,
+    }
+
+
 def _aggregate_cohort(rows: list[dict[str, Any]], targets_doc: dict[str, Any]) -> dict[str, Any]:
     stage_outcomes = _aggregate_stage_outcomes(rows)
     rejections = _aggregate_rejections(
@@ -836,6 +895,7 @@ def _aggregate_cohort(rows: list[dict[str, Any]], targets_doc: dict[str, Any]) -
         },
         "stage_outcomes": stage_outcomes,
         "rejections": rejections,
+        "requirements": _aggregate_requirements(rows),
         "first_interaction": first_interaction,
         "completed_tasks": completed_tasks,
         "stage_prompts": stage_prompts,
@@ -917,6 +977,31 @@ def format_report(payload: dict[str, Any]) -> str:
         for bucket in OUTCOME_BUCKETS:
             b = so["buckets"][bucket]
             lines.append(f"  {bucket:<18} {b['launches']:>8} {b['hours']:>8.2f} {_fmt_pct(b['share']):>8}")
+
+        requirements = cohort["requirements"]
+        first = requirements["first_pass"]
+        lines.append(
+            f"  Requirements first pass: {first['accepted_runs']}/{first['accepted_runs'] + first['rejected_runs']} "
+            f"accepted ({_fmt_pct(first['acceptance_rate'])}); not recorded={first['not_recorded_runs']}"
+        )
+        for group in first["by_route"]:
+            lines.append(
+                f"    {_route_label(group['route'])}: "
+                f"{group['accepted_runs']}/{group['accepted_runs'] + group['rejected_runs']} "
+                f"accepted ({_fmt_pct(group['acceptance_rate'])})"
+            )
+        repair = requirements["report_repair"]
+        repair_time = (
+            "not recorded"
+            if not repair["recorded_runs"]
+            else _fmt_num(repair["seconds"], "s")
+            if repair["complete"]
+            else f">={_fmt_num(repair['seconds'], 's')} (incomplete)"
+        )
+        lines.append(
+            f"  Requirements report repair: {repair['attempts']} attempts, {repair_time}; "
+            f"not recorded={repair['not_recorded_runs']}"
+        )
 
         if rej["by_class"]:
             lines.append("  Rejected time by class:")
