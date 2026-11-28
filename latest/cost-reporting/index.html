@@ -1327,6 +1327,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cost-coverage-by-run-stage-and-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost coverage by run, stage and model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-to-interpret-the-numbers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2060,6 +2071,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cost-coverage-by-run-stage-and-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost coverage by run, stage and model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-to-interpret-the-numbers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2319,6 +2341,51 @@ ledger. Nothing comes from a model table, so a model the ledger never ran for th
 named. The <code>other</code> pool is not analysed. This is arithmetic over past runs: tasks differ, an accepted
 stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
 pool says so.</p>
+<h2 id="cost-coverage-by-run-stage-and-model">Cost coverage by run, stage and model<a class="headerlink" href="#cost-coverage-by-run-stage-and-model" title="Permanent link">&para;</a></h2>
+<p>A total is only as good as the share of stages behind it that were priced. Each model stage's
+row in the ledger (<code>accounting.attempts</code>) now keeps what the provider itself said about it, next
+to the tokens and cost it already had:</p>
+<ul>
+<li><code>provider_request_ids</code>: the request or message ids the provider named (the claude stream's
+  message ids, OpenCode's native request identities). <code>null</code> when it named none; a row written
+  before this field existed has no key at all.</li>
+<li><code>resolved_models</code>: the model names the provider reported serving, which can differ from the
+  route's alias. <code>null</code> when it reported none, and a request named with two different models
+  counts as neither.</li>
+<li><code>usage_truncated</code>: <code>true</code> when the stage's usage stream was cut or a request never finished, so
+  its tokens and cost are a lower bound.</li>
+</ul>
+<p>Codex and Gemini name no request ids today, so their rows keep <code>null</code>; nothing is inferred in
+their place, and runner-owned stages have none.</p>
+<p><code>autocode usage report</code> adds <code>cost_coverage</code> to each provenance cohort (<code>live</code>, <code>fake</code>, ...), and
+the text report prints it under <code>Cost coverage</code>. It reads only the ledger:</p>
+<ul>
+<li><code>usd</code> (and the same object for each run, stage and model) keeps three amounts apart:
+  <code>reported_usd</code> (provider-reported charges), <code>estimated_usd</code> (API-equivalent estimates from the
+  rate tables, never a charge) and <code>unknown_attempts</code> (stages with no amount, <strong>not zero</strong>).
+  <code>known_usd</code> is reported plus estimated; <code>total_usd</code> is set only when every model stage was
+  priced from a complete completion event with no accounting issue, otherwise it is <code>null</code> and
+  the text prints the known amount as a floor (<code>&gt;=$x (incomplete)</code>).</li>
+<li><code>runs</code> counts runs as <code>complete</code>, <code>partial</code>, <code>unknown</code> (no amount at all), <code>no_model_attempts</code>
+  or <code>not_recorded</code> (an older row without accounting).</li>
+<li><code>completion_events</code> counts stages whose final usage event arrived (<code>complete</code>), was cut
+  (<code>truncated</code>), never arrived (<code>missing</code>) or is still <code>running</code>. <code>uncertain_attempts</code> counts
+  completed events whose row still records an accounting issue; they are not counted as covered.</li>
+<li><code>terminal_status</code> counts how each stage ended (<code>completed</code>, <code>failed</code>, <code>timed_out</code>,
+  <code>interrupted</code>, <code>rejected</code>, <code>running</code>, <code>unknown</code>), and <code>receipts</code> counts stages with request ids
+  <code>recorded</code>, <code>none_named</code> or <code>not_recorded</code> (older rows), and those with a <code>resolved_model</code>.</li>
+<li><code>by_run</code>, <code>by_stage</code> and <code>by_model</code> repeat these per run (with its workflow, outcome state,
+  plan size and elapsed time), per stage and per model.</li>
+<li><code>delivered</code> gives, per kind of run, the delivered (completed) runs, their cost and elapsed time
+  (median and p90) from the runs whose every model stage was priced, with the excluded runs
+  counted, and <code>usd_per_delivery</code>: everything the kind spent, failed runs included, divided by
+  its deliveries. That last figure is <code>null</code> while any run of the kind is not fully priced.</li>
+<li><code>matched_workloads</code> compares models that ran the same stage on runs of the same plan size,
+  with attempts, completed and priced attempts, cost per priced attempt and seconds per attempt.
+  The inputs are similar, not identical: it shows where to look, not which model is better.</li>
+</ul>
+<p>Runner-owned stages call no model and are left out. Like the quota report, this changes no route
+and grants no completion authority.</p>
 <h2 id="how-to-interpret-the-numbers">How to interpret the numbers<a class="headerlink" href="#how-to-interpret-the-numbers" title="Permanent link">&para;</a></h2>
 <p>The scorer's <code>token_usage.estimated_api_equivalent_usd</code> uses the existing
 historical comparison rates, recorded in <code>pricing_basis</code>. These are <strong>not
@@ -2373,7 +2440,7 @@ effectiveness comparison have not yet been established by the accounting tests.<
 <h2 id="regression-checks">Regression checks<a class="headerlink" href="#regression-checks" title="Permanent link">&para;</a></h2>
 <pre><code class="language-sh">.venv/bin/python -m unittest tests.test_cost_reporting tests.test_efficiency \
   tests.test_usage tests.test_autocode_request_usage tests.test_opencode tests.test_opencode_length \
-  tests.test_prices tests.test_cost tests.test_cost_cap -q
+  tests.test_prices tests.test_cost tests.test_cost_cap tests.test_cost_coverage -q
 </code></pre>
 <p>These checks use synthetic provider events and local fixture executables. They
 cover cost arithmetic against the actual provider normalizer, missing data,
