@@ -130,6 +130,7 @@ def execute(
     role=None,
     report_recovery=False,
     access_probe=False,
+    native_options=None,
 ):
     """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent).
 
@@ -145,6 +146,7 @@ def execute(
     atomic_json(schema_path, schema)
     child_env = agent_env.scrubbed(env)
     if adapter is None:
+        options = native_options if native_options is not None else {"chatgpt": True, "provider": "openai"}
         argv = [
             "codex",
             "exec",
@@ -152,13 +154,14 @@ def execute(
             str(workspace),
             "--sandbox",
             "workspace-write" if allow_write else "read-only",
-            "-c",
-            'forced_login_method="chatgpt"',
-            "-c",
-            'model_provider="openai"',
-            "-c",
-            f'model_reasoning_effort="{effort}"',
+            *options.get("arguments", []),
         ]
+        if options.get("chatgpt"):
+            argv += ["-c", 'forced_login_method="chatgpt"']
+        if options.get("provider"):
+            argv += ["-c", f'model_provider="{options["provider"]}"']
+        if effort is not None:
+            argv += ["-c", f'model_reasoning_effort="{effort}"']
         if report_recovery:
             argv += ["--disable", "shell_tool"]
         if session:

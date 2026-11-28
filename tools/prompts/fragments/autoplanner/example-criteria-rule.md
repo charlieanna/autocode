@@ -34,6 +34,10 @@ outcomes, with the current proof artifact cited in criterion_results.evidence_re
 behavioral criteria and their named fail-first tests; do not assign another test name whose implementation
 would rerun its own module, file or discovery suite. Tests of a product that itself runs tests should use
 distinct isolated fixture suites, not the suite collecting that acceptance test.
+Distinguish compilation from test evidence in verification_method: "compile: run `COMMAND`" must exit zero
+but may intentionally run zero tests (for example go test -run '^$' ./...). "suite: run `COMMAND`" runs the
+full suite and requires nonempty, complete results where the runner names tests. Neither replaces a
+behavior's named "test:" fail-to-pass criterion or its existing "guard:" pass-to-pass criterion.
 A "test:" criterion describes behavior that does not exist before the run, so its test fails (or cannot run) on
 the code as it is. Something that already holds, or holds as soon as a directory exists, is not: in Python 3 a
 package directory imports without __init__.py, so "the package is importable" passes before the change and the

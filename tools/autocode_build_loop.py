@@ -236,6 +236,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 checkpoint=lambda: runner.write_json(state_path, state),
                 before_probe=before_probe,
                 selection=(state.get("settings") or {}).get("route_selection"),
+                before_build=state.get("next_stage") in ("builder", "orchestrator"),
             )
         except runner.orchestrator.LoopExit as stopped:
             return stopped.code
@@ -259,7 +260,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         check_tools(current)
         if not check_storage(current):
             raise runner.orchestrator.LoopExit(2)
-        if current.get("next_stage") in model_preflight.DEFERRED_STAGES:  # a deferred role's access, first (#1744)
+        if current.get("next_stage") in model_preflight.DEFERRED_STAGES | {"builder", "orchestrator"}:
             model_preflight.check(
                 runner,
                 current,
@@ -268,6 +269,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 checkpoint=lambda: runner.write_json(state_path, current),
                 before_probe=before_probe,
                 selection=(current.get("settings") or {}).get("route_selection"),
+                before_build=current.get("next_stage") in ("builder", "orchestrator"),
             )
         native = getattr(runner, "native_calls", None)
         if native is not None:

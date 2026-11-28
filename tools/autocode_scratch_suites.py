@@ -20,9 +20,14 @@ again from where they load.
 
 from __future__ import annotations
 
+import re
+import shlex
+from pathlib import Path
+
 try:
     from . import autocode_companion_suites as companions
     from . import autocode_package_scope as package_scope
+    from . import autocode_shell_syntax as shell_syntax
     from . import autocode_source_binding as source_binding
     from . import autocode_test_homes as test_homes
     from . import autocode_verification_commands as verification_commands
@@ -30,6 +35,7 @@ try:
 except ImportError:
     import autocode_companion_suites as companions
     import autocode_package_scope as package_scope
+    import autocode_shell_syntax as shell_syntax
     import autocode_source_binding as source_binding
     import autocode_test_homes as test_homes
     import autocode_verification_commands as verification_commands
@@ -149,4 +155,50 @@ def explicit(root, tests, framework, command, execute, complete_results, *, acce
         and not (receipt["results"]["passed"] or receipt["results"]["failed"])
     ):
         return {**receipt, "error": "Test command reported only skipped tests"}
+    return receipt
+
+
+def validate_intent(kind, *, command, tests=(), acceptance_preflight=False, review_mutation=False):
+    if kind not in ("command", "compile", "full_suite", "named_regression", "named_guard"):
+        raise ValueError(f"Unknown check kind: {kind}")
+    if kind == "compile" and (not command or tests or acceptance_preflight or review_mutation):
+        raise ValueError("Compile-only checks cannot replace selected tests, acceptance proofs or mutation checks")
+
+
+def command_check(
+    root,
+    tests,
+    framework,
+    command,
+    execute,
+    exact,
+    expects_results,
+    complete_results,
+    *,
+    check_kind="command",
+    acceptance_preflight=False,
+    native=False,
+):
+    """Run an explicit check according to its approved purpose, not the runner's name alone."""
+    if check_kind == "compile":
+        return {**exact(command), "results": None, "results_expected": False, "check_kind": check_kind}
+    if framework or (not native and expects_results(None, command, root)):
+        return explicit(
+            root, tests, framework, command, execute, complete_results, acceptance_preflight=acceptance_preflight
+        )
+    receipt = exact(command) if native else execute(None, command, "scratch-command")
+    receipt["results"] = None
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = []
+    if (
+        words[1:3] == ["-m", "unittest"]
+        and receipt["exit_code"] == 0
+        and not shell_syntax.outside_quotes(command, ";&|<>`$\n")
+    ):
+        text = Path(receipt["output"]).read_text(errors="replace")
+        ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
+        if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
+            return {**receipt, "error": "Test command reported zero tests or incomplete output"}
     return receipt

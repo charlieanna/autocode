@@ -643,6 +643,13 @@ def main() -> int:
         print("Logged in using ChatGPT (offline live-trial fixture)")
         return 0
     prompt = sys.stdin.read()
+    if "CURRENT HANDOFF DATA\n" not in prompt and "--output-schema" in sys.argv:
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if set(schema.get("properties", {})) == {"ok"}:
+            output = Path(sys.argv[sys.argv.index("-o") + 1])
+            output.write_text('{"ok": true}')
+            print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}), flush=True)
+            return 0
     if "CURRENT HANDOFF DATA\n" not in prompt:
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
         print(json.dumps({"error": "no handoff data"}))

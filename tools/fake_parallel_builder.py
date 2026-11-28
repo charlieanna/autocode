@@ -252,6 +252,15 @@ def main():
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline fixture)")
         return
+    schema = (
+        json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "--output-schema" in sys.argv
+        else {}
+    )
+    if set(schema.get("properties", {})) == {"ok"}:
+        Path(sys.argv[sys.argv.index("-o") + 1]).write_text('{"ok": true}')
+        finished()
+        return
     data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
     if "acceptance_criteria_ref" in data:
         data["acceptance_criteria"] = [

@@ -2,6 +2,27 @@
 
 A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
+Use ``compile: run `COMMAND` `` for a compile/vet-only check, including a test
+runner intentionally selecting zero tests. It must finish with exit zero in the
+isolated source copy, but supplies no test results, regression credit or reusable
+test proof. Use ``suite: run `COMMAND` `` for the full suite: recognized runners
+must report complete, nonempty results, not merely exit zero. Existing `test:`
+and `guard:` criteria keep their named fail-to-pass and pass-to-pass requirements.
+An explicit test or suite obligation for the same command takes precedence over
+a compile declaration; a Tester cannot reclassify a check in its report.
+
+A plan-only correction does not require a pretend source edit. When both plans
+have authenticated same-turn approvals and unchanged scope, the controller can
+reconcile a no-change Builder report using pinned, owned test receipts for the
+exact source revision. Compile-only receipts cannot establish a tested candidate
+without named passing tests. Missing or changed receipts, source drift and
+changed permission boundaries do not qualify.
+
+This recovers the handoff to a fresh independent Tester, not the old PASS.
+The corrected plan supplies the current checks, and all regression, changed-code
+and completion gates still execute. The handoff records both contract hashes,
+the original receipt pins and the checks that now need verification.
+
 When every criterion the proof covers is a `guard:` and the change adds or edits no test
 (it may change nothing, as a validation-only re-check does),
 the guards rest on tests the project already has: the proof runs the suite on the base and

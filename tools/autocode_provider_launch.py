@@ -454,10 +454,7 @@ def prepare(
             else output_cap.VARIABLE
         )
         worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
-    if engine == "opencode":
-        worker["access_preflight_identity"] = access_evidence.launch_binding(
-            settings, route_role, adapter, model, effort
-        )
+    worker["access_preflight_identity"] = access_evidence.launch_binding(settings, route_role, adapter, model, effort)
     worker["execution_identity"] = route_evidence.launch_identity(
         role=route_role,
         engine=engine,
