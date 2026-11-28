@@ -1946,8 +1946,8 @@ AutoCode's setup the first time a real project met it. The <a href="../real-repo
 whole runs with models on a few tasks; this sweep covers about fifty repositories across ten languages,
 costs nothing, and runs every night.</p>
 <h2 id="what-it-checks">What it checks<a class="headerlink" href="#what-it-checks" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/tools/setup_sweep.py"><code>tools/setup_sweep.py</code></a> fetches each repository in
-<a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/tools/setup_sweep_repos.json"><code>tools/setup_sweep_repos.json</code></a> at its pinned commit, prepares it as a
+<p><a href="https://github.com/charlieanna/autocode/blob/0ff43a2ef09ff09e81e4bacce150c51c6a4007d2/tools/setup_sweep.py"><code>tools/setup_sweep.py</code></a> fetches each repository in
+<a href="https://github.com/charlieanna/autocode/blob/0ff43a2ef09ff09e81e4bacce150c51c6a4007d2/tools/setup_sweep_repos.json"><code>tools/setup_sweep_repos.json</code></a> at its pinned commit, prepares it as a
 person prepares a checkout (its <code>prepare</code> commands: a virtualenv, <code>npm ci</code>, <code>bundle install</code>; AutoCode
 itself installs nothing), and then runs the steps AutoCode takes on its own:</p>
 <table>
@@ -1995,7 +1995,7 @@ that nobody has fixed yet; the list of them is the sweep's backlog.</p>
 red", and a green night closes it. Each language group's artifact holds <code>results.json</code>, <code>summary.md</code> and
 the logs of every step. A difference is one of:</p>
 <ul>
-<li><strong>an AutoCode defect</strong>: fix it where the cause is shared (<a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/AGENTS.md#fix-the-shared-cause-not-each-case">AGENTS.md</a>),
+<li><strong>an AutoCode defect</strong>: fix it where the cause is shared (<a href="https://github.com/charlieanna/autocode/blob/0ff43a2ef09ff09e81e4bacce150c51c6a4007d2/AGENTS.md#fix-the-shared-cause-not-each-case">AGENTS.md</a>),
   and change the entry's <code>expect</code> in the same pull request, so the sweep shows the fix;</li>
 <li><strong>an AutoCode improvement</strong>: a step now works where the entry expected it not to. Update <code>expect</code>;</li>
 <li><strong>the repository's environment</strong> (a registry outage, a toolchain the runner image changed): rerun
