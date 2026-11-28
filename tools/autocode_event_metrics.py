@@ -1,6 +1,29 @@
 """Pure aggregation of normalized provider usage events; no runner imports."""
 
 
+def receipts(rows):
+    """Each provider request id once, with the model the provider resolved for it (#4239).
+
+    Only what a translator recorded: no id is invented, a model the provider did not name stays
+    None, and two different models named for one id leave it None rather than choosing one.
+    """
+    models, conflicts = {}, set()
+    for row in rows:
+        listed = row.get("provider_requests")
+        for item in listed if isinstance(listed, list) else ():
+            key = item.get("id") if isinstance(item, dict) else None
+            if not isinstance(key, str) or not key:
+                continue
+            model = item.get("model") if isinstance(item.get("model"), str) and item.get("model") else None
+            if key not in models:
+                models[key] = model
+            elif model and models[key] and models[key] != model:
+                conflicts.add(key)
+            elif model and models[key] is None:
+                models[key] = model
+    return [{"id": key, "model": None if key in conflicts else model} for key, model in models.items()] or None
+
+
 def summarize(rows, request_context, reported_cost):
     completed = [r for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
     usages = [
@@ -46,4 +69,5 @@ def summarize(rows, request_context, reported_cost):
         "provider_cost_usd": reported_cost,
         "cost_state": cost_states or None,
         "provider_sessions": sorted(sessions) or None,
+        "provider_receipts": receipts(rows),
     }

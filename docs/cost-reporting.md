@@ -211,6 +211,54 @@ named. The `other` pool is not analysed. This is arithmetic over past runs: task
 stage is not a verified one, and AutoCode changes no route because of it. Where no route qualifies the
 pool says so.
 
+## Cost coverage by run, stage and model
+
+A total is only as good as the share of stages behind it that were priced. Each model stage's
+row in the ledger (`accounting.attempts`) now keeps what the provider itself said about it, next
+to the tokens and cost it already had:
+
+- `provider_request_ids`: the request or message ids the provider named (the claude stream's
+  message ids, OpenCode's native request identities). `null` when it named none; a row written
+  before this field existed has no key at all.
+- `resolved_models`: the model names the provider reported serving, which can differ from the
+  route's alias. `null` when it reported none, and a request named with two different models
+  counts as neither.
+- `usage_truncated`: `true` when the stage's usage stream was cut or a request never finished, so
+  its tokens and cost are a lower bound.
+
+Codex and Gemini name no request ids today, so their rows keep `null`; nothing is inferred in
+their place, and runner-owned stages have none.
+
+`autocode usage report` adds `cost_coverage` to each provenance cohort (`live`, `fake`, ...), and
+the text report prints it under `Cost coverage`. It reads only the ledger:
+
+- `usd` (and the same object for each run, stage and model) keeps three amounts apart:
+  `reported_usd` (provider-reported charges), `estimated_usd` (API-equivalent estimates from the
+  rate tables, never a charge) and `unknown_attempts` (stages with no amount, **not zero**).
+  `known_usd` is reported plus estimated; `total_usd` is set only when every model stage was
+  priced from a complete completion event with no accounting issue, otherwise it is `null` and
+  the text prints the known amount as a floor (`>=$x (incomplete)`).
+- `runs` counts runs as `complete`, `partial`, `unknown` (no amount at all), `no_model_attempts`
+  or `not_recorded` (an older row without accounting).
+- `completion_events` counts stages whose final usage event arrived (`complete`), was cut
+  (`truncated`), never arrived (`missing`) or is still `running`. `uncertain_attempts` counts
+  completed events whose row still records an accounting issue; they are not counted as covered.
+- `terminal_status` counts how each stage ended (`completed`, `failed`, `timed_out`,
+  `interrupted`, `rejected`, `running`, `unknown`), and `receipts` counts stages with request ids
+  `recorded`, `none_named` or `not_recorded` (older rows), and those with a `resolved_model`.
+- `by_run`, `by_stage` and `by_model` repeat these per run (with its workflow, outcome state,
+  plan size and elapsed time), per stage and per model.
+- `delivered` gives, per kind of run, the delivered (completed) runs, their cost and elapsed time
+  (median and p90) from the runs whose every model stage was priced, with the excluded runs
+  counted, and `usd_per_delivery`: everything the kind spent, failed runs included, divided by
+  its deliveries. That last figure is `null` while any run of the kind is not fully priced.
+- `matched_workloads` compares models that ran the same stage on runs of the same plan size,
+  with attempts, completed and priced attempts, cost per priced attempt and seconds per attempt.
+  The inputs are similar, not identical: it shows where to look, not which model is better.
+
+Runner-owned stages call no model and are left out. Like the quota report, this changes no route
+and grants no completion authority.
+
 ## How to interpret the numbers
 
 The scorer's `token_usage.estimated_api_equivalent_usd` uses the existing
@@ -272,7 +320,7 @@ effectiveness comparison have not yet been established by the accounting tests.
 ```sh
 .venv/bin/python -m unittest tests.test_cost_reporting tests.test_efficiency \
   tests.test_usage tests.test_autocode_request_usage tests.test_opencode tests.test_opencode_length \
-  tests.test_prices tests.test_cost tests.test_cost_cap -q
+  tests.test_prices tests.test_cost tests.test_cost_cap tests.test_cost_coverage -q
 ```
 
 These checks use synthetic provider events and local fixture executables. They

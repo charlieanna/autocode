@@ -198,6 +198,52 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         cut = {**record, "metrics": {**metrics, "provider_tokens_partial": True}}
         self.assertTrue(autocode_usage.accounting({"stages": [cut]})["attempts"][0]["unobserved_usage_possible"])
 
+    def test_the_terminal_row_names_each_provider_request_and_the_model_that_served_it(self):
+        """#4239: each API message id Claude Code reported, once, with the model the provider resolved."""
+        rows, _ = translate(sample(RUN))
+        receipts = [
+            {"id": "msg_011Cg1brq3R48ACjnBMXPCQj", "model": "claude-haiku-4-5-20251001"},
+            {"id": "msg_011Cg1bs3RYmqziV9TnJjc3d", "model": "claude-haiku-4-5-20251001"},
+        ]
+        self.assertEqual(receipts, rows[-1]["provider_requests"])
+        self.assertEqual(receipts, support.event_metrics(self.write(rows))["provider_receipts"])
+
+    def test_a_request_receipt_is_never_invented_or_read_as_the_failure(self):
+        """No message, no receipt; no model on the message, no model; a 429 in an id is no rate limit."""
+        bare, _ = translate([init(), result()])
+        self.assertNotIn("provider_requests", bare[-1])
+        self.assertIsNone(support.event_metrics(self.write(bare))["provider_receipts"])
+        unnamed, _ = translate([init(), tool_use("t1", "Read", {"file_path": "a"}), result()])
+        self.assertEqual([{"id": "msg_t1", "model": None}], unnamed[-1]["provider_requests"])
+        answer = {
+            "type": "assistant",
+            "message": {"id": "msg_429x", "model": "claude-sonnet-4-5", "content": [{"type": "text", "text": "Hi"}]},
+        }
+        failed, _ = translate(
+            [
+                init(),
+                answer,
+                api_error("server_error", "API Error"),
+                result(is_error=True, result="API Error", api_error_status=500),
+            ],
+            1,
+        )
+        self.assertEqual("turn.failed", failed[-1]["type"])
+        self.assertEqual([{"id": "msg_429x", "model": "claude-sonnet-4-5"}], failed[-1]["provider_requests"])
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(failed)))
+
+    def test_provider_receipts_merge_once_and_a_conflicting_model_stays_unknown(self):
+        first = {
+            "type": "turn.completed",
+            "provider_requests": [{"id": "a", "model": "m1"}, {"id": "b", "model": None}],
+        }
+        second = {
+            "type": "turn.failed",
+            "provider_requests": [{"id": "b", "model": "m2"}, {"id": "a", "model": "m3"}, {"id": "c"}, "junk", {}],
+        }
+        merged = autocode_event_metrics.summarize([first, second], None, None)["provider_receipts"]
+        self.assertEqual([{"id": "a", "model": None}, {"id": "b", "model": "m2"}, {"id": "c", "model": None}], merged)
+
     def test_cache_split_stays_unknown_unless_every_usage_row_reports_it(self):
         claude_row = {"input_tokens": 10, "cached_input_tokens": 4, "cache_write_tokens": 5, "fresh_input_tokens": 1}
         codex_row = {"input_tokens": 7, "cached_input_tokens": 2, "output_tokens": 1, "reasoning_output_tokens": 0}
