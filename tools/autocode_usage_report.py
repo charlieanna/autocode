@@ -24,12 +24,14 @@ try:
     from . import autocode_registry as registry
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
+    from . import autocode_route_scoreboard as scoreboard
 except ImportError:
     import autocode_cost_coverage as cost_coverage
     import autocode_quota_report as quota_report
     import autocode_registry as registry
     import autocode_rejection_classes as rejection_classes
     import autocode_roles as roles
+    import autocode_route_scoreboard as scoreboard
 
 SCHEMA = 1
 LEDGER = "usage.jsonl"
@@ -38,7 +40,7 @@ PROVENANCE_ORDER: tuple[str, ...] = ("live", "unknown", "mixed", "fake")
 PLAN_SIZE_ORDER: tuple[str, ...] = ("small", "medium", "large", "unrecorded")
 INTERACTION_EVENTS: tuple[str, ...] = ("first_question", "first_plan", "first_builder")
 OUTCOME_BUCKETS: tuple[str, ...] = ("accepted", "rejected", "report_repair")
-ACTIONS: tuple[str, ...] = ("list", "report", "quota")
+ACTIONS: tuple[str, ...] = ("list", "report", "quota", "scoreboard")
 
 _DEFAULT_TARGETS: dict[str, Any] = {
     "schema": 1,
@@ -1182,7 +1184,8 @@ def parser() -> argparse.ArgumentParser:
         prog="autocode usage",
         description=(
             "Read per-run usage ledgers (`list`), aggregate outcomes, rejections, latency and targets (`report`), "
-            "or show where each Claude and Codex plan pool's quota went (`quota`)."
+            "show where each Claude and Codex plan pool's quota went (`quota`), "
+            "or how each model did at each job on live, completed runs (`scoreboard`)."
         ),
     )
     result.add_argument(
@@ -1192,7 +1195,8 @@ def parser() -> argparse.ArgumentParser:
         default="list",
         help=(
             "What to show: per-run ledger lines (list, default), cross-run outcome and target tables (report), "
-            "or burn and waste per Claude and Codex plan pool (quota)"
+            "burn and waste per Claude and Codex plan pool (quota), "
+            "or first-time-right and sent-back counts per job, model and level on live, completed runs (scoreboard)"
         ),
     )
     result.add_argument(
@@ -1263,6 +1267,11 @@ def cli(argv: list[str] | None = None) -> int:
         rows = collect_rows(args.workspace, all_projects=args.all, since=since_date)
         quota = quota_report.build(rows, scope="all projects" if args.all else "workspace", since=args.since)
         print(json.dumps(quota, indent=2) if args.json else quota_report.format_text(quota))
+        return 0
+    if args.action == "scoreboard":
+        rows = collect_rows(args.workspace, all_projects=args.all, since=since_date)
+        board = scoreboard.build(rows, scope="all projects" if args.all else "workspace", since=args.since)
+        print(json.dumps(board, indent=2) if args.json else scoreboard.format_text(board))
         return 0
     if args.action == "list" and not args.all and args.since is None:
         project = args.workspace
