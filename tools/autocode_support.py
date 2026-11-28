@@ -102,13 +102,13 @@ def failure_status(path, *, record=None):
         # stage may already have partial work; retain its reconciliation/no-replay
         # authority while exit_message and job classification name the cause.
         return "PAUSED_AUTH" if record is None else "PAUSED_PROVIDER_UNCERTAIN"
-    # A failed turn's accounting (its token counts, cost and cost state) is never its error:
-    # they can contain 429 (a total, a clock, a session id).
+    # A failed turn's accounting (its token counts, cost, cost state and request receipts) is never
+    # its error: they can contain 429 (a total, a clock, a session or message id).
     said = [
         {
             key: value
             for key, value in e.items()
-            if key not in ("usage", "first_request_usage", "cost_usd", "cost_state")
+            if key not in ("usage", "first_request_usage", "cost_usd", "cost_state", "provider_requests")
         }
         for e in failures
     ]
