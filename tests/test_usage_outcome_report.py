@@ -19,6 +19,7 @@ import autocode_rejection_classes as rejection_classes
 import autocode_usage as usage
 import autocode_usage_outcomes as usage_outcomes
 import autocode_usage_report as usage_report
+from autocode_taskrun import TaskRun
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
@@ -283,6 +284,92 @@ class UsageOutcomesProjectionTests(unittest.TestCase):
     def setUp(self):
         usage._written.clear()
 
+    def test_requirements_first_pass_keeps_the_first_outcome_and_route_after_repairs_and_later_rounds(self):
+        first = {
+            "stage": "requirements_gather",
+            "provider": "claude",
+            "model": "claude-sonnet-4-6",
+            "reasoning_effort": "high",
+            "duration_seconds": 12.0,
+        }
+        repair = {
+            **first,
+            "stage": "requirements_gather_report_repair",
+            "original_stage": "requirements_gather",
+            "report_only": True,
+            "model": "repair-model",
+            "duration_seconds": 3.0,
+        }
+        for failure in (
+            {},
+            {"stage": "requirements", "rejected": True},
+            {"rejected": True},
+            {"timed_out": True},
+            {"exit_code": 1},
+            {"interrupted": True},
+            {"abandoned": True},
+        ):
+            with self.subTest(failure=failure):
+                records = [
+                    {"stage": "model_preflight", "engine": "runner", "runner_owned": True},
+                    {**first, **failure},
+                    repair,
+                    {**first, "model": "later-round", "rejected": not bool(failure)},
+                ]
+                fields = usage_outcomes.ledger_fields(
+                    {"stages": records},
+                    records=records,
+                    priced_rows=[],
+                    has_running_stage=False,
+                    has_pending_workers=False,
+                    model_of=usage._model,
+                )
+                self.assertEqual(
+                    {
+                        "accepted": not bool(failure),
+                        "route": {"provider": "claude", "model": "claude-sonnet-4-6", "level": "high"},
+                    },
+                    fields["requirements_first_pass"],
+                )
+
+    def test_requirements_first_pass_is_unknown_without_an_original_settled_attempt(self):
+        repair = {"stage": "requirements_gather_report_repair", "report_only": True, "duration_seconds": 4.0}
+        later = {"stage": "requirements_gather", "duration_seconds": 5.0}
+        for records in ([], [repair, later]):
+            with self.subTest(records=records):
+                fields = usage_outcomes.ledger_fields(
+                    {"stages": records, "active_stage": {"stage": "requirements_gather"}},
+                    records=records,
+                    priced_rows=[],
+                    has_running_stage=True,
+                    has_pending_workers=False,
+                    model_of=usage._model,
+                )
+                self.assertIsNone(fields["requirements_first_pass"])
+
+    def test_a_finished_requirements_launch_is_not_accepted_before_admission(self):
+        record = {
+            "stage": "requirements_gather",
+            "finished_at": "2026-11-14T12:00:17+00:00",
+            "duration_seconds": 12.0,
+            "exit_code": 0,
+        }
+        preflight = {**record, "preflight_complete": False}
+        for state, observed in (
+            ({"stages": [], "active_stage": record}, record),
+            ({"stages": [preflight]}, preflight),
+        ):
+            with self.subTest(state=state):
+                fields = usage_outcomes.ledger_fields(
+                    state,
+                    records=[observed],
+                    priced_rows=[],
+                    has_running_stage=False,
+                    has_pending_workers=False,
+                    model_of=usage._model,
+                )
+                self.assertIsNone(fields["requirements_first_pass"])
+
     def test_record_projects_additive_privacy_safe_fields_and_keeps_summary_intact(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "repo"
@@ -504,6 +591,78 @@ class UsageOutcomesProjectionTests(unittest.TestCase):
 
 
 class OutcomeReportAggregationTests(unittest.TestCase):
+    def test_requirements_acceptance_and_repair_time_use_recorded_denominators_and_separate_provenances(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            ledger = project / ".autocode" / "usage.jsonl"
+            ledger.parent.mkdir()
+            route = {"provider": "claude", "model": "claude-sonnet-4-6", "level": "high"}
+            other_route = {"provider": "codex", "model": "gpt-5.4", "level": "medium"}
+            rows = []
+            for run, accepted, seconds, complete in (
+                ("accepted", True, 0.0, True),
+                ("repaired", False, 7.5, True),
+                ("legacy", None, 10.0, False),
+                ("fake", True, 100.0, True),
+            ):
+                row = _make_live_row(run, provenance="fake" if run == "fake" else "live")
+                if accepted is not None:
+                    row["requirements_first_pass"] = {
+                        "accepted": accepted,
+                        "route": other_route if run == "accepted" else route,
+                    }
+                row["outcomes"]["by_job"]["Requirements"] = {
+                    "report_repair": {"attempts": 2 if seconds else 0, "seconds": seconds, "complete": complete}
+                }
+                rows.append(row)
+            rows.append({"run": "unmeasured", "evidence_provenance": "live"})
+            ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+            payload = usage_report.build_report(project)
+            requirements = payload["by_provenance"]["live"]["requirements"]
+            self.assertEqual(
+                {
+                    "accepted_runs": 1,
+                    "rejected_runs": 1,
+                    "not_recorded_runs": 2,
+                    "acceptance_rate": 0.5,
+                    "by_route": [
+                        {"route": route, "accepted_runs": 0, "rejected_runs": 1, "acceptance_rate": 0.0},
+                        {"route": other_route, "accepted_runs": 1, "rejected_runs": 0, "acceptance_rate": 1.0},
+                    ],
+                },
+                requirements["first_pass"],
+            )
+            self.assertEqual(
+                {"attempts": 4, "seconds": 17.5, "complete": False, "recorded_runs": 3, "not_recorded_runs": 1},
+                requirements["report_repair"],
+            )
+            fake = payload["by_provenance"]["fake"]["requirements"]
+            self.assertEqual(1.0, fake["first_pass"]["acceptance_rate"])
+            self.assertEqual(100.0, fake["report_repair"]["seconds"])
+            text = usage_report.format_report(payload)
+            self.assertIn("Requirements first pass: 1/2 accepted (50.0%); not recorded=2", text)
+            self.assertIn("claude:claude-sonnet-4-6@high: 0/1 accepted (0.0%)", text)
+            self.assertIn("codex:gpt-5.4@medium: 1/1 accepted (100.0%)", text)
+            self.assertIn("Requirements report repair: 4 attempts, >=17.5s (incomplete); not recorded=1", text)
+
+    def test_requirements_without_observations_do_not_report_perfect_acceptance_or_zero_repair_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            ledger = project / ".autocode" / "usage.jsonl"
+            ledger.parent.mkdir()
+            ledger.write_text(json.dumps({"run": "legacy", "evidence_provenance": "live"}) + "\n")
+            payload = usage_report.build_report(project)
+            requirements = payload["by_provenance"]["live"]["requirements"]
+            self.assertIsNone(requirements["first_pass"]["acceptance_rate"])
+            self.assertEqual([], requirements["first_pass"]["by_route"])
+            self.assertFalse(requirements["report_repair"]["complete"])
+            self.assertEqual(0, requirements["report_repair"]["recorded_runs"])
+            self.assertIn(
+                "Requirements report repair: 0 attempts, not recorded; not recorded=1",
+                usage_report.format_report(payload),
+            )
+
     def test_reproduces_2026_11_11_baseline_separates_provenances_and_counts_legacy_not_recorded(self):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "project"
@@ -796,18 +955,38 @@ class UsageReportCliEndToEndTests(unittest.TestCase):
 
             bindir = root / "bin"
             bindir.mkdir()
-            shutil.copy2(TOOLS / "fake_codex.py", bindir / "codex")
+            base = bindir / "base_codex.py"
+            shutil.copy2(TOOLS / "fake_codex.py", base)
             shutil.copy2(TOOLS / "goal_fixtures.py", bindir / "goal_fixtures.py")
+            (bindir / "codex").write_text(f"""#!{sys.executable}
+import json, subprocess, sys
+from pathlib import Path
+if sys.argv[1:] == ['login', 'status']:
+    print('Logged in using ChatGPT (offline fixture)')
+    raise SystemExit(0)
+prompt = sys.stdin.read()
+data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])
+result = subprocess.run([sys.executable, {str(base)!r}, *sys.argv[1:]],
+                        input=prompt, text=True, capture_output=True, check=True)
+output = Path(sys.argv[sys.argv.index('-o') + 1])
+report = json.loads(output.read_text())
+report['assistant_reply'] = 'Should the greeting be a CLI or web endpoint?'
+if data.get('report_repair'):
+    assert 'summary' in data['error'], data['error']
+    report['summary'] = 'Repaired fixture report'
+output.write_text(json.dumps(report))
+print(result.stdout, end='')
+""")
             (bindir / "codex").chmod(0o755)
 
             env = {
                 **os.environ,
-                "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+                "PATH": f"{bindir}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
                 "AUTOCODE_HOME": str(root / "registry"),
                 "XDG_CONFIG_HOME": str(root / "config"),
                 "CODEX_HOME": str(root / "codex-home"),
                 "AUTOCODE_FIXTURE_MODE": "no-human",
-                "AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE": "draft_plan",
+                "AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE": "requirements_gather",
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
             run_proc = subprocess.run(
@@ -820,6 +999,11 @@ class UsageReportCliEndToEndTests(unittest.TestCase):
                     "fake",
                     "--engine",
                     "codex",
+                    "--joint-planning",
+                    "--spec-first",
+                    "--in-place",
+                    "--max-cost-usd",
+                    "0",
                 ],
                 cwd=workspace,
                 env=env,
@@ -835,6 +1019,14 @@ class UsageReportCliEndToEndTests(unittest.TestCase):
                 *(workspace / ".autocode" / "worktrees").glob("*/.autocode/runs/*/state.json"),
             ]
             self.assertTrue(state_files)
+            view = TaskRun(
+                workspace,
+                state_files[0].parent,
+                command=(sys.executable, str(AUTOCODE)),
+                env=env,
+                cwd=workspace,
+            ).status()
+            self.assertEqual("answer", view["needs"]["kind"], view)
             for state_file in state_files:
                 state_file.write_text("CORRUPT_STATE_JSON_MUST_NOT_BE_READ", encoding="utf-8")
 
@@ -855,6 +1047,13 @@ class UsageReportCliEndToEndTests(unittest.TestCase):
             self.assertGreaterEqual(buckets["report_repair"]["launches"], 1)
             seen_classes = {item["class"] for item in fake_cohort["rejections"]["by_class"]}
             self.assertIn("schema", seen_classes)
+            requirements = fake_cohort["requirements"]
+            self.assertEqual(0, requirements["first_pass"]["accepted_runs"])
+            self.assertEqual(1, requirements["first_pass"]["rejected_runs"])
+            self.assertEqual(0.0, requirements["first_pass"]["acceptance_rate"])
+            self.assertEqual(1, requirements["report_repair"]["attempts"], run_proc.stdout + "\n" + run_proc.stderr)
+            self.assertGreater(requirements["report_repair"]["seconds"], 0.0)
+            self.assertTrue(requirements["report_repair"]["complete"])
 
             report_text = subprocess.run(
                 [sys.executable, str(AUTOCODE), "usage", "report", "--workspace", str(workspace)],

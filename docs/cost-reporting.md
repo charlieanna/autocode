@@ -53,6 +53,30 @@ workers' spend is not yet in the parent's row; it appears when the batch is acco
 not wait for that: it compares the whole run's spend, the running workers' included
 ([Money cap](execution.md#money-cap)).
 
+### Requirements acceptance and repairs
+
+`autocode usage report` shows how often the first Requirements attempt in each run was
+accepted, overall and by its provider/model/reasoning route. The ledger records this as
+`requirements_first_pass`; the report exposes it under each provenance cohort's
+`requirements.first_pass`, with accepted/rejected run counts, `acceptance_rate` and
+`not_recorded_runs`. A timeout or rejected answer counts as a failed first attempt even
+when a later repair succeeds. Later interview rounds do not change that first result.
+A still-running or not-yet-admitted attempt, a repair without its original attempt, and
+older ledgers without this observation do not enter the acceptance denominator.
+
+`requirements.report_repair` reuses the ledger's existing Requirements repair bucket:
+all report-only attempts, successful or rejected, and their summed recorded stage seconds.
+This is model-stage time, not time waiting for the person or end-to-end repair latency.
+Older ledgers can still supply repair time even when first-pass acceptance is unknown.
+Missing timing is marked incomplete (the displayed seconds are a lower bound); missing
+records are counted explicitly, never interpreted as zero-time repairs. Fake and live
+runs remain separate, and route comparisons do not control routing or acceptance gates.
+
+Requirements reports still pass schema and read-authenticated citation checks before
+acceptance. When a compound shell call fails after printing file contents, verified
+whole-file text, excerpts or numbered matches remain usable evidence for report repair;
+error messages that merely name a file do not count as reads (#4236).
+
 ### Current prices and the money cap
 
 `tools/autocode_prices.json` is the dated price table: per model, the input, output and (where

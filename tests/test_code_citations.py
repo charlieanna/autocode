@@ -114,6 +114,88 @@ class CodeCitationTests(Workspace):
         self.record([codex_command("x2", command, shown, code=1)])
         self.assertEqual(frozenset({"app.py", "pkg/util.py"}), citations.read_paths(self.state, "requirements_gather"))
 
+    def test_a_compound_command_whose_later_part_failed_keeps_the_file_text_it_printed(self):
+        # #4236: `sed -n 1,80p FILE; rg PATTERN DIR` exited 1 because the search found nothing, so the excerpt
+        # printed before it was refused as unread and the report repair reused the same unusable citations.
+        body = [f"line_{number} = {number}" for number in range(1, 11)]
+        (self.workspace / "pkg" / "big.py").write_text("\n".join(body) + "\n")
+        excerpt = "\n".join(body[:5]) + "\n"
+        numbered = "".join(f"{number:6}\t{body[number - 1]}\n" for number in range(3, 7))
+        shown = {
+            "codex": [codex_command("x1", "sed -n '1,5p' pkg/big.py; rg -n missing_name docs", excerpt, code=1)],
+            "claude": [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "c1",
+                        "type": "command_execution",
+                        "command": "head -n 5 pkg/big.py && grep -rn missing_name docs",
+                        "exit_code": None,
+                        "exit_code_unknown": "error without an exit code",
+                        "aggregated_output": excerpt,
+                        "status": "failed",
+                    },
+                }
+            ],
+            "opencode numbered": [
+                opencode_tool(
+                    "o1",
+                    "bash",
+                    output=numbered + "grep: docs: No such file or directory\n",
+                    metadata={"exit": 2},
+                    command="nl -ba pkg/big.py | sed -n '3,6p'; grep -rn missing_name docs",
+                )
+            ],
+            "single-file search": [codex_command("x2", "rg -n line_7 pkg/big.py; false", "7:line_7 = 7\n", code=1)],
+            "search hits": [
+                codex_command(
+                    "x3", "rg -n helper pkg; rg -n missing_name docs", "pkg/util.py:1:def helper():\n", code=1
+                )
+            ],
+        }
+        expected = {
+            "codex": {"pkg/big.py"},
+            "claude": {"pkg/big.py"},
+            "opencode numbered": {"pkg/big.py"},
+            "single-file search": {"pkg/big.py"},
+            "search hits": {"pkg/util.py"},
+        }
+        for case, rows in shown.items():
+            with self.subTest(case=case):
+                self.state["stages"].clear()
+                self.record(rows)
+                self.assertEqual(frozenset(expected[case]), citations.read_paths(self.state, "requirements_gather"))
+
+    def test_a_failed_command_naming_a_file_only_in_errors_is_not_a_read(self):
+        body = [f"line_{number} = {number}" for number in range(1, 11)]
+        (self.workspace / "pkg" / "big.py").write_text("\n".join(body) + "\n")
+        for command, output in (
+            ("python pkg/big.py", 'Traceback:\n  File "pkg/big.py", line 4\nline_4 = 4\nNameError\n'),
+            ("python pkg/big.py", "line_1 = 1\nline_2 = 2\nboom\n"),
+            ("mypy pkg/big.py", "pkg/big.py:4: error: line_4 = 4\n"),
+            ("rg -n line_4 pkg/big.py; false", "9:line_4 = 4\n"),
+            ("cat -n pkg/big.py; false", "     5\tline_4 = 4\n"),
+            ("sed -n 2,4p pkg/big.py; false", "line_2 = 2\nline_4 = 4\nline_3 = 3\n"),
+        ):
+            with self.subTest(command=command, output=output):
+                self.state["stages"].clear()
+                self.record([codex_command("x", command, output, code=1)])
+                self.assertEqual(frozenset(), citations.read_paths(self.state, "requirements_gather"))
+
+    def test_a_report_repair_may_cite_the_excerpt_a_failed_compound_command_printed(self):
+        body = [f"line_{number} = {number}" for number in range(1, 11)]
+        (self.workspace / "pkg" / "big.py").write_text("\n".join(body) + "\n")
+        excerpt = "\n".join(body[:5]) + "\n"
+        self.record(
+            [codex_command("x", "sed -n '1,5p' pkg/big.py; rg -n missing_name docs", excerpt, code=1)],
+            rejected=True,
+        )
+        self.record([], stage="requirements_gather_report_repair", report_only=True)
+        citations.require(
+            self.state, ["pkg/big.py:2-4"], "source_refs", planning_unit=autoplanner, stage="requirements_gather"
+        )
+        self.assertIsNone(citations.verify_citation(self.state, "requirements_gather", "pkg/big.py:3"))
+
     def test_reads_come_from_the_stage_its_repairs_and_the_current_turn_only(self):
         self.record([codex_command("x", "cat notes.txt", "notes\n")])  # an earlier turn
         self.state["turns"] = [{"stage_index": 1}]

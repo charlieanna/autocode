@@ -487,6 +487,9 @@ def ledger_fields(
     by_job: dict[str, dict[str, dict[str, Any]]] = {}
     rejections: list[dict[str, Any]] = []
     stage_prompts: list[dict[str, Any]] = []
+    requirements_job = roles.screen_name("requirements_gather", state)
+    requirements_seen = False
+    requirements_first_pass: dict[str, Any] | None = None
     model_calls = 0
     missing_duration = False
 
@@ -531,6 +534,15 @@ def ledger_fields(
             )
 
         if not _is_runner_owned(record):
+            if job == requirements_job and not requirements_seen:
+                requirements_seen = True
+                # A repair without its original attempt cannot establish first-pass acceptance.
+                if (
+                    not is_repair
+                    and record.get("preflight_complete") is not False
+                    and (is_failed or any(saved is record for saved in state.get("stages") or ()))
+                ):
+                    requirements_first_pass = {"accepted": not is_failed, "route": route}
             model_calls += 1
             cache_read, cache_write = _first_request_cache(record)
             stage_prompts.append(
@@ -592,6 +604,7 @@ def ledger_fields(
             "by_job": by_job,
         },
         "rejections": rejections,
+        "requirements_first_pass": requirements_first_pass,
         "first_interaction": first_interaction,
         "stage_prompts": stage_prompts,
     }
