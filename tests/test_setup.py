@@ -386,8 +386,22 @@ class SetupTests(unittest.TestCase):
         # With Gemini CLI signed in, a Claude Code run's checks move there (autocode_second_vendor), and setup says so.
         gemini_in = row("gemini", "Gemini CLI", "credentials_present")
         shown = setup.text([CLAUDE_IN, gemini_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
-        self.assertIn("Gemini CLI is signed in too, so it checks the work of new runs on Claude Code", shown)
+        self.assertIn(
+            "Gemini CLI is signed in too, so it checks the work of new runs on Claude Code (Tester); the Plan Reviewer "
+            "and Completion Reviewer stay on Claude Code until your account lists a Gemini CLI model for it as new as "
+            "the one Gemini CLI builds with; a stage you choose a model for keeps it",
+            shown,
+        )
         self.assertNotIn("own models check each other's work", shown)
+        # The stages are the ones a launch would move: an account that lists a newer Pro has every check moved.
+        asked = []
+        shown = setup.text(
+            [CLAUDE_IN, gemini_in],
+            {"id": "claude", "label": "Claude Code", "reason": "connected"},
+            lambda name: asked.append(name) or ["gemini-2.5-pro", "gemini-3.5-pro"],
+        )
+        self.assertIn("new runs on Claude Code (Plan Reviewer, Tester, Completion Reviewer); a stage", shown)
+        self.assertEqual(["gemini"], asked)
         # Claude Code and Codex check each other: a Codex run's Tester and Completion Reviewer move to a signed-in
         # Claude Code (it has no Plan Reviewer unless it plans jointly), and a Claude Code run's checks to Codex.
         codex = setup.text([CLAUDE_IN, codex_in], {"id": "codex", "label": "Codex", "reason": "connected"})
@@ -397,6 +411,18 @@ class SetupTests(unittest.TestCase):
         )
         claude = setup.text([CLAUDE_IN, codex_in], {"id": "claude", "label": "Claude Code", "reason": "connected"})
         self.assertIn("Codex is signed in too, so it checks the work of new runs on Claude Code (Plan Reviewer", claude)
+
+    def test_setup_reads_an_account_listing_only_for_a_tool_whose_checking_model_follows_it(self):
+        listing = mock.Mock(return_value={"gemini-3.5-pro", "auto"})
+        follows = mock.Mock(checker_models=lambda listed: {}, available_models=listing)
+        fixed = mock.Mock(spec=["DEFAULT_MODELS", "available_models"])
+        with mock.patch.object(setup.providers, "resolve", side_effect={"gemini": follows, "claude": fixed}.get):
+            self.assertEqual(["auto", "gemini-3.5-pro"], setup.account_models("gemini"))
+            self.assertIsNone(setup.account_models("claude"))
+            fixed.available_models.assert_not_called()
+            # A listing that cannot be read leaves the tool's own catalogue to be read.
+            listing.side_effect = RuntimeError("cannot list Gemini models")
+            self.assertIsNone(setup.account_models("gemini"))
 
     def test_invalid_numeric_hub_choices_return_without_installing(self):
         found = [

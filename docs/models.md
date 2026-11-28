@@ -190,11 +190,16 @@ are three ways to get that:
   Code, Codex or Gemini CLI with another of the three also signed in runs its Plan
   Reviewer, Tester and Completion Reviewer on the other tool, with that tool's default
   model for each (Opus and Sonnet on Claude Code; `gpt-6-astra` and `gpt-5.6-sol` on Codex;
-  `gemini-2.5-pro` on Gemini CLI). A Claude Code run takes Gemini CLI, then Codex; a Gemini
+  on Gemini CLI the newest Pro your Google account lists, `gemini-2.5-pro` when it lists no
+  newer one). A second tool never takes a final review with a model older than the one it
+  builds with itself: while your account's newest Pro is behind Gemini CLI's own
+  `gemini-3.5-flash`, only the Tester moves to it, and the Plan Reviewer and Completion
+  Reviewer stay on the run's own tool (the run's one line and its `second_vendor` setting say
+  so, as `own`). A Claude Code run takes Gemini CLI, then Codex; a Gemini
   CLI run takes Claude Code, then Codex; a Codex run takes Claude Code, then Gemini CLI. Codex
   checks through its bundled [provider config](providers.md#codex-for-one-role), so it needs
   a ChatGPT login and Codex CLI 0.160.0 or newer. The run says so
-  in one line when it starts (`Checks by a second vendor: Gemini CLI runs the Plan Reviewer
+  in one line when it starts (`Checks by a second vendor: Gemini CLI runs the Tester
   (gemini-2.5-pro), …`) and keeps the decision in its settings (`second_vendor`: the tool,
   the stages it took and why). A stage you chose a model for (a `--ROLE-model` or
   `--ROLE-provider` flag, or a saved [stage choice](#choosing-each-stages-model)) keeps it,

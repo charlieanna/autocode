@@ -91,6 +91,9 @@ DEFAULT_MODELS = {
     "task_planner": PRO,
 }
 DEFAULT_REASONING_EFFORTS = {role: "" for role in DEFAULT_MODELS}
+# The roles that check work, and the ids that name a Pro (a preview of one included; never a variant such as -tts).
+CHECKING_ROLES = ("plan_reviewer", "tester", "completion")
+_PRO_ID = re.compile(r"gemini-\d+(?:\.\d+)*-pro(?:-preview[\w.-]*)?")
 # No stronger Builder attempt: the default catalogue has no model above Pro to give it and still leave Pro to check it.
 BUILDER_RETRY = None
 EFFORTS: tuple[str, ...] = ()
@@ -356,6 +359,33 @@ def available_models(workspace=None, *, env=None) -> set[str]:
     except RuntimeError:
         listed = []
     return set(listed or LISTED_MODELS)
+
+
+def generation(model) -> tuple[int, ...] | None:
+    """The generation a Gemini model's id names (``gemini-2.5-pro`` is (2, 5)), or None when it names none."""
+    found = re.match(r"gemini-(\d+(?:\.\d+)*)-", model if isinstance(model, str) else "")
+    return tuple(int(part) for part in found.group(1).split(".")) if found else None
+
+
+def checker_models(listed=None) -> dict[str, str]:
+    """The model each checking role runs on an account that lists ``listed``: the newest Pro it offers.
+
+    The catalogue's own Pro is a fixed name, and an account may list a newer one (a subscription's preview
+    models). A released Pro is taken before a preview of the same generation, and never one older than the
+    catalogue's. Without a listing this is the catalogue's Pro, as ``DEFAULT_MODELS`` gives it.
+    """
+    pros = [model for model in listed or () if isinstance(model, str) and _PRO_ID.fullmatch(model)]
+    newest = max([PRO, *pros], key=lambda model: (generation(model) or (), "-preview" not in model))
+    return dict.fromkeys(CHECKING_ROLES, newest)
+
+
+def older_than_builder(model) -> bool:
+    """Whether ``model`` is an older generation than the model this tool builds with by default.
+
+    Such a checker is behind the catalogue's own drafting model (2.5 Pro beside 3.5 Flash), so it must not
+    replace another tool's reviewer (autocode_second_vendor)."""
+    mine, builder = generation(model), generation(DEFAULT_MODELS["builder"])
+    return mine is not None and builder is not None and mine < builder
 
 
 def list_models(workspace=None, *, env=None) -> list[str]:

@@ -15,7 +15,12 @@ run's evidence and its report show it. It is decided, never asked:
   ``--role-transport``, ``--single-model`` or a replay;
 - the second tool must pass its own sign-in check (no model call); when it is installed but cannot
   sign in, one line says why and the run keeps its own vendor for every stage;
-- each moved stage takes the second tool's own default model for it.
+- each moved stage takes the second tool's own default model for it, or, where the tool reads its account's
+  listing (``checker_models``), the newest checking model that account offers;
+- a second tool never replaces a final review with an older model than its own tool builds with: when its
+  checking model is behind its own drafting model (``older_than_builder``: Gemini's 2.5 Pro beside its 3.5
+  Flash), the Plan Reviewer and the Completion Reviewer stay on the run's own tool and only the Tester moves.
+  ``taken`` is that one answer; the launch and ``autocode setup`` both read it.
 
 The hook for another tool: a CONFIGURED provider facade that ``--role-transport`` accepts, with
 ``DEFAULT_MODELS`` for the checking roles, added to ``SECOND_VENDORS`` under the run tools it may check.
@@ -49,6 +54,8 @@ SECOND_VENDORS: dict[str, tuple[tuple[str, str], ...]] = {
     "codex": (("claude", "claude"), ("gemini", "gemini")),
 }
 LABELS = {"plan_reviewer": "Plan Reviewer", "tester": "Tester", "completion": "Completion Reviewer"}
+# The reviews that approve a plan and a finished task. An older model never takes one from the run's own tool.
+FINAL_REVIEWS = ("plan_reviewer", "completion")
 # ``off`` keeps every run on its own tool on this host. The test suites set it (tests/__init__.py, the scenario
 # driver's fake runs): their fixture tools stand in for the run's own tool, and a real Claude Code, Codex or
 # Gemini CLI signed in on the developer's machine must never be handed a fixture run's checks.
@@ -68,6 +75,23 @@ def kept_roles(args, stage_choices_taken=()) -> list[str]:
     return kept
 
 
+def taken(facade, moving, listed=None) -> tuple[dict[str, str], dict[str, str]]:
+    """The model of each of ``moving`` that ``facade`` takes on an account listing ``listed``, and those it leaves.
+
+    A role is left on the run's own tool, with the model that was refused it, when it is a final review and the
+    tool's model for it is older than the model that tool builds with: a weaker reviewer must not replace a
+    stronger one. A tool without the two hooks takes every role with its default model, as before.
+    """
+    models = dict(facade.DEFAULT_MODELS)
+    newest = getattr(facade, "checker_models", None)
+    if callable(newest):
+        models.update(newest(listed))
+    roles = {role: models[role] for role in moving if models.get(role)}
+    older = getattr(facade, "older_than_builder", None)
+    left = {role: roles[role] for role in roles if role in FINAL_REVIEWS and callable(older) and older(roles[role])}
+    return {role: model for role, model in roles.items() if role not in left}, left
+
+
 def decide(
     args,
     run_tool: str | None,
@@ -80,9 +104,11 @@ def decide(
 ) -> dict | None:
     """What a new run on ``run_tool`` moves to a second vendor, or None to keep every stage on its own.
 
-    Returns ``{"provider", "label", "roles": {role: model}, "kept", "reason"}`` for the first installed tool
-    that signs in, or ``{"provider", "label", "roles": {}, "unavailable": reason}`` for the first installed
-    one whose sign-in check failed when none signs in. Launches no model.
+    Returns ``{"provider", "label", "roles": {role: model}, "kept", "own", "reason"}`` for the first installed
+    tool that signs in and takes a stage (``own``: the final reviews left on the run's tool because the second
+    tool's model for them is older than its own builder's), or ``{"provider", "label", "roles": {},
+    "unavailable": reason}`` for the first installed one whose sign-in check failed when none signs in.
+    Launches no model.
     """
     candidates = SECOND_VENDORS.get(run_tool or "")
     if not candidates or getattr(args, "role_transport", None):
@@ -107,19 +133,23 @@ def decide(
         if not roles:
             continue
         try:
-            signed_in(facade, roles, workspace)
+            account = signed_in(facade, roles, workspace)
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             reason = str(error).splitlines()[0] if str(error) else type(error).__name__
             unavailable = unavailable or {"provider": name, "label": label, "roles": {}, "unavailable": reason}
             continue
+        roles, left = taken(facade, moving, account.get("models"))
+        if not roles:
+            continue
         own = getattr(resolve(run_tool), "LABEL", run_tool)
-        return {
-            "provider": name,
-            "label": label,
-            "roles": roles,
-            "kept": kept,
-            "reason": f"{label} is signed in, so a second vendor checks what {own} plans and builds",
-        }
+        reason = f"{label} is signed in, so a second vendor checks what {own} plans and builds"
+        if left:
+            stays = " and ".join(LABELS[role] for role in left)
+            reason += (
+                f"; the {stays} {'stay' if len(left) > 1 else 'stays'} on {own}, because "
+                f"{' and '.join(sorted(set(left.values())))} is older than the model {label} builds with"
+            )
+        return {"provider": name, "label": label, "roles": roles, "kept": kept, "own": list(left), "reason": reason}
     return unavailable
 
 
@@ -128,18 +158,20 @@ def joint(args) -> bool:
     return bool(getattr(args, "joint_planning", False) or getattr(args, "single_model", None))
 
 
-def signed_in(facade, roles, workspace) -> None:
-    """Raise unless ``facade`` can run ``roles`` here; no model call.
+def signed_in(facade, roles, workspace) -> dict:
+    """Raise unless ``facade`` can run ``roles`` here; no model call. Returns what its sign-in check reported.
 
-    A built-in tool has its own ``login_check``. A provider config is checked as ``--role-transport`` checks
-    it before a launch: its executable and version (``local_settings``) and the billing route of each model.
+    A built-in tool has its own ``login_check``, which may report the account's ``models``. A provider config
+    is checked as ``--role-transport`` checks it before a launch: its executable and version
+    (``local_settings``) and the billing route of each model.
     """
     check = getattr(facade, "login_check", None)
     if callable(check):
-        check(workspace)
-        return
+        account = check(workspace)
+        return account if isinstance(account, dict) else {}
     facade.local_settings(workspace)
     facade.check_subscription_routes({role: {"model": model} for role, model in roles.items()}, workspace)
+    return {}
 
 
 def apply(args, run_tool, *, stage_choices_taken=(), workspace=None, say=None, **checks) -> dict | None:

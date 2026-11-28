@@ -21,6 +21,8 @@ Knobs:
                                     listing models (a Workspace account without GOOGLE_CLOUD_PROJECT, an
                                     expired sign-in)
   AUTOCODE_FIXTURE_GEMINI_FENCE     the stage whose report comes in a ```json fence
+  AUTOCODE_FIXTURE_GEMINI_MODELS    further model ids the account lists, comma-separated (a subscription's
+                                    newer Pro)
 """
 
 import json
@@ -33,7 +35,9 @@ import uuid
 from pathlib import Path
 
 ARGS = sys.argv[1:]
-MODELS = ("auto", "gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite")
+# AUTOCODE_FIXTURE_GEMINI_MODELS adds models the account lists, comma-separated (a newer Pro, say).
+LISTED = tuple(name for name in os.environ.get("AUTOCODE_FIXTURE_GEMINI_MODELS", "").split(",") if name)
+MODELS: tuple[str, ...] = ("auto", "gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite", *LISTED)
 REFRESH = {
     "workspace": (
         "Failed to refresh auth for models list, falling back to default catalog: ProjectIdRequiredError: "
