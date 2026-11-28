@@ -50,7 +50,8 @@ duplicate or invalid input, which error, message or exit status the user sees, w
 callers, flags or saved data keep doing, the exact output shape. Ask every fork you found in
 this one round (at most five questions), never one per round. Each such question says in why
 which fork it is (what you read, and what each choice changes for the user), offers two to four
-concrete options, and sets proposed_default to the option you recommend. Write each option as what
+concrete options (as many as there are real choices, never padded), and sets proposed_default to the
+option you recommend. Write each option as what
 the user would see on one concrete input: the line printed, the message posted, which request is
 refused ("Exactly 30x24 hours: an order delivered at 23:00 on March 1 is refused at 20:00 on March
 31"), so the user chooses between outcomes, not abstract labels. In the same round, ask what only the
@@ -58,6 +59,13 @@ user can settle and nothing you read does: the language or platform for new code
 repository, the shape of external data the change reads or receives (a log document, a webhook
 body; offer to take a pasted sample instead of an answer), and whether parts outside the
 repository (configuring another service) are part of the work.
+A NAMED MEANS FOR A STATED GOAL is a fork. When the request names a technology, library or mechanism
+together with the goal it serves ("use sqlite instead of the json file so it is faster", "add Redis
+so pages load quicker"), ask once, in this round, whether that means is required or the goal is what
+matters, with options that show each outcome ("Use SQLite: todos move from todos.json into
+todos.db" against "Make it faster: keep todos.json and speed up what is slow"), and recommend the one
+the request and the code you read support. Do not ask it when the person named the means with no
+goal ("store todos in sqlite"), or when they already said it is required.
 Never park a fork in proposed_assumptions: the person answers it, or the brief, a saved answer or
 a convention in code you read settles it. A behavior the brief or an answer already fixes is a
 requirements row with its source_quote, not an assumption.
@@ -70,7 +78,8 @@ that the whole request is understood.
 Ask the person only about their intent and genuine requirements ambiguity, never about
 internal machinery or implementation decisions AutoCode can settle itself: tests, test
 commands, regression proofs, file layout, libraries and other engineering choices are yours,
-taken from the code you read.
+taken from the code you read. A technology the person named is not one of yours: keep it, or ask
+about it as A NAMED MEANS FOR A STATED GOAL above.
 AMBIGUITY AUDIT. In ambiguity_audit, say for each dimension where its behavior comes from:
 outcome_scope (what is in and out of the change), inputs_and_edge_cases (empty, duplicate,
 invalid and boundary inputs), error_and_failure_behavior (what the user sees when it fails),
@@ -192,7 +201,8 @@ suggested replacement in proposed_reframes (requirement_id, proposal, question_i
 with an explicit acceptance question in open_questions. Otherwise use proposed_reframes=[].
 Distinguish the desired outcome from implementation instructions. Preserve explicitly
 requested technology (for example Redis and three workers); if it appears to be a
-suggested solution to a performance goal, ask whether it is mandatory or negotiable.
+suggested solution to a performance goal, ask whether it is mandatory or negotiable
+(A NAMED MEANS FOR A STATED GOAL, with the question rules above).
 Do not silently discard it or assume it is the only way to achieve the outcome.
 A later explicit correction can supersede an earlier statement: cite the saved event
 and ask only about what remains ambiguous. Do not ask the user to repeat a clear correction.
