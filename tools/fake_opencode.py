@@ -76,13 +76,43 @@ agent = sys.argv[sys.argv.index("--agent") + 1]
 config = json.loads(os.environ["OPENCODE_CONFIG_CONTENT"])
 assert config["share"] == "disabled"
 permissions = config["agent"][agent]["permission"]
-if QUALIFIED:
+if agent == "autocode_access_probe":
+    assert permissions == {"*": "deny"}
+    assert config["agent"][agent].get("tools") == {"*": False}
+elif QUALIFIED:
     # A contained launch's shape (tool_containment.shell_permissions): "*" denies every tool but bash.
     permissions = {**dict.fromkeys(("task", "question", "edit"), permissions.get("*")), **permissions}
-assert permissions["task"] == "deny" and permissions["question"] == "deny"
-if agent != "autocode_builder":
-    assert permissions["edit"] == "deny"
+if agent != "autocode_access_probe":
+    assert permissions["task"] == "deny" and permissions["question"] == "deny"
+    if agent != "autocode_builder":
+        assert permissions["edit"] == "deny"
 prompt = sys.stdin.read()
+if agent == "autocode_access_probe":
+    assert prompt.strip() == 'Do not read or edit files. Return only this JSON object: {"ok": true}.'
+    session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
+    message = "msg_" + uuid.uuid4().hex
+    events = [
+        ("step_start", {"id": "prt_start", "type": "step-start"}),
+        ("text", {"id": "prt_text", "type": "text", "text": '{"ok": true}', "time": {"end": 1}}),
+        (
+            "step_finish",
+            {
+                "id": "prt_finish",
+                "type": "step-finish",
+                "reason": "stop",
+                "cost": 0,
+                "tokens": {"input": 1, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            },
+        ),
+    ]
+    for kind, part in events:
+        print(
+            json.dumps(
+                {"type": kind, "sessionID": session, "part": {"sessionID": session, "messageID": message, **part}}
+            ),
+            flush=True,
+        )
+    raise SystemExit(0)
 output_schema = None
 if os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS") and prompt.startswith(
     "Your previous final message could not be parsed as the report:"

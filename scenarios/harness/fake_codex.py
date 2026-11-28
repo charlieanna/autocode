@@ -2800,6 +2800,12 @@ def _main() -> int:
     remembered = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-sessions") / f"{session}.txt"
     if "CURRENT HANDOFF DATA\n" not in prompt and "resume" in sys.argv and remembered.is_file():
         prompt = PROMPT = remembered.read_text()
+    if "CURRENT HANDOFF DATA\n" not in prompt and "--output-schema" in sys.argv:
+        probe_schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if set(probe_schema.get("properties", {})) == {"ok"}:
+            Path(sys.argv[sys.argv.index("-o") + 1]).write_text('{"ok": true}')
+            emit({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}})
+            return 0
     if "CURRENT HANDOFF DATA\n" not in prompt:
         emit({"error": "no handoff data"})
         return 0
