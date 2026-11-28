@@ -2318,7 +2318,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/92a4214edda4b1710337a797a3f4dfa04b9560ad/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/afd0a0e78f24ae0ef9a516303b4ac8d23b4a3b03/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2490,7 +2490,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/92a4214edda4b1710337a797a3f4dfa04b9560ad/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/afd0a0e78f24ae0ef9a516303b4ac8d23b4a3b03/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2585,11 +2585,16 @@ are three ways to get that:</p>
   Code, Codex or Gemini CLI with another of the three also signed in runs its Plan
   Reviewer, Tester and Completion Reviewer on the other tool, with that tool's default
   model for each (Opus and Sonnet on Claude Code; <code>gpt-6-astra</code> and <code>gpt-5.6-sol</code> on Codex;
-  <code>gemini-2.5-pro</code> on Gemini CLI). A Claude Code run takes Gemini CLI, then Codex; a Gemini
+  on Gemini CLI the newest Pro your Google account lists, <code>gemini-2.5-pro</code> when it lists no
+  newer one). A second tool never takes a final review with a model older than the one it
+  builds with itself: while your account's newest Pro is behind Gemini CLI's own
+  <code>gemini-3.5-flash</code>, only the Tester moves to it, and the Plan Reviewer and Completion
+  Reviewer stay on the run's own tool (the run's one line and its <code>second_vendor</code> setting say
+  so, as <code>own</code>). A Claude Code run takes Gemini CLI, then Codex; a Gemini
   CLI run takes Claude Code, then Codex; a Codex run takes Claude Code, then Gemini CLI. Codex
   checks through its bundled <a href="../providers/#codex-for-one-role">provider config</a>, so it needs
   a ChatGPT login and Codex CLI 0.160.0 or newer. The run says so
-  in one line when it starts (<code>Checks by a second vendor: Gemini CLI runs the Plan Reviewer
+  in one line when it starts (<code>Checks by a second vendor: Gemini CLI runs the Tester
   (gemini-2.5-pro), …</code>) and keeps the decision in its settings (<code>second_vendor</code>: the tool,
   the stages it took and why). A stage you chose a model for (a <code>--ROLE-model</code> or
   <code>--ROLE-provider</code> flag, or a saved <a href="#choosing-each-stages-model">stage choice</a>) keeps it,
