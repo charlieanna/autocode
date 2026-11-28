@@ -13,8 +13,10 @@ reads no run.
 Every chat starts with the Requirements conversation (owner decision,
 2026-10-22); the "quick" mode that let a clear request skip Requirements is
 gone. ``plan`` runs the same planning flow and ends at the accepted plan
-(autocode_plan_only): nothing is built. A client still reads the list and must
-take a saved choice the list no longer names as the default.
+(autocode_plan_only): nothing is built. ``review`` (Review only, owner decision
+2026-11-27) runs the review job on the same path and writes nothing but its
+findings (autocode_review_only). A client still reads the list and must take a
+saved choice the list no longer names as the default.
 """
 
 from __future__ import annotations
@@ -60,6 +62,18 @@ MODES = (
             "reviewed plan ends the chat with the plan as its result. Nothing is built or changed."
         ),
         "start_args": ["--joint-planning", "--spec-first", "--plan-only"],
+        "spend_confirmation": "planning",
+    },
+    {
+        # A review of a pull request, branch, patch or uncommitted change (owner decision 2026-11-27).
+        "id": "review",
+        "label": "Review only",
+        "description": (
+            "Reviews a pull request, branch, patch or uncommitted change and changes nothing in the project. The same "
+            "Requirements conversation and a reviewed plan you approve, then the review is written as findings by file "
+            "and line, and a Tester confirms each blocking finding before you see it."
+        ),
+        "start_args": ["--joint-planning", "--spec-first", "--review-only"],
         "spend_confirmation": "planning",
     },
 )

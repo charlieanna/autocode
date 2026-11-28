@@ -987,6 +987,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("tools/prompts/fragments/adaptive-planning/", ("tests.test_adaptive_planning",)),
+    ("tools/prompts/fragments/review-only/", ("tests.test_review_only",)),
     ("tools/prompts/fragments/autoreview/", ("tests.test_completion_properties", "tests.test_rework_policy")),
     ("tools/prompts/fragments/workflow/", ("tests.test_workflow", "tests.test_final_workflow")),
     ("tools/prompts/fragments/provider-", ("tests.test_command_source_schema",)),

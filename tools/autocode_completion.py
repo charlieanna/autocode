@@ -18,6 +18,7 @@ try:
     from . import autocode_design_coverage as design_coverage
     from . import autocode_git_delivery as git_delivery
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_review_only as review_only
     from . import autocode_risk_evidence as risk_evidence
     from . import autocode_risk_findings as risk_findings
     from . import autocode_source_scope as source_scope
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_design_coverage as design_coverage
     import autocode_git_delivery as git_delivery
     import autocode_protected_oracles as protected_oracles
+    import autocode_review_only as review_only
     import autocode_risk_evidence as risk_evidence
     import autocode_risk_findings as risk_findings
     import autocode_source_scope as source_scope
@@ -52,6 +54,13 @@ def rejection(state: RunState) -> str:
     A live ladder-20 run (Claude models, 2026-09-30) reached the plain refusal twice: the last
     milestone's validation left out the accepted milestone's criteria, and the Completion Owner
     could not tell what was missing or how to ask for it."""
+    if review_only.enabled(state):
+        try:
+            outside = review_only.rejection(state, source_scope.snapshot(state["workspace"], state))
+        except (OSError, ValueError, KeyError) as error:
+            outside = "Completion rejected: the Review only check could not read the workspace: " + str(error)
+        if outside:
+            return outside
     try:
         if git_delivery.requirement(
             (state.get("goal_contract") or {}).get("body") or {}
@@ -142,6 +151,8 @@ def completion_ready(
     state: RunState, decision, current, *, require_human_reviews=True, require_independent=True, require_delivery=True
 ):
     if require_delivery and not git_delivery.ready(state, current):
+        return False
+    if not review_only.ready(state, current):  # a Review only run changed a file outside review/
         return False
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False

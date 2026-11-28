@@ -41,6 +41,7 @@ try:
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
+    from . import autocode_review_only as review_only
     from . import autocode_role_flags as role_flags
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
+    import autocode_review_only as review_only
     import autocode_role_flags as role_flags
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
@@ -553,6 +555,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     skip_requirements.add_arguments(parser)
     plan_only.add_argument(parser)
+    review_only.add_argument(parser)
     parser.add_argument(
         "--plan-review-full",
         action="store_true",

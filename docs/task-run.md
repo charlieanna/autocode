@@ -3590,6 +3590,7 @@ launch for older cores.
 | `full` (default, labeled "Slow lane") | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
 | `fast` ("Fast lane") | `--joint-planning --spec-first --fast-lane` | The same Requirements conversation; the Planner's first draft goes to the person without a Plan Reviewer call, and one combined review replaces the Tester and the Completion Reviewer. The person picks it; AutoCode does not size the plan to decide ([fast lane](adaptive-planning.md#fast-lane)). |
 | `plan` | `--joint-planning --spec-first --plan-only` | The same Requirements conversation, Planner and Plan Reviewer, then the run ends at the accepted plan: the Builder, the Tester and the Completion Reviewer never run and nothing is changed ([Plan-only runs](#plan-only-runs)). |
+| `review` ("Review only") | `--joint-planning --spec-first --review-only` | The review job on the same path as every task: Requirements, a reviewed plan the person approves, then the Builder writes the review as `review/findings.json` and the Tester and the Completion Reviewer check it. Nothing else in the project changes ([Review-only runs](#review-only-runs)). |
 
 Every chat starts with the Requirements conversation (owner decision,
 2026-10-22). The `quick` mode
@@ -3620,6 +3621,27 @@ plan is planned and reviewed again under the same choice. `autocode plan --expor
 writes the accepted plan as a file to review or share. The flag needs joint
 planning, cannot be combined with `--skip-to-build`, and is chosen when the run
 starts; a saved run keeps its choice.
+
+### Review-only runs
+
+A run started with `--review-only` (owner decision, 2026-11-27) reviews a change and changes nothing but
+its findings. It is the review job (`workflow` `review`, named by the run rather than read from the
+request) on the path every task takes (#3010): Requirements, the Planner, the Plan Reviewer, the
+person's approval of the displayed plan, the Builder, the Tester and the Completion Reviewer. No
+retired stage runs. Every stage reads one rule: the only deliverable is `review/findings.json` in a
+fixed shape (`verdict` `approve` or `request_changes`, `change_under_review`, and `findings` with `id`,
+`severity` `blocking` or `advisory`, `file`, `lines`, `summary` and `evidence`), how to find the change
+under review (a pull request the request names, a branch, a commit range, a patch file or the
+uncommitted change), and that every blocking finding is confirmed by the Tester from its evidence.
+
+Before the first Builder attempt the runner saves the workspace as a Git object, uncommitted changes
+included. A Builder attempt that changes any file outside `review/` has that file put back from it and
+goes again at once, its findings kept, and its next prompt names the files; after two such attempts
+under one plan the next is rejected through the ordinary invalid-output path, where the Investigator
+takes it. Completion is refused while the turn has changed a file outside `review/`. The finished
+chat's result is the verdict, the counts and each blocking finding by file and line. The flag needs
+joint planning, cannot be combined with another `--workflow`, `--plan-only` or `--skip-to-build`, and
+is chosen when the run starts; a saved run keeps its choice, so acting on the findings is a new chat.
 
 ### Automatic routes for new runs
 

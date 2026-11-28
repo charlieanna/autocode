@@ -31,8 +31,12 @@ class RunModeListTests(unittest.TestCase):
         # "plan" runs the same planning flow and ends at the accepted plan (autocode_plan_only).
         # "fast" is the fast lane the person picks for a small task (owner decision 2026-11-26), beside the slow
         # lane "full" (autocode_fast_lane).
-        self.assertEqual(["full", "fast", "plan"], [mode["id"] for mode in listed["modes"]])
-        self.assertEqual(["Slow lane", "Fast lane", "Plan only"], [mode["label"] for mode in listed["modes"]])
+        # "review" reviews a change and writes only its findings (owner decision 2026-11-27, autocode_review_only).
+        self.assertEqual(["full", "fast", "plan", "review"], [mode["id"] for mode in listed["modes"]])
+        self.assertEqual(
+            ["Slow lane", "Fast lane", "Plan only", "Review only"], [mode["label"] for mode in listed["modes"]]
+        )
+        self.assertEqual(["--joint-planning", "--spec-first", "--review-only"], listed["modes"][3]["start_args"])
         self.assertEqual(["--joint-planning", "--spec-first", "--fast-lane"], listed["modes"][1]["start_args"])
         self.assertEqual("full", listed["default"])
         for mode in listed["modes"]:
@@ -40,7 +44,7 @@ class RunModeListTests(unittest.TestCase):
             self.assertTrue(all(word.startswith("--") for word in mode["start_args"]), mode)
             self.assertNotIn("--no-spec-first", mode["start_args"], "no mode skips the Requirements conversation")
         self.assertEqual(["--joint-planning", "--spec-first"], listed["modes"][0]["start_args"])
-        self.assertEqual(["planning"] * 3, [mode["spend_confirmation"] for mode in listed["modes"]])
+        self.assertEqual(["planning"] * 4, [mode["spend_confirmation"] for mode in listed["modes"]])
 
     def test_a_listed_mode_cannot_be_changed_through_the_view(self):
         self.listed()["modes"][0]["start_args"].append("--auto-approve")

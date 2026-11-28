@@ -16,6 +16,7 @@ try:
     from .. import autocode_goals as goals
     from .. import autocode_names as names
     from .. import autocode_prompt_layout as prompt_layout
+    from .. import autocode_review_only as review_only
     from .. import autocode_stage_access as stage_access
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as support
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_names as names
     import autocode_prompt_layout as prompt_layout
+    import autocode_review_only as review_only
     import autocode_stage_access as stage_access
     import autocode_stage_context as stage_context
     import autocode_support as support
@@ -96,12 +98,19 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
     schema = acceptance_test_repair.extend_schema(schema, covered_cases, target_stage)
     response_schema = support.review_generation_schema(schema, state, target_stage)
     prompt, metrics = stage_context.context_packet(state, stage, state_path, response_schema=response_schema)
+    if review_rule := review_only.instruction(state):  # every stage of a Review only run reads its one rule
+        prompt = tool_handoff.before_handoff(prompt, review_rule)
+        metrics = prompt_layout.refresh_metrics(prompt, metrics)
     if stage == "builder":
+        review_only.capture_start(state, state["workspace"])  # before any attempt: what the review must leave as is
         prompt = test_examples.builder_prompt(
             prompt,
             state["workspace"],
             state.get("current_task"),
-            notes=test_cases.builder_note(state) + acceptance_tests.builder_note(state) + assignment.BUILD_OUTPUT_NOTE,
+            notes=test_cases.builder_note(state)
+            + acceptance_tests.builder_note(state)
+            + review_only.builder_note(state)
+            + assignment.BUILD_OUTPUT_NOTE,
         )
         metrics = prompt_layout.refresh_metrics(prompt, metrics)
     if stage == "tester":
