@@ -8,7 +8,7 @@ const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { routeDecisionReady } = require('../job-route-readiness.cjs');
 const { privateHostRoot, privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -75,10 +75,7 @@ for (const mode of ['changed-effort', 'unset-effort']) test(`real editor offers 
     editorStarted = JSON.parse(identified.stdout).started;
     win = await app.firstWindow();
     await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     const publicStatus = () => {
       const result = spawnSync(python, [path.join(REPO, 'tools/autocode.py'), '--run-dir', fixture.run_dir,
         '--workspace', fixture.workspace, '--status', '--json'], { cwd: fixture.workspace, env, encoding: 'utf8', timeout: 30_000 });

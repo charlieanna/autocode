@@ -6,7 +6,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostRoot, privateHostEnvironment, settleFixture } = require('../owned-fixture-cleanup.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -58,10 +58,7 @@ test('real editor distinguishes full pytest collection from a passing baseline a
     editorStarted = invoke([cleanup, 'identity', String(editorPid)], 15_000).started;
     assert.equal(typeof editorStarted, 'number');
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
     await openHistoryRow(win.locator('.monaco-list-row', { hasText: fixture.title }).first(), chat, fixture.title);
     let frame = await chat();

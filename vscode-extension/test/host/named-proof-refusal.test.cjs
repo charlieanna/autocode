@@ -9,7 +9,7 @@ const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {settleFixture} = require('../owned-fixture-cleanup.cjs');
 const {afterApproval} = require('../python-semantic-transition.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -64,10 +64,7 @@ for (const mode of ['skip', 'missing']) test(`editor refuses ${mode} base named 
     assert.equal(identity.status, 0, identity.stderr); editorStarted = JSON.parse(identity.stdout).started;
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({timeout: 120_000});
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     await openHistoryRow(win.locator('.monaco-list-row', {hasText: 'Add the new feature returning 42'}).first(), chat, 'named-proof refusal');
     let frame = await chat();
     await until('the reviewed plan action', async () => {

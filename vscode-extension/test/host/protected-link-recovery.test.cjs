@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { after, before, test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -71,10 +71,7 @@ async function executable() {
 }
 
 async function chat() {
-  return until('chat webview', async () => {
-    for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-    return null;
-  });
+  return frameWith(win, '#chat-tabs', 'chat webview');
 }
 
 function status() {

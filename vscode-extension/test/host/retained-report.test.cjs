@@ -8,7 +8,7 @@ const path = require('node:path');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
 const {privateHostRoot, privateHostEnvironment, settleFixture} = require('../owned-fixture-cleanup.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -78,10 +78,7 @@ test('the editor automatically revalidates the exact held Tester report', {timeo
     assert.equal(identity.status, 0, identity.stderr); editorStarted = JSON.parse(identity.stdout).started;
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({timeout: 120_000});
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     await openHistoryRow(win.locator('.monaco-list-row', {hasText: fixture.brief}).first(), chat, 'retained report');
     const after = await until('automatic recovery and the completed public run', () => {
       const view = status();

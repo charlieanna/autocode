@@ -9,7 +9,7 @@ const path = require('node:path');
 const { privateHostRoot } = require('../owned-fixture-cleanup.cjs');
 const {test} = require('node:test');
 const {openHistoryRow} = require('./open-history.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -81,10 +81,7 @@ for (const absoluteCargo of [false, true]) test(`real editor runs ${absoluteCarg
     editorStarted = JSON.parse(identity.stdout).started;
     win = await app.firstWindow(); await win.locator('.monaco-workbench').waitFor({timeout: 120_000});
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     phase = "opening fixture history";
     await openHistoryRow(win.locator('.monaco-list-row', {hasText: 'Document this existing Rust crate'}).first(), chat, 'Rustup offline');
     let frame = await chat();

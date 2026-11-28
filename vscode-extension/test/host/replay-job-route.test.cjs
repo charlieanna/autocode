@@ -7,7 +7,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { openHistoryRow } = require('./open-history.cjs');
 const { privateHostEnvironment, ownedWarmHostSteps, settleFixture } = require('../owned-fixture-cleanup.cjs');
-const { until } = require('./wait.cjs');
+const { frameWith, until } = require('./wait.cjs');
 
 const EXTENSION = path.resolve(__dirname, '../..');
 const REPO = path.resolve(EXTENSION, '..');
@@ -84,10 +84,7 @@ test('real editor follows a recorded job route and retry', { timeout: 300_000 },
       })]);
     } finally { clearTimeout(windowTimer); }
     await win.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
-    const chat = () => until('chat', async () => {
-      for (const frame of win.frames()) if (await frame.$('#chat-tabs').catch(() => null)) return frame;
-      return null;
-    });
+    const chat = () => frameWith(win, '#chat-tabs', 'chat');
     await win.locator('.activitybar [aria-label^="AutoCode"]').first().click();
     await openHistoryRow(win.locator('.monaco-list-row', { hasText: 'Implement the approved design' }).first(), chat, 'recorded job');
     const frame = await chat();

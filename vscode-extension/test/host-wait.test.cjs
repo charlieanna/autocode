@@ -4,7 +4,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { until } = require('./host/wait.cjs');
+const { evaluateIn, frameWith, until } = require('./host/wait.cjs');
 
 const never = () => new Promise(() => {});
 
@@ -35,4 +35,36 @@ test('the wait returns the first truthy answer and retries a probe that threw', 
 
 test('a falsy answer at the deadline reports the last answer', { timeout: 5_000 }, async () => {
   await assert.rejects(until('a ready flag', () => false, 100), /Timed out waiting for a ready flag; last: false/);
+});
+
+/** A stand-in for a Playwright page: frames whose ``$`` and ``evaluate`` answer as scripted. */
+function page(frames) {
+  return { frames: () => frames };
+}
+
+test('a frame that stops answering does not hide the frame being looked for', { timeout: 15_000 }, async () => {
+  // Nightly 46089863877: the stock host test hung 300 s; every suite asked the frames one after another.
+  const stale = { name: 'stale', $: never };
+  const chat = { name: 'chat', $: async (selector) => (selector === '#chat-tabs' ? { element: true } : null) };
+  const started = Date.now();
+  assert.equal(await frameWith(page([stale, chat]), '#chat-tabs', 'the chat', 20_000), chat);
+  assert.ok(Date.now() - started < 10_000, 'found within one frame answer time, not at the deadline');
+});
+
+test('a frame that holds nothing is passed over and the wait names what it looked for', { timeout: 5_000 }, async () => {
+  const empty = { $: async () => null };
+  await assert.rejects(frameWith(page([empty]), '#chat-tabs', 'the chat webview', 300),
+    /Timed out waiting for the chat webview/);
+});
+
+test('a read in a frame that stops answering finds the frame again and returns a falsy answer', { timeout: 15_000 }, async () => {
+  const hung = { evaluate: never };
+  const fresh = { evaluate: async (read) => read() };
+  const found = [hung, fresh];
+  let finds = 0;
+  const find = async () => found[Math.min(finds++, found.length - 1)];
+  const started = Date.now();
+  assert.equal(await evaluateIn(find, 'the chat error', () => '', 20_000), '');
+  assert.equal(finds, 2, 'the frame was found again after the first did not answer');
+  assert.ok(Date.now() - started < 10_000, 'the hung read was cut after one frame answer time');
 });
