@@ -228,6 +228,34 @@ SCHEMA = {
 }
 
 
+def _runner_observed(failure) -> bool:
+    """A failure the runner observed itself (autocode_builder_failure.runner_observed)."""
+    try:
+        from . import autocode_builder_failure as builder_failure
+    except ImportError:
+        import autocode_builder_failure as builder_failure
+    return builder_failure.runner_observed(failure)
+
+
+def _proof_review(request) -> dict | None:
+    """The failing-proof classification's own fallback (autocode_proof_investigation), or None.
+
+    A classification of a proof that still fails after the Builder's direct round stood in for the review; when it
+    names no cause, or the Investigator cannot finish, that review runs instead of a pause no person can settle.
+    """
+    failure = (request or {}).get("failure_evidence") or {}
+    diagnosis = failure.get("diagnosis") or {}
+    proof = diagnosis.get("regression_proof") or {}
+    if request.get("mode") != "builder_failure" or diagnosis.get("changed_code_evidence"):
+        return None
+    return proof if proof.get("review_stage") else None
+
+
+def _back_to_review(state: RunState, request, entry, proof) -> None:
+    entry["proof_finding"] = proof.get("finding_id")
+    run_status.running(state, request.get("phase") or "EXECUTING", next_stage=proof["review_stage"])
+
+
 def schema(state: RunState):
     if (state.get("stuck_investigation") or {}).get("mode") != "builder_failure":
         return SCHEMA
@@ -237,8 +265,8 @@ def schema(state: RunState):
         failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
     )
     failure = (state.get("stuck_investigation") or {}).get("failure_evidence") or {}
-    if (failure.get("diagnosis") or {}).get("changed_code_evidence"):
-        # Test gaps are internal repair work. The Investigator can diagnose a
+    if _runner_observed(failure):
+        # Test gaps and a failing regression proof are internal repair work. The Investigator can diagnose a
         # bounded stop, but cannot manufacture a question for the person.
         result["properties"]["cause"]["enum"] = [
             value for value in result["properties"]["cause"]["enum"] if value != "needs_user"
@@ -796,12 +824,11 @@ def apply(
         check({**value, "recommendation": "retry", "guidance": value["diagnosis"]}, record.get("changed_files"))
         if value["cause"] == "needs_user" and not value["user_question"].strip():
             raise ValueError("A classification that needs the user must state the decision")
-        changed_code_gap = bool((failure.get("diagnosis") or {}).get("changed_code_evidence"))
         if (
             value["recommendation"] == "retry"
             and value["cause"] != "needs_user"
             and value["failure_class"] == "unknown"
-            and not changed_code_gap
+            and not _runner_observed(failure)
         ):
             raise ValueError(
                 "A Builder failure classification that recommends retry must name a concrete failure_class "
@@ -885,10 +912,16 @@ def apply(
             if value["failure_class"] == "unknown"
             and value["recommendation"] == "retry"
             and value["cause"] != "needs_user"
-            and changed_code_gap
+            and _runner_observed(request.get("failure_evidence"))
             else value["failure_class"]
         )
         entry.update(outcome="classified", failure_class=effective_class, failure_id=value["failure_id"])
+        proof = _proof_review(request)
+        if effective_class == "unknown" and proof:
+            # No cause named for a failing proof: the review it stood in for runs, as it did before.
+            entry["outcome"] = "reviewed"
+            _back_to_review(state, request, entry, proof)
+            return None
         if value["cause"] == "needs_user" or effective_class == "unknown":
             entry["outcome"] = "paused"
             question = "\nNeeds you: " + value["user_question"] if value["user_question"] else ""
@@ -1064,12 +1097,20 @@ def timed_out(state: RunState) -> bool:
 
 
 def abandon(state: RunState, error: str) -> tuple[str, str]:
-    """The investigation itself failed: restore the original pause, never a worse one."""
+    """The investigation itself failed: restore the original pause, never a worse one.
+
+    A failing proof's classification has no pause of its own: its review runs, and the status returned is empty.
+    """
     request = state.pop("stuck_investigation")
     used = release_route(state)
     entry = next(row for row in reversed(state["stuck_investigations"]) if row["identity"] == request["identity"])
     entry.update(outcome="investigation_failed", error=error, model=used.get("model"), finished_at=now())
     reason = f"{request['reason']}\n(The Investigator could not finish: {error})"
+    proof = _proof_review(request)
+    if proof:
+        # The failing proof's review runs instead (autocode_proof_investigation): no pause, no status.
+        _back_to_review(state, request, entry, proof)
+        return "", reason
     restore(state, request, reason)
     if request.get("mode") == "builder_failure":
         try:
@@ -1317,6 +1358,8 @@ def drive(
                 status, reason = abandon(state, reason)
                 if persist:
                     persist(state)
+                if not status:  # its stage runs instead: nothing paused
+                    continue
                 reraised = paused(status, reason)
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
@@ -1381,6 +1424,8 @@ def drive(
             state.pop("job_retry_authorization", None)
             if persist:
                 persist(state)
+            if not status:  # its stage runs instead: nothing paused
+                continue
             raise paused(status, reason)
         retire(state, state.get("status"))
         if (

@@ -1208,7 +1208,16 @@ Before a Tester (or the combined checkpoint) launches, an open finding of the so
 about to be tested goes straight back to the Builder once, with its reasons and the
 proof receipt as the Builder's next action, and no model call relays it: a proof that
 does not pass already decides the review. The finding's `builder_rounds` records it.
-After that round the Tester runs as before. Tests the Tester wrote (spec-first) and a
+When the proof of the Builder's next source fails too, the failure Investigator
+classifies it before any Tester launches (`tools/autocode_proof_investigation.py`): one
+read-only call that names the cause and the guidance the Builder takes next, or sends a
+plan defect back to planning, as it does for a changed-code gap after its direct
+repairs. A failing proof is AutoCode's own machinery, so that classification cannot ask
+the person; one that names no cause gives the run back to the Tester, which runs as
+before, and that finding is not classified again. It is taken once for each source, and only when it can start at once (the
+Investigator is enabled, nothing else is running or being repaired, and the milestone's
+classification budget is not spent); otherwise the Tester runs as before. The finding's
+`investigated_revisions` records it. Tests the Tester wrote (spec-first) and a
 proof that only saw its context change while it ran keep the Tester. A
 Completion Reviewer that asks to complete while it is open is sent back once for
 that source to review again; a second request pauses `PAUSED_COMPLETION_REVIEW`,

@@ -42,14 +42,6 @@ EXECUTION = ["orchestrator", "builder", "regression_proof", "tester", "review_co
 # A proof that does not pass goes back to the Builder once before any Tester launches, with no model call
 # between (autocode_proof_findings.builder_round).
 SENT_BACK = ["orchestrator", "builder", "regression_proof", "builder", "regression_proof"]
-# A failing proof of this source is replayed once before the Completion Owner reviews
-# (#2065: a single flake must not drive REWORK). The replay is runner-owned.
-FAILED_PROOF_EXECUTION = [
-    *SENT_BACK,
-    "tester",
-    "regression_proof",
-    "review_completion",
-]
 
 
 class BugfixWorkflow(unittest.TestCase):
@@ -138,7 +130,15 @@ class BugfixWorkflow(unittest.TestCase):
         # #2475: the refusal is a runner-owned blocking finding the reviewers and the Builder see. This
         # scripted reviewer asks to complete anyway, so it is sent back once for the source, and a second
         # request goes to the Investigator: never a completion-gate stop the person can only resume.
-        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION + ["review_completion", "investigate_stuck"], stages)
+        # The proof of the Builder's second source fails too, so the failure Investigator classifies it before any
+        # Tester (autocode_proof_investigation); this offline fixture names no cause, so the review runs as before.
+        self.assertEqual(
+            PLANNING
+            + SENT_BACK
+            + ["investigate_stuck", "regression_proof", "tester", "review_completion", "review_completion"]
+            + ["investigate_stuck"],
+            stages,
+        )
         finding = [row for row in final["findings_ledger"] if row.get("regression_proof")]
         self.assertEqual(["open"], [row["status"] for row in finding])
         self.assertIn("No regression test", finding[0]["finding"])

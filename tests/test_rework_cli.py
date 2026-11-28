@@ -290,7 +290,10 @@ class CompletionReworkCLI(unittest.TestCase):
         blocking = [row["id"] for row in state["findings_ledger"] if row["status"] == "open" and row["blocking"]]
         self.assertEqual(1, len(blocking), state["findings_ledger"])
         self.assertEqual("validate", state["current_task"]["kind"])
-        self.assertNotIn("investigate_stuck", [row.get("stage") for row in state["stages"]])
+        # Only the failing proof of the Builder's second source was classified (autocode_proof_investigation);
+        # the validation-only rounds go to no Investigator.
+        self.assertEqual(["builder_failure"], [row.get("trigger") for row in state.get("stuck_investigations") or []])
+        self.assertEqual(1, [row.get("stage") for row in state["stages"]].count("investigate_stuck"))
         self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
         self.assertFalse(view["done"])
         self.assertNotEqual("answer", (view["needs"] or {}).get("kind"))

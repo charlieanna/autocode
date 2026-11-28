@@ -1789,7 +1789,11 @@ def report_for(stage: str, data: dict) -> dict:
                 },
             }
             return runner_rework(stage, data, common)
-        if CONFIG.get("fault") == "vacuous_refusal_tests" and data.get("builder_failure"):
+        # The stock fixture classifies the Completion REWORK its trap leads to. A proof still failing after the
+        # Builder's direct round reaches the Investigator first (autocode_proof_investigation); this fixture names
+        # no cause for it, so the review runs and the trap still reaches AutoResolver.
+        proof_classification = ((data.get("builder_failure") or {}).get("diagnosis") or {}).get("regression_proof")
+        if CONFIG.get("fault") == "vacuous_refusal_tests" and data.get("builder_failure") and not proof_classification:
             return builder_failure_investigation(data)
         if CONFIG.get("fault") == "progressive_scoped_permission" and data.get("builder_failure"):
             return scoped_permission_investigation(data)

@@ -76,13 +76,17 @@ def check(project, scenario, run=None):
         if stage in ("builder", "tester", "review_completion", "resolve", "investigate_stuck")
     ]
     # The Builder's ladder: one ordinary attempt, and a repeat goes straight to the stronger attempt (#611);
-    # the run then ends. No paid diagnosis, and no stage after the last review. The first build's failing
-    # proof also sends it back to the same Builder once before any Tester, which is no ladder step.
+    # the run then ends. No paid diagnosis of the ladder, and no stage after the last review. The first build's
+    # failing proof also sends it back to the same Builder once before any Tester, which is no ladder step; when
+    # that source fails its proof too, the failure Investigator classifies it once before the Tester
+    # (autocode_proof_investigation). This fixture's classification names no cause, so the review runs as before
+    # and the finding is not classified again.
+    classified = stages[:3] == ["builder", "builder", "investigate_stuck"]
     checks.append(
         Check(
             "ended_after_the_ladder_without_a_diagnosis",
             3 <= stages.count("builder") <= 4
-            and "investigate_stuck" not in stages
+            and "investigate_stuck" not in stages[3 if classified else 0 :]
             and bool(stages)
             and stages[-1] == "review_completion",
             f"stages after planning: {stages}",

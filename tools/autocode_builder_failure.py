@@ -37,6 +37,19 @@ except ImportError:
     import autocode_util as util
 
 
+# The failures the runner itself observed, which a classification diagnoses but never hands the person: a changed-code
+# gap after its direct repairs (autocode_changed_code_rework) and a regression proof that still fails after the
+# Builder's direct round (autocode_proof_investigation). Each is AutoCode's own machinery, so the Investigator names a
+# cause and guidance for the Builder rather than a question.
+RUNNER_OBSERVED = ("changed_code_evidence", "regression_proof")
+
+
+def runner_observed(failure) -> bool:
+    """Whether ``failure`` (a failure_evidence record) is a failure the runner observed itself."""
+    diagnosis = (failure or {}).get("diagnosis") if isinstance(failure, dict) else None
+    return isinstance(diagnosis, dict) and any(diagnosis.get(key) for key in RUNNER_OBSERVED)
+
+
 def evidence(state: RunState, record, *, checks=(), checkpoint=None, error_class=None, diagnosis=None):
     record = copy.deepcopy(record)
     for key in ("output", "events", "diff_ref", "before_ref", "after_ref", "schema"):
