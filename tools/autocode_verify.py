@@ -1500,6 +1500,7 @@ def scratch_run(
     expected_source_revision=None,
     protected_test_snapshot_links=False,
     protected_data_links=(),
+    check_kind="command",
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1507,6 +1508,13 @@ def scratch_run(
     ``python`` is the run's recorded interpreter (autocode_test_environment.recorded_python); without it
     the suite is detected with ``python_for``.
     """
+    scratch_suites.validate_intent(
+        check_kind,
+        command=command,
+        tests=tests,
+        acceptance_preflight=acceptance_preflight,
+        review_mutation=review_mutation,
+    )
     scratch_preparation.validate_protected_policy(
         protected_test_snapshot_links, expected_source_revision, review_mutation, acceptance_preflight
     )
@@ -1556,6 +1564,7 @@ def scratch_run(
                 review_mutation_deadline=review_mutation_deadline,
                 acceptance_preflight=acceptance_preflight,
                 python=python,
+                check_kind=check_kind,
             )
             if review_mutation:
                 review_mutations.validate(answer.get("review_mutation"), run_dir)
@@ -1611,49 +1620,28 @@ def scratch_run(
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command) or package_scope.recognize(command, command_framework)
+            if framework is None and check_kind in ("full_suite", "named_regression", "named_guard"):
+                framework = detect_framework(tree, python=python or python_for(workspace))
             framework = toolchain_suite.with_project_build(
                 framework, lambda root: detect_framework(root, python=python or python_for(workspace)), tree
             )
-            # A reporter-owned command can name tests without a recognized framework object.
-            if framework or (native_execution is None and expects_results(None, command, tree)):
-                receipt = scratch_suites.explicit(
-                    tree,
-                    tests,
-                    framework,
-                    command,
-                    lambda found, selected, label: suite(
-                        found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
-                    ),
-                    schedule.complete_results,
-                    acceptance_preflight=acceptance_preflight,
-                )
-                if framework and receipt.get("error") in (
-                    "Test command reported zero tests or incomplete per-test results",
-                    "Test command reported only skipped tests",
-                ):
-                    return receipt
-            else:
-                # A native check runs exactly the command it planned; any other is observed like a suite.
-                log = run_dir / "scratch-command.log"
-                receipt = (
-                    suite(None, command, tree, run_dir, "scratch-command", timeout=timeout)
-                    if native_execution is None
-                    else run_command(command, tree, log, timeout=timeout, native_execution=native_execution)
-                )
-                receipt["results"] = None
-                try:
-                    words = shlex.split(command)
-                except ValueError:
-                    words = []
-                if (
-                    words[1:3] == ["-m", "unittest"]
-                    and receipt["exit_code"] == 0
-                    and not shell_syntax.outside_quotes(command, ";&|<>`$\n")
-                ):
-                    text = Path(receipt["output"]).read_text(errors="replace")
-                    ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
-                    if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
-                        return {**receipt, "error": "Test command reported zero tests or incomplete output"}
+            receipt = scratch_suites.command_check(
+                tree,
+                tests,
+                framework,
+                command,
+                lambda found, selected, label: suite(
+                    found, selected, tree, run_dir, label, timeout=timeout, native_execution=native_execution
+                ),
+                lambda selected: run_command(
+                    selected, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution
+                ),
+                expects_results,
+                schedule.complete_results,
+                check_kind=check_kind,
+                acceptance_preflight=acceptance_preflight,
+                native=native_execution is not None,
+            )
         return {
             **receipt,
             "error": receipt.get("error") or "",

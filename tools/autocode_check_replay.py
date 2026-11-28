@@ -268,7 +268,9 @@ def probe(
     if selected:
         scratch_run = partial(scratch_run, source_paths=selected)
     out = Path(out)
-    receipt = scratch_run(workspace, out / "check", command=command, timeout=timeout)
+    kind = verification_plan.command_kind(state or {}, command)
+    intent = {"check_kind": kind} if kind != "command" else {}
+    receipt = scratch_run(workspace, out / "check", command=command, timeout=timeout, **intent)
     row = {
         "command": command,
         "exit_code": receipt.get("exit_code"),
@@ -356,7 +358,7 @@ def replay(
     stem = Path(record.get("output") or "validation").stem
     out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
     out.mkdir(parents=True, exist_ok=False)
-    state = approved_state or {}
+    state = cast("RunState", approved_state or {})
     # The original provider execution, not its repaired JSON formatting, owns
     # this obligation. A later Validator or any final check is new work; the
     # protected-test pair is bound to it too, so a report-only repair of the
@@ -398,7 +400,7 @@ def replay(
         return execution
 
     protected = protected_oracles.replay(
-        cast("RunState", state),
+        state,
         workspace,
         out,
         scratch_run,
@@ -415,16 +417,19 @@ def replay(
     on_base: dict[str, Any] = {}
     for check in checks:
         command = check["command"]
+        kind = verification_plan.command_kind(state, command, progressive_context=progressive_context)
+        intent = {"check_kind": kind} if kind != "command" else {}
         key = (command, check.get("repetition", 1))
         if key not in seen:
             if obligation:
-                eligible = command not in prescribed and bool(schedule.collection_kind(command))
+                eligible = kind != "compile" and command not in prescribed and bool(schedule.collection_kind(command))
 
                 def identity(*, refresh=False):
                     return {
                         "execution": measured(command, eligible, refresh=refresh),
                         "obligation": obligation,
                         "command": command,
+                        "check_kind": kind,
                         "repetition": check.get("repetition", 1),
                         "timeout": timeout,
                     }
@@ -442,7 +447,7 @@ def replay(
                 receipt = schedule.run(
                     Path(run_dir) / "check-replay" / "obligations",
                     binding,
-                    lambda directory: scratch_run(workspace, directory, command=command, timeout=timeout),
+                    lambda directory: scratch_run(workspace, directory, command=command, timeout=timeout, **intent),
                     reuse_allowed=eligible and binding["execution"].get("reuse_supported", False),
                     reason=reason,
                     owned_preparation=True,
@@ -452,14 +457,17 @@ def replay(
                     current_identity=lambda: identity(refresh=True),
                 )
             else:
-                receipt = scratch_run(workspace, out / f"check-{len(seen) + 1:02d}", command=command, timeout=timeout)
+                receipt = scratch_run(
+                    workspace, out / f"check-{len(seen) + 1:02d}", command=command, timeout=timeout, **intent
+                )
             source_reason = (
                 "; ".join(source_binding.reasons({"check": receipt}))
-                if source_binding.admission_required(command)
+                if kind != "compile" and source_binding.admission_required(command)
                 else ""
             )
             seen[key] = {
                 "command": command,
+                "check_kind": kind,
                 "exit_code": receipt.get("exit_code"),
                 "timed_out": bool(receipt.get("timed_out")),
                 "output": receipt.get("output"),

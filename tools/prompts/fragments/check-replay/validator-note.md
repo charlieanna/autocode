@@ -14,6 +14,10 @@ it then exits 1). The runner refuses such a check.
 Git metadata is not a delivered product file. Keep the actual source-file and behavioral assertions intact.
 The runner also executes explicit commands from the approved verification methods and current_task.validation_plan;
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
+An approved "compile: run `COMMAND`" check is compile/vet readiness only: exit zero is required but zero
+tests is intentional, and it supplies no regression or suite proof. An approved "suite: run `COMMAND`"
+requires complete nonempty results from a recognized test runner. Named test:/guard: criteria retain
+their fail-to-pass/pass-to-pass proof. Only the approved plan, never the Tester's report, classifies a check.
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
 When the runner supplies a verification copy (including read-only Codex and configured-provider judging stages), capture commands execute
