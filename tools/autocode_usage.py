@@ -411,6 +411,22 @@ def _quantity(values, *, uncertain=False):
     }
 
 
+def _provider_receipts(metrics, requests):
+    """The provider's request ids and resolved models for one attempt, as recorded; never inferred."""
+    receipts = [
+        item
+        for item in metrics.get("provider_receipts") or ()
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
+    ]
+    ids = [item["id"] for item in receipts] or [
+        "/".join(row["identity"])
+        for row in requests
+        if isinstance(row.get("identity"), list) and all(isinstance(part, str) for part in row["identity"])
+    ]
+    models = sorted({item["model"] for item in receipts if isinstance(item.get("model"), str) and item["model"]})
+    return ids or None, models or None
+
+
 def accounting(state: RunState):
     """Read supplied attempt logs, never another run's private state.
 
@@ -487,6 +503,8 @@ def accounting(state: RunState):
             sessions = [item.get("identity") or [None] for item in requests]
             reported = cost_state_cost(metrics, sessions={row[0] for row in sessions if isinstance(row[0], str)})
         guessed = None if reported is not None or runner else estimate(model, tokens)
+        request_ids, resolved = (None, None) if runner else _provider_receipts(metrics, requests)
+        unfinished = native.get("unfinished_requests")
         local_id = record.get("attempt_id")
         if not local_id and type(record.get("iteration")) is int and record.get("output"):
             local_id = f"{record['iteration']:03d}/{Path(record['output']).stem}"
@@ -567,6 +585,12 @@ def accounting(state: RunState):
                 "issues": issues,
                 "request_coverage_complete": runner or bool(requests) and not issues and not is_active,
                 "unfinished_requests": native.get("unfinished_requests"),
+                # The provider's own request ids and the models it resolved (#4239); None when it named none.
+                "provider_request_ids": request_ids,
+                "resolved_models": resolved,
+                # The stage's usage stream was cut or a request never finished: its counts are a lower bound.
+                "usage_truncated": not runner
+                and (metrics.get("provider_tokens_partial") is True or (type(unfinished) is int and unfinished > 0)),
                 "usage_basis": "runner" if runner else "native_requests" if requests else "stage_counters",
                 "unobserved_usage_possible": bool(is_active or issues),
                 "identity_complete": ":unidentified:" not in identity,

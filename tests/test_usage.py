@@ -239,6 +239,35 @@ class TotalsTests(unittest.TestCase):
             [(row["role"], row["route_role"]) for row in rows],
         )
 
+    def test_an_attempt_records_the_provider_requests_and_models_it_was_given_and_nothing_else(self):
+        """#4239: request ids and resolved models come only from the provider; absent ones stay unknown."""
+        claude = stage("builder", "builder", "claude-haiku-4-5", output_mode="codex_events")
+        claude["metrics"]["provider_receipts"] = [
+            {"id": "msg_b", "model": "claude-haiku-4-5-20251001"},
+            {"id": "msg_a", "model": None},
+        ]
+        native = stage("tester", "tester", "glm-5.3")
+        native["metrics"]["request_context"] = {
+            "accounting": {
+                "requests": [{"identity": ["ses_1", "prt_2"], "tokens": {}, "reported_cost_usd": 0.1}],
+                "unfinished_requests": 1,
+            }
+        }
+        silent = stage("review_completion", "task_planner", "claude-opus-5-5")
+        cut = stage("draft_plan", "planner", "claude-haiku-4-5", output_mode="codex_events")
+        cut["metrics"]["provider_tokens_partial"] = True
+        rows = usage.accounting({"stages": [claude, native, silent, cut]})["attempts"]
+        self.assertEqual(
+            [
+                (["msg_b", "msg_a"], ["claude-haiku-4-5-20251001"], False),
+                (["ses_1/prt_2"], None, True),
+                (None, None, False),
+                (None, None, True),
+            ],
+            [(row["provider_request_ids"], row["resolved_models"], row["usage_truncated"]) for row in rows],
+        )
+        self.assertEqual("claude-haiku-4-5", rows[0]["model"])  # the requested model is kept apart
+
     def test_request_level_reported_costs_are_counted_for_unpriced_models(self):
         """#2996: a model missing from the price table is never zero-cost when the provider reported amounts."""
         record = {
