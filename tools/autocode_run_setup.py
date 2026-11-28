@@ -70,6 +70,7 @@ try:
     from . import autocode_project_notes_lifecycle as project_notes_lifecycle
     from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_pull_request as pull_request
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_exhaustion as recovery_exhaustion
     from . import autocode_recovery_view as recovery_view
@@ -126,6 +127,7 @@ except ImportError:
     import autocode_project_notes_lifecycle as project_notes_lifecycle
     import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
+    import autocode_pull_request as pull_request
     import autocode_quota_route as quota_route
     import autocode_recovery_exhaustion as recovery_exhaustion
     import autocode_recovery_view as recovery_view
@@ -1181,7 +1183,7 @@ def run_locked(
             )
             return owned_result(2)
         if state["status"] == "TASK_COMPLETE":
-            runner.print_completion(state, args, workspace, run_dir)
+            complete(runner, state, args, workspace, run_dir, state_path)
         else:
             if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
                 if not runner.chat_checkpoint(state, run_dir):
@@ -1189,9 +1191,18 @@ def run_locked(
                     return owned_result(2)
                 runner.write_json(state_path, state)
                 if state["status"] == "TASK_COMPLETE":
-                    runner.print_completion(state, args, workspace, run_dir)
+                    complete(runner, state, args, workspace, run_dir, state_path)
                     return owned_result(0)
             rendered = runner.lifecycle.present(state, run_dir)
             runner.write_json(state_path, state)
             runner.print_pause(state, args, workspace, run_dir, rendered)
         return owned_result(0 if state["status"] == "TASK_COMPLETE" else 2)
+
+
+def complete(runner, state: RunState, args, workspace, run_dir, state_path) -> None:
+    """Print a completed run's outcome, first opening the pull request a publish turn asked for
+    (autocode_publish_turn), so the outcome and the status view already show it."""
+    line = pull_request.deliver_requested(state, workspace, run_dir, lambda value: runner.write_json(state_path, value))
+    runner.print_completion(state, args, workspace, run_dir)
+    if line and not getattr(args, "json", False):
+        print(line.lstrip("\n"))

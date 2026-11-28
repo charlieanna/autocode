@@ -3332,6 +3332,32 @@ null. Unbound answers expose no diagnostic fields. Command output, report text,
 error text and control tokens are never included. This observation does not
 reconcile the run, permit a retry or establish passing evidence.
 
+## Pull request from a finished run
+
+A run that worked in a worktree and branch of its own commits its checked source to that branch when
+it completes. Putting the branch up for review needs no plan and no model, so it is one step,
+`autocode pr --run-dir RUN --open` (`tools/autocode_pull_request.py`, owner request 2026-11-28): it
+pushes the branch to the project's remote and opens a draft pull request whose body is the run's
+evidence report, or, when this run already opened one, pushes the branch's newer commits to it. It reads
+the run only through `--status --inspect-evidence`, and refuses, opening nothing, unless the run is
+done, it worked on its own branch, the branch holds exactly the worktree's source, and that source is
+what the run's validation checked: a `current` evidence report, or, after a later turn that built
+nothing (a question, or the request below), a `recorded` one with `verification.freshness` current at
+the revision the report names. Nothing is merged.
+
+The status view names the step as `pull_request` for a done run on its own branch in a project whose
+remote GitHub can name: `branch`, `repository`, the `url` of the pull request this run opened (null
+before one), a button `label` (Open pull request, then Update pull request) and `next_command`, the
+exact argument array above. A client takes it only when the person presses the button. Otherwise
+`pull_request` is null.
+
+A person can also ask in the chat. A follow-up such as "create a PR" goes to Requirements like any
+message; Requirements names the job `publish` when it asks only to put the finished work up for
+review. The turn then ends as a discussion Requirements answered: no Planner, Builder or review runs.
+Once the turn is saved, the runner runs the same `autocode pr` step, records what it did under
+`pull_request_request`, and the turn's chat result says which pull request it opened, or why none
+was. A request to change the work first is planned and built as usual.
+
 ## Connections for clients
 
 Metadata admission and uncertain cleanup are distinct internal outcomes. A check

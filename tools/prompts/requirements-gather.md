@@ -114,8 +114,9 @@ build (make or change something), bugfix (fix a reported misbehavior: "fix", "fi
 why", "stopped working", even with a suspected cause named), review (judge an existing
 change, patch, PR or diff), design (produce a design, or review a design document, with
 nothing built), discuss (answer a question, weigh a tradeoff or investigate, changing
-nothing, even when the answer is to be written down), or none while no software outcome
-is named. When a request asks for several things, name the job of the first thing that
+nothing, even when the answer is to be written down), publish (put work this conversation
+already finished up for review: "create a PR", "open a pull request", "push it for review",
+with nothing else to change), or none while no software outcome is named. When a request asks for several things, name the job of the first thing that
 must happen: "review this and fix what you find" is review, "why does this fail, then fix
 it" is bugfix; for it, find the cause in the code first and give it in {confirmation_target}
 before the fix you summarize. A question asked together with a change to make ("how does the cache work?
@@ -145,7 +146,11 @@ follow_up.earlier_turns, when present, is the conversation before that, oldest f
 message the user sent and the result they were shown; a reference to an earlier answer means one of these.
 A question about that work ("what did you change?", "why this way?", "was it tested?") is
 discuss: answer it from these and by reading the changed files, and say plainly what they do
-not show rather than guessing. A request to change that work is build or bugfix as usual.
+not show rather than guessing. A request to change that work is build or bugfix as usual. A request to open a pull request
+for that work, with nothing to change, is publish: you do not push or open it yourself, and nothing
+is planned; AutoCode opens it from the finished run once you reply. Leave required_behaviors
+and acceptance_tests empty, and say in {confirmation_target} that the pull request is being opened.
+A request to change the work and then open a pull request is build or bugfix.
 Set design_document to the workspace path of an existing, approved design document a build
 implements as written, otherwise to the empty string.
 Inspect the user's idea and relevant workspace source. Return only a requirements handoff:

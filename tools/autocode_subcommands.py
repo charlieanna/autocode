@@ -65,6 +65,7 @@ SUBCOMMANDS = {
     "worktrees": "autocode_worktree_choice",
     "prune-run": "autocode_prune_run",
     "merge": "autocode_merge",
+    "pr": "autocode_pull_request_cli",
     "models": "model_catalogue",
     "probe": "autocode_probe_cli",
     "review": "autocode_review_cli",

@@ -527,6 +527,30 @@ export class RunController {
     return JSON.parse(result.stdout) as WorkingComparison;
   }
 
+  /** The view's named pull request: push the run's branch and open (or update) its draft pull request.
+   * The core checks the evidence and the branch's bytes; the person has already confirmed the press. */
+  async openPullRequest(run: RunRef): Promise<{ url: string; opened: boolean }> {
+    const view = await this.status(run);
+    const action = view.pull_request;
+    if (!action) throw new ClientGap("AutoCode offers no pull request for this run now.");
+    const own = effective(view, run);
+    const expected = ["pr", "--workspace", own.workspace, "--run-dir", own.runDir, "--open", "--json"];
+    if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
+      throw new ClientGap("Unsupported pull-request action from AutoCode");
+    }
+    const result = await invoke(this.settings, expected);
+    let answer: { url?: unknown; opened?: unknown; error?: unknown } = {};
+    try {
+      answer = JSON.parse(result.stdout.trim().split("\n").pop() ?? "{}");
+    } catch {
+      answer = {};
+    }
+    if (result.code !== 0 || typeof answer.url !== "string") {
+      throw new Error(typeof answer.error === "string" ? answer.error : tail(result));
+    }
+    return { url: answer.url, opened: answer.opened === true };
+  }
+
   /** The view's named, display-only diff of what the running Builder has changed so far. */
   async workingDiff(run: RunRef): Promise<WorkingComparison> {
     const view = await this.status(run);

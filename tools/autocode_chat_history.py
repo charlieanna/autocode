@@ -14,6 +14,7 @@ try:
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_only as plan_only
     from . import autocode_project_delivery as project_delivery
+    from . import autocode_publish_turn as publish_turn
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_review_only as review_only
@@ -26,6 +27,7 @@ except ImportError:
     import autocode_plan_file as plan_file
     import autocode_plan_only as plan_only
     import autocode_project_delivery as project_delivery
+    import autocode_publish_turn as publish_turn
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_review_only as review_only
@@ -55,6 +57,7 @@ def response(state: RunState) -> str:
         parts = [answer.get("answer", "")]
         parts.extend(f"{row.get('claim', '')} ({row.get('source', '')})" for row in answer.get("evidence") or [])
         parts.extend(answer.get("questions") or [])
+        parts.append(publish_turn.outcome_text(state))  # a publish turn's pull request (autocode_publish_turn)
         return "\n\n".join(part for part in parts if part)
     if reviewed := review_only.response(state):
         branch = state.get("task_branch")

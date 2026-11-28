@@ -258,6 +258,16 @@ export interface CodeCheckpoints {
   restores?: Record<string, unknown>[] | null;
 }
 
+/** The status view's `pull_request`; a client takes `next_command` only when the person presses its button. */
+export interface PullRequestOffer {
+  branch: string;
+  repository: string;
+  /** The pull request this run already opened, or null before one. */
+  url: string | null;
+  label: string;
+  next_command: string[];
+}
+
 /** Descriptions of saved recovery actions; execution still uses next_command. */
 export interface Recovery {
   token?: string;
@@ -324,6 +334,9 @@ export interface StatusView {
   controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;
+  /** A done run on a branch of its own: the `autocode pr` action that pushes the branch and opens or
+   * updates its draft pull request, with no model call (owner request 2026-11-28). */
+  pull_request?: PullRequestOffer | null;
   /** What the request spans beyond this repository; `linked` lists the other runs of its change set (#2066). */
   scope?: { linked?: LinkedRun[] | null; [key: string]: unknown } | null;
   /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */

@@ -359,7 +359,8 @@ def understood(state: RunState) -> str:
 
 
 # The jobs that build nothing (autocode_workflows.WORKFLOWS), named here so this module imports only util.
-READ_ONLY_JOBS = ("review", "design", "discuss")
+# publish puts a finished turn's work up for review and is no workflow of its own (autocode_publish_turn).
+READ_ONLY_JOBS = ("review", "design", "discuss", "publish")
 JOBS = ("build", "bugfix", *READ_ONLY_JOBS)
 
 

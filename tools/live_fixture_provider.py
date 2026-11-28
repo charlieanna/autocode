@@ -871,6 +871,21 @@ def main() -> int:
                 open_questions=[],
                 job="none",
             )
+        said = str((data.get("follow_up") or {}).get("message") or "")
+        if "pull request" in said.lower():
+            # "Open a pull request for this" after the greeting CLI was built: nothing to plan or build
+            # (autocode_publish_turn); AutoCode opens it from the finished run.
+            report.update(
+                summary="Opening a pull request for the greeting CLI on its branch.",
+                intended_outcome="Open a pull request for the finished greeting CLI",
+                required_behaviors=[],
+                acceptance_tests=[],
+                requirements=[],
+                proposed_assumptions=[],
+                constraints=[],
+                open_questions=[],
+                job="publish",
+            )
     elif stage == "draft_plan":
         report = {
             "summary": "Handwritten greeting plan",

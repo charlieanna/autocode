@@ -293,7 +293,9 @@ It is a client of the
   `view.pause.next_command` boundary pause the owner approved on 2026-10-19
   for #1598, its `view.pause.stop_now` variant that ends the running step at once, owner request
   2026-11-12 for #3263, the running Builder's display-only `code_checkpoints.working` diff,
-  owner decision 2026-10-19, and the run's display-only `code_checkpoints.all_changes` diff),
+  owner decision 2026-10-19, the run's display-only `code_checkpoints.all_changes` diff, and a
+  finished run's `pull_request.next_command`, which pushes its branch and opens or updates its draft
+  pull request when the person presses and confirms it, owner request 2026-11-28),
   so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
@@ -587,6 +589,14 @@ default) and a **Fast lane** (`fast`), and AutoCode no longer second-guesses tha
 request's clarity or `sensitive-paths` ("avoid this plan qualifies thing"). A draft is still reviewed when it cannot
 be approved without one (an open question, a record only the Plan Reviewer may seal, a progressive or design-backed
 plan), and every revision is reviewed as before. Do not skip a later gate without the owner's decision.
+
+**"Create a PR" needs no plan, owner decision 2026-11-28.** A finished run's branch is put up for review by
+one step with no model call, `autocode pr` (`tools/autocode_pull_request.py`): push the run's own branch and open
+or update its draft pull request with the run's evidence, refused unless the source is what the run's validation
+checked. The status view names it (`pull_request`) and the VS Code client offers it as a button. A follow-up asking
+for it is read by Requirements, which names the job `publish`; the turn ends with no Planner, Builder or review, and
+the runner then runs that step (`tools/autocode_publish_turn.py`). The owner chose this over letting Requirements
+push itself: no stage may push or open a pull request (`autocode_publish_guard`). Nothing merges automatically.
 
 **Four run modes, and Review only, owner decision 2026-11-27.** The run modes are the Slow lane, the Fast lane,
 Plan only and **Review only** (`--review-only`, `tools/autocode_review_only.py`), which reviews a pull request,

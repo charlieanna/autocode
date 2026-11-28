@@ -90,6 +90,7 @@ try:
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_project_notes_lifecycle as project_notes
+    from . import autocode_pull_request as pull_request
     from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_exhaustion as recovery_exhaustion
@@ -170,6 +171,7 @@ except ImportError:
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_project_notes_lifecycle as project_notes
+    import autocode_pull_request as pull_request
     import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
     import autocode_recovery_exhaustion as recovery_exhaustion
@@ -284,7 +286,7 @@ def requirements_view(state: RunState) -> dict | None:
         "conflicts": conflicts,
         # What Requirements named in this report, before the person confirms it (#3630): the
         # workflow field reports the job only once it starts, and the model probe grades both.
-        "job": report.get("job") if report.get("job") in (*workflows.WORKFLOWS, "none") else None,
+        "job": report.get("job") if report.get("job") in (*workflows.WORKFLOWS, "none", "publish") else None,
         "clarity": report.get("clarity") if report.get("clarity") in adaptive_planning.CLARITY else None,
         # What Requirements said it understood, to show beside its questions (requirements_review.understood).
         "understood": requirements_review.understood(state),
@@ -697,6 +699,11 @@ def view(
     # outside this checkout renders it (#2068): requirement_id, the criteria it cites (evidence) and
     # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
     result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
+    # A done run on a branch of its own: the action that pushes it and opens (or updates) its pull request,
+    # with no model call (autocode_pull_request). None otherwise.
+    result["pull_request"] = pull_request.offer(
+        done=result["done"], place=result["worktree"], workspace=result["workspace"], run_dir=run_dir
+    )
     result["requirements"] = requirements_view(state)
     if (
         result["requirements"] is not None

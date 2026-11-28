@@ -103,6 +103,8 @@ export interface PanelState {
   workingDiff: { label: string } | null;
   /** The run's whole change, once a step is saved: the one diff a person reads (owner decision 2026-11-13). */
   allChanges: { label: string; context: string } | null;
+  /** A done run on a branch of its own: the view's pull-request button, and the pull request it opened. */
+  pullRequest: { label: string; url: string | null; branch: string } | null;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; identity: string; overview: TextNode[]; review: TextNode[]; suiteReports?: DisplayedPlan["suite_reports"]; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null; milestones: { id: string; objective: string; acceptance_criteria: string[] }[]; flow: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -594,6 +596,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
           : null]),
     } : null,
     workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
+    pullRequest: view.pull_request && Array.isArray(view.pull_request.next_command) ? {
+      label: view.pull_request.label ?? "Open pull request",
+      url: typeof view.pull_request.url === "string" ? view.pull_request.url : null,
+      branch: view.pull_request.branch,
+    } : null,
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -795,6 +802,7 @@ function emptyState(run: RunRef): PanelState {
     pauseOffer: null,
     allChanges: null,
     workingDiff: null,
+    pullRequest: null,
     plan: null,
     boundRaise: null,
     jobTimeControls: [],
@@ -1478,6 +1486,41 @@ function renderAllChanges(state) {
   app.appendChild(box);
 }
 
+let pullRequestNote = null;  // what the last press said: { busy } | { url } | { error }, for this tab only
+
+/** A done run on a branch of its own: push it and open (or update) its draft pull request, after a confirm. */
+function renderPullRequest(state) {
+  if (!chatMode || !state.pullRequest) return;
+  const heading = el('h2', null, 'Pull request');
+  heading.id = 'pull-request';
+  app.appendChild(heading);
+  const box = el('div', 'decision');
+  const button = el('button', state.pullRequest.url ? 'secondary' : null, state.pullRequest.label);
+  button.id = 'pull-request-open';
+  button.disabled = Boolean(state.unreadable || (pullRequestNote && pullRequestNote.busy));
+  button.addEventListener('click', () => {
+    pullRequestNote = { busy: true };
+    render(state);
+    vscode.postMessage({ type: 'pull_request', runKey: state.workspace + '\\n' + state.runDir });
+  });
+  box.appendChild(button);
+  const url = (pullRequestNote && pullRequestNote.url) || state.pullRequest.url;
+  if (pullRequestNote && pullRequestNote.busy) {
+    box.appendChild(el('div', 'why', 'Waiting for the confirmation, then pushing ' + state.pullRequest.branch + '…'));
+  } else if (pullRequestNote && pullRequestNote.error) {
+    box.appendChild(el('div', 'why', 'No pull request was opened: ' + pullRequestNote.error));
+  } else if (url) {
+    const line = el('div', 'why', 'Pull request: ');
+    const link = el('a', null, url);
+    link.href = url;
+    line.appendChild(link);
+    box.appendChild(line);
+  } else {
+    box.appendChild(el('div', 'why', 'Pushes ' + state.pullRequest.branch + ' and opens a draft pull request with the run evidence. Nothing is merged.'));
+  }
+  app.appendChild(box);
+}
+
 function formatDuration(seconds) {
   const whole = Math.floor(seconds);
   if (whole < 60) return whole + 's';
@@ -1772,7 +1815,7 @@ function render(state) {
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.now, state.chat.review, state.chat.gate, state.chat.input && state.chat.input.kind],
     state.chat && (state.chat.messages || []).filter((row) => String(row.id || '').startsWith('requirements-question-')),
     state.workingDiff, state.boundRaise, state.jobTimeControls, state.done, state.finish,
-    state.allChanges,
+    state.allChanges, state.pullRequest, pullRequestNote,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -2025,6 +2068,7 @@ function render(state) {
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (state.done && state.finish) renderFinish(state);
     renderAllChanges(state);
+    renderPullRequest(state);
     // The strip goes last: it sticks to the thread's bottom edge only while content follows it,
     // and the thread follows new content to the end. The run's changes or a finish card after it
     // scrolled the one button a waiting run needs above the window.
@@ -2410,6 +2454,11 @@ window.addEventListener('message', (event) => {
     renderedState = '';
     if (current) render(current);
   }
+  if (data && data.type === 'pull_request' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+    pullRequestNote = data.cancelled ? null : data.error ? { error: data.error } : { url: data.url };
+    renderedState = '';
+    if (current) render(current);
+  }
   if (data && data.type === 'working_diff' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
     workingCompare = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
@@ -2605,7 +2654,7 @@ function renderChat(data) {
       field.value = incoming;
     }
     current = null; renderedState = ''; answers = Object.create(null);
-    allChangesCompare = null; workingCompare = null;
+    allChangesCompare = null; workingCompare = null; pullRequestNote = null;
     allChangesRequested = false;
     allChangesVisible = false;
     liveLog.clear();

@@ -25,12 +25,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_plan_chat as plan_chat
+    from . import autocode_publish_turn as publish_turn
     from . import autocode_requirements_answer as requirements_answer
     from . import autocode_requirements_review as requirements_review
     from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_plan_chat as plan_chat
+    import autocode_publish_turn as publish_turn
     import autocode_requirements_answer as requirements_answer
     import autocode_requirements_review as requirements_review
     import autocode_task_input as task_input
@@ -175,6 +177,12 @@ def answer_now(state: RunState, record: dict) -> bool:
         return False
     report = (state.get("requirements_handoff") or {}).get("report") or {}
     known = (state.get("workflow") or {}).get("kind")
+    if known is None and publish_turn.named(report):
+        # "Create a PR" after a finished task: nothing to plan; the runner opens it once the turn is saved.
+        if any(row.get("id") not in (state.get("answers") or {}) for row in report.get("open_questions") or []):
+            return False
+        publish_turn.finish(state, report, record)
+        return True
     if known not in (None, "discuss") or not requirements_answer.conversational(
         {**report, "job": known or report.get("job")}
     ):

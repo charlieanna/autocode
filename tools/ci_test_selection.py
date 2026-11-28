@@ -502,6 +502,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_acceptance_policy.py", ("tests.test_planning_scope_discipline",)),
     ("tools/autocode_acceptance_examples.py", ("tests.test_acceptance_examples", "tests.test_report_admission_parity")),
     ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
+    # `autocode pr` runs as a subprocess in its tests, and the runner launches it after a publish turn.
+    ("tools/autocode_pull_request_cli.py", ("tests.test_pull_request",)),
     (
         "tools/autocode_saved_names.py",
         ("tests.test_saved_names", "tests.test_saved_names_cli", "tests.test_recovery_view"),
@@ -561,6 +563,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_taskrun",
             "tests.test_agent_step",
             "tests.test_codex_capture_copy",
+            "tests.test_pull_request",
         ),
     ),
     *(

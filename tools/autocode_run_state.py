@@ -261,6 +261,7 @@ KEYS: frozenset[str] = frozenset(
         "project_worked_in_place",
         "project_workspace",
         "prompts_hash",
+        "pull_request_request",
         "reasoning_escalations",
         "reasoning_exhaustion_recoveries",
         "reconciliation_notes",
@@ -498,6 +499,9 @@ class RunState(TypedDict, total=False):
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
     finished_at: str | None  # legacy completion time read by evidence_export; no new writer
+    # publish_turn.finish writes it when Requirements names publish; pull_request.deliver_requested adds the
+    # outcome; chat_history reads it for the turn's result (autocode_publish_turn)
+    pull_request_request: dict | None
 
     _authorized_bound_change: Any
     # Test-only fixture hooks live in ``_fixture`` (owned by autocode_fixture_state, #3468).

@@ -685,7 +685,10 @@ SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {"type": 
 SCHEMAS["requirements_gather"]["properties"]["assistant_reply"] = S
 # Requirements names the job it understood (#1846, #1860; workflows.from_requirements), or "none"
 # while no software outcome is named yet. Optional for saved reports; asked for in every run.
-SCHEMAS["requirements_gather"]["properties"]["job"] = {"type": "string", "enum": [*workflows.WORKFLOWS, "none"]}
+SCHEMAS["requirements_gather"]["properties"]["job"] = {
+    "type": "string",
+    "enum": [*workflows.WORKFLOWS, "none", "publish"],  # publish: autocode_publish_turn
+}
 SCHEMAS["requirements_gather"]["properties"]["design_document"] = S
 # Judged with the job in an adaptive run (adaptive.requirements_judge_clarity).
 SCHEMAS["requirements_gather"]["properties"]["clarity"] = {"type": "string", "enum": list(adaptive.CLARITY)}

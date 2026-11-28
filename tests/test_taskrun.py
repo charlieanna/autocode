@@ -221,6 +221,7 @@ class RunViewTests(unittest.TestCase):
                 "report_repair",
                 "pause",
                 "checkout_wait",
+                "pull_request",
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",

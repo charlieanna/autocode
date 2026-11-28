@@ -816,6 +816,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "all_changes") { await this.allChanges(message); return; }
+    if (message.type === "pull_request") { await this.pullRequest(message); return; }
     if (message.type === "working_diff") { await this.workingDiff(message); return; }
     if (message.type === "pause") { await this.pause(message); return; }
     if (message.type === "stopNow") { await this.pause(message, true); return; }
@@ -1105,6 +1106,37 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
     } finally {
       this.pausing.delete(key);
+      await this.refresh();
+    }
+  }
+
+  /** The view's named pull request, after the person confirms: AutoCode pushes the run's branch and opens
+   * (or updates) its draft pull request with the run's evidence. Nothing is merged. */
+  private async pullRequest(message: ChatMessage): Promise<void> {
+    const tab = this.active;
+    const run = tab.run;
+    if (!run || message.runKey !== tab.key) return;
+    const key = tab.key;
+    const offer = tab.status?.pull_request;
+    if (!offer) {
+      void this.view?.webview.postMessage({ type: "pull_request", runKey: key, error: "AutoCode offers no pull request for this run now." });
+      return;
+    }
+    const proceed = await vscode.window.showWarningMessage(
+      `${offer.label} for ${offer.branch}?`,
+      { modal: true, detail: `AutoCode pushes ${offer.branch} to ${offer.repository} and ${offer.url ? "updates its pull request" : "opens a draft pull request"} with the run's evidence. No model runs, and nothing is merged.` },
+      offer.label,
+    );
+    if (proceed !== offer.label) {
+      void this.view?.webview.postMessage({ type: "pull_request", runKey: key, cancelled: true });
+      return;
+    }
+    try {
+      const result = await this.controller.openPullRequest(run);
+      void this.view?.webview.postMessage({ type: "pull_request", runKey: key, url: result.url });
+    } catch (error) {
+      void this.view?.webview.postMessage({ type: "pull_request", runKey: key, error: messageOf(error) });
+    } finally {
       await this.refresh();
     }
   }

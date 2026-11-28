@@ -171,6 +171,12 @@ and AutoCode takes it through Requirements and the plan again on the same branch
 display-only read, so the button stays available while a stage runs or the chat waits for one of its
 commands (#3871).
 
+**Pull request** appears once a finished chat's run worked on a branch of its own in a project with a
+GitHub remote (`pull_request`, owner request 2026-11-28). **Open pull request** asks you to confirm,
+then AutoCode pushes the branch and opens a draft pull request with the run's evidence, with no model
+call; the section then links it, and **Update pull request** pushes later work to the same one. Asking
+in the chat ("create a PR") does the same without a plan. Nothing is merged.
+
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and the open project's chats, and retains unavailable pointers with their
 diagnostic. Both surfaces use the core's named commands, including the optional

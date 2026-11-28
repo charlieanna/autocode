@@ -5650,6 +5650,69 @@ test('a late failed diff read cannot replace a newer successful read in the same
   assert.ok(!text.includes('earlier read failed'));
 });
 
+const PULL_REQUEST = ['pr', '--workspace', run.workspace, '--run-dir', run.runDir, '--open', '--json'];
+
+function finishedOnBranch() {
+  const view = checkpointView();
+  view.status = 'TASK_COMPLETE';
+  view.done = true;
+  view.needs = null;
+  view.next_command = null;
+  view.pull_request = { branch: 'autocode/greet', repository: 'acme/widgets', url: null, label: 'Open pull request',
+    next_command: PULL_REQUEST };
+  return view;
+}
+
+// Owner request 2026-11-28: a finished run on its own branch is put up for review with no model call.
+test('a finished run opens its pull request from the named argv after the person confirms', async (t) => {
+  const ui = await openChat(t, finishedOnBranch());
+  const button = ui.document.querySelector('#pull-request-open');
+  assert.equal(button.textContent, 'Open pull request');
+  const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Open pull request');
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ url: 'https://github.example/acme/widgets/pull/1', opened: true }) + '\n' };
+  });
+  button.click();
+  await flush(); await flush(); await flush();
+  assert.equal(confirm.mock.callCount(), 1);
+  assert.match(confirm.mock.calls[0].arguments[1].detail, /nothing is merged/);
+  assert.deepEqual(calls.filter((argv) => argv[0] === 'pr'), [PULL_REQUEST]);
+  const link = ui.document.querySelector('#app a[href="https://github.example/acme/widgets/pull/1"]');
+  assert.ok(link, 'the opened pull request is linked');
+});
+
+test('a declined confirmation pushes nothing, and a refusal says why', async (t) => {
+  const ui = await openChat(t, finishedOnBranch());
+  let answer;
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => answer);
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, code: 1, stdout: JSON.stringify({ error: 'the evidence is stale' }) };
+  });
+  ui.document.querySelector('#pull-request-open').click();
+  await flush(); await flush();
+  assert.deepEqual(calls.filter((argv) => argv[0] === 'pr'), []);
+  assert.equal(ui.document.querySelector('#pull-request-open').disabled, false);
+  answer = 'Open pull request';
+  ui.document.querySelector('#pull-request-open').click();
+  await flush(); await flush(); await flush();
+  assert.match(ui.document.querySelector('#app').textContent, /No pull request was opened: the evidence is stale/);
+});
+
+test('no pull request is offered unless the view names one, and an unknown argv is refused', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  assert.equal(ui.document.querySelector('#pull-request-open'), null);
+  const view = finishedOnBranch();
+  view.pull_request.next_command = ['pr', '--workspace', run.workspace, '--run-dir', run.runDir, '--open', '--ready', '--json'];
+  t.mock.method(controller, 'status', async () => view);
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  await assert.rejects(controller.openPullRequest(run), /Unsupported pull-request action/);
+  assert.equal(invoked.mock.callCount(), 0);
+});
+
 test('a failed all-changes read says why in the section', async (t) => {
   const ui = await openChat(t, checkpointView());
   t.mock.method(cli, 'invoke', async () => ({ ...ok, code: 2, stdout: '', stderr: 'Input rejected: storage gone' }));
