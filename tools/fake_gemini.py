@@ -35,8 +35,9 @@ import uuid
 from pathlib import Path
 
 ARGS = sys.argv[1:]
-MODELS = ("auto", "gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite")
-MODELS += tuple(name for name in os.environ.get("AUTOCODE_FIXTURE_GEMINI_MODELS", "").split(",") if name)
+# AUTOCODE_FIXTURE_GEMINI_MODELS adds models the account lists, comma-separated (a newer Pro, say).
+LISTED = tuple(name for name in os.environ.get("AUTOCODE_FIXTURE_GEMINI_MODELS", "").split(",") if name)
+MODELS: tuple[str, ...] = ("auto", "gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-flash-lite", *LISTED)
 REFRESH = {
     "workspace": (
         "Failed to refresh auth for models list, falling back to default catalog: ProjectIdRequiredError: "
