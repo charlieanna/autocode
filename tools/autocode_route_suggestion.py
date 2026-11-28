@@ -194,7 +194,7 @@ def suggest(settings: dict[str, Any], board: dict[str, Any], *, backend: str) ->
         pick = better[0]
         record["suggested"] = _stats(pick)
         blocked = _clash(role, pick["model"], settings) or (
-            None if pick["model"] == ran["model"] else _not_stronger(pick["model"], ran["model"])
+            None if pick["model"] == ran["model"] else _not_stronger(pick["model"], str(ran["model"]))
         )
         if blocked:
             record["blocked"] = blocked
