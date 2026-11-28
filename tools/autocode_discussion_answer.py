@@ -14,17 +14,17 @@ requirement ids it answers. ``problems`` lists what keeps them from answering th
 - a finding or negative finding with no ``evidence`` among the files and pinned sources the report read
   (its ``source_refs``; the person's own inputs and web pages are what was asked, not where it was read);
 - an evidence gap that does not say what would settle it (``would_settle``);
-- a statement that restates the request: a copy of one of its sentences or clauses, or the request's own
-  words wrapped in asking or process framing ("you want to know whether ...", "Determine whether ...").
+- a statement that restates the request: a copy of one of its sentences or clauses, or an unanswered
+  question wrapped in asking or process framing ("you want to know whether ...", "Determine whether ...").
 
 A supported negative finding and an explicit evidence gap are answers: the person asked a question, and
 "no path calls it" or "this cannot be read from here, and this would settle it" says what is so.
 
-The restatement test is lexical. It refuses a reply built only from the request's words, in whatever
-inflection ("staged" where the request said "stages"); a finding that
-adds anything of its own (a function, a value, a file, which of two options holds) passes it, and whether
-that claim is right stays with its evidence, the person and their follow-up. Which reports are held to
-findings is ``autocode_requirements_answer.answers_itself``, the same predicate that decides Requirements
+The restatement test is lexical, not a semantic proof. Question-framed clauses supply no conclusion,
+regardless of new words inside that framing; a separate assertion or explicit evidence gap must answer.
+The remaining assertions must not merely copy the request, including its inflections ("staged" where it
+said "stages"). Whether a claim is right stays with its evidence, the person and their follow-up. Which
+reports are held to findings is ``autocode_requirements_answer.answers_itself``, the same predicate that decides Requirements
 answers the discussion. Domain layer: pure over the report; imports only the standard library.
 """
 
@@ -254,6 +254,21 @@ _FRAMING = frozenset(
     ]
 )
 _CLAUSES = re.compile(r"[.!?;:]\s+|[.!?;:]$|\n+")
+_INTERROGATIVE = re.compile(r"\b(?:whether|why|how|what|which|where|when|who)\b", re.IGNORECASE)
+_ACTIVITIES = frozenset(("review", "investigation", "analysis", "assessment", "inspection", "audit"))
+_GAP_PREFIX = re.compile(
+    r"\b(?:cannot|can't|could not|unable|unknown|unclear|undetermined|"
+    r"not (?:know|known|settled|determined)|no evidence)\b",
+    re.IGNORECASE,
+)
+_REPORTED_CLAIM = re.compile(
+    r"\b(?:found|confirmed|observed|established|showed|shows|demonstrated|verified)\s+that\b",
+    re.IGNORECASE,
+)
+_ASSERTION_CLAUSES = re.compile(
+    _CLAUSES.pattern + r"|\s+(?=(?:and|but)\s+(?:(?:we|I)\s+)?" + _REPORTED_CLAIM.pattern + ")",
+    re.IGNORECASE,
+)
 _LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 # A copied clause shorter than this is not evidence of copying: "Why?" or "Keep it" recur in answers.
 _MIN_COPIED = 3
@@ -343,13 +358,38 @@ def _without(tokens: list[tuple[str, str]], clause: list[str]) -> list[tuple[str
     return out
 
 
+def _question_only(clause: str) -> bool:
+    """An asking/process frame does not assert the proposition inside its indirect question.
+
+    Inspect the matrix clause, not vocabulary novelty inside the question. A negative matrix
+    ("cannot determine whether ...") asserts an evidence gap; a code subject ("the worker checks
+    whether ...") describes behavior rather than the reviewer's work.
+    """
+    question = _INTERROGATIVE.search(clause)
+    if question is None:
+        return False
+    prefix_text = clause[: question.start()]
+    if _GAP_PREFIX.search(prefix_text) or _REPORTED_CLAIM.search(prefix_text):
+        return False
+    prefix = _words(prefix_text)
+    stems = [_stem(word) for word in prefix]
+    subject = next((word for word in prefix if word not in _FILLER), "")
+    return (
+        not prefix
+        or any(stem in _FRAMING_STEMS for stem in stems)
+        or _stem(subject) in _PROCESS_STEMS
+        or any(word in _ACTIVITIES for word in prefix)
+    )
+
+
 def restates(statement, request_texts) -> bool:
     """Whether ``statement`` says back what was asked instead of what was found.
 
-    It does when, after removing every clause it copies from the request, only filler remains, or when it
-    adds no word of its own to the request's and frames them as the asking ("whether", "you want to know")
-    or as an instruction ("Determine ..."). Words compare without their inflection (``_stem``)."""
-    tokens = _tokens(statement)
+    Discard question-only clauses before comparing assertions to the request: extra words inside
+    "the question remains whether ..." are still part of a question, not a new finding.
+    Words compare without their inflection (``_stem``)."""
+    assertions = [clause for clause in _ASSERTION_CLAUSES.split(str(statement or "")) if not _question_only(clause)]
+    tokens = _tokens(" ".join(assertions))
     if not tokens:
         return True
     remaining = tokens

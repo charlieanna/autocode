@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_checkout_lock as checkout_lock
 import autocode_taskrun as taskrun
@@ -135,6 +136,71 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
                 self.assertTrue(Path(record["prompt"]).is_file())
                 self.assertTrue(Path(record["events"]).is_file())
                 self.assertTrue(Path(record["output"]).is_file())
+
+    def test_cited_question_is_repaired_before_discussion_completes(self):
+        question = "The question remains why app/metadata.py keeps its cache in-process rather than in a shared file."
+        answer = (
+            "metadata() uses functools.lru_cache(maxsize=256), so cached results live in Python memory "
+            "for that process; it does not read or write a shared cache file."
+        )
+        attempts = self.root / "answer-attempts.jsonl"
+        original_setup = fake_setup
+
+        def setup(*args):
+            flags, environment = original_setup(*args)
+            provider = self.root / "bin/codex"
+            base = provider.with_name("base_codex.py")
+            provider.rename(base)
+            provider.write_text(f"""#!{sys.executable}
+import json, subprocess, sys
+from pathlib import Path
+if sys.argv[1:] == ['login', 'status']:
+    print('Logged in using ChatGPT (offline fixture)')
+    raise SystemExit(0)
+prompt = sys.stdin.read()
+data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])
+repair = bool(data.get('report_repair'))
+stage = data['original']['stage'] if repair else data['stage']
+result = subprocess.run([sys.executable, {str(base)!r}, *sys.argv[1:]],
+                        input=prompt, text=True, capture_output=True, check=True)
+output = Path(sys.argv[sys.argv.index('-o') + 1])
+wire = json.loads(output.read_text())
+report = wire.get('repair_report', wire)
+if stage == 'requirements_gather':
+    statement = {answer!r} if repair else {question!r}
+    report['findings'] = [{{
+        'requirement_ids': [row['id'] for row in report['requirements']],
+        'kind': 'finding', 'statement': statement,
+        'evidence': ['app/metadata.py'], 'would_settle': '',
+    }}]
+    report['assistant_reply'] = statement
+    output.write_text(json.dumps(wire))
+    with Path({str(attempts)!r}).open('a') as stream:
+        stream.write(json.dumps({{'repair': repair, 'error': data.get('error'),
+                                  'statement': statement}}) + '\\n')
+print(result.stdout, end='')
+""")
+            provider.chmod(0o755)
+            return flags, environment
+
+        before = {}
+        with mock.patch(f"{__name__}.fake_setup", side_effect=setup):
+            run, project = self.start(
+                "discuss-cache-choice",
+                brief="Why does app/metadata.py keep its cache in-process rather than in a shared file?",
+                before=lambda project: before.update(self.files(project)),
+            )
+        view = run.status()
+        self.assertTrue(view["done"], self.details(view))
+        rows = [json.loads(line) for line in attempts.read_text().splitlines()]
+        self.assertEqual([False, True], [row["repair"] for row in rows], rows)
+        self.assertIn("restates the request", rows[1]["error"])
+        self.assertEqual([question, answer], [row["statement"] for row in rows])
+        self.assertTrue(any(row.get("rejected") for row in view["usage"]["accounting"]["attempts"]))
+        reply = next(row["text"] for row in reversed(view["chat"]["messages"]) if row["role"] == "assistant")
+        self.assertIn(answer, reply)
+        self.assertEqual(before, self.files(project))
+        self.assertEqual(0, self.ran(run, "builder"))
 
     def hold_checkout(self, project):
         """Another run's agents working in the project's checkout, as a second chat finds them."""

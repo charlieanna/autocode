@@ -56,6 +56,13 @@ GAP = (
     "RegAgent later writes nameservers cannot be read from this repository."
 )
 SETTLE = "The RegAgent source or a reconcile log showing the EPP commands it sends."
+UNANSWERED = (
+    "The question remains whether the DK worker stages nameserver writes or only pulses domain status.",
+    "The central question still concerns whether the DK worker stages nameserver writes or only pulses domain status.",
+    "This review carefully checks whether the DK worker stages nameserver writes or only pulses domain status in production.",
+    "You asked precisely how the DK worker stages nameserver writes or pulses domain status.",
+    "Whether the DK worker stages nameserver writes or only pulses domain status remains the central question.",
+)
 
 
 def row(kind, statement, evidence=(), *, ids=("R1", "R2"), would_settle=""):
@@ -155,6 +162,16 @@ class AcceptanceGateTests(unittest.TestCase):
         error = self.assert_not_completed(report(findings=[row("finding", framed, ["app/worker.py"])]))
         self.assertIn("restates the request", error)
 
+    def test_incidental_new_words_do_not_turn_a_question_into_a_finding(self):
+        for statement in UNANSWERED:
+            with self.subTest(statement=statement):
+                error = self.assert_not_completed(report(findings=[row("finding", statement, ["app/worker.py"])]))
+                self.assertIn("restates the request", error)
+
+    def test_labeling_a_question_as_an_evidence_gap_does_not_answer_it(self):
+        error = self.assert_not_completed(report(findings=[row("evidence_gap", UNANSWERED[0], would_settle=SETTLE)]))
+        self.assertIn("restates the request", error)
+
     def test_substantive_answer_completes_with_its_findings_in_the_answer(self):
         state = self.accept(answered())
         self.assertEqual("TASK_COMPLETE", state["status"])
@@ -165,15 +182,30 @@ class AcceptanceGateTests(unittest.TestCase):
         self.assertIn(FINDING, requirements_answer.render(state))
 
     def test_supported_negative_finding_completes(self):
-        state = self.accept(report(findings=[row("negative_finding", NEGATIVE, ["app/worker.py", "app/reconcile.py"])]))
-        self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertIn("Not found (R1, R2): " + NEGATIVE, state["answer"]["answer"])
+        for statement in (
+            NEGATIVE,
+            "Inspection confirmed that no worker path checks whether nameserver writes are pending.",
+        ):
+            with self.subTest(statement=statement):
+                state = self.accept(
+                    report(findings=[row("negative_finding", statement, ["app/worker.py", "app/reconcile.py"])])
+                )
+                self.assertEqual("TASK_COMPLETE", state["status"])
+                self.assertIn("Not found (R1, R2): " + statement, state["answer"]["answer"])
 
     def test_explicit_evidence_gap_completes(self):
-        state = self.accept(report(findings=[row("evidence_gap", GAP, would_settle=SETTLE)]))
-        self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertIn(GAP, state["answer"]["answer"])
-        self.assertIn(SETTLE, state["answer"]["answer"])
+        for statement in (
+            GAP,
+            "We cannot determine whether RegAgent writes nameservers from the local worker code.",
+            "We can't determine whether RegAgent writes nameservers from the local worker code.",
+            "We can't know whether RegAgent writes nameservers from the local worker code.",
+            "It is unknown whether RegAgent writes nameservers; its implementation is outside this repository.",
+        ):
+            with self.subTest(statement=statement):
+                state = self.accept(report(findings=[row("evidence_gap", statement, would_settle=SETTLE)]))
+                self.assertEqual("TASK_COMPLETE", state["status"])
+                self.assertIn(statement, state["answer"]["answer"])
+                self.assertIn(SETTLE, state["answer"]["answer"])
 
     def test_a_pinned_discuss_job_is_held_to_the_same_answer(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -232,6 +264,37 @@ class FindingProblemsTests(unittest.TestCase):
             with self.subTest(statement=statement):
                 self.assertEqual([], problems(report(findings=[row("finding", statement, ["app/worker.py"])])))
 
+    def test_question_framing_is_not_specific_to_the_reported_request(self):
+        for request, statement in (
+            (
+                "Why does the cache live in-process?",
+                "The important question remains why the cache lives in-process for this service.",
+            ),
+            (
+                "Determine how the queue retries failed jobs.",
+                "This investigation carefully examines how the queue retries failed jobs during an outage.",
+            ),
+            (
+                "Which scheduler owns retries?",
+                "You wanted a detailed explanation of which scheduler owns retries in production.",
+            ),
+        ):
+            with self.subTest(statement=statement):
+                self.assertTrue(discussion_answer.restates(statement, [request]))
+
+    def test_question_context_does_not_hide_an_actual_conclusion(self):
+        for statement in (
+            UNANSWERED[0] + " " + FINDING,
+            "We checked whether the worker stages writes; it only pulses domain status.",
+            "The worker checks whether domain status is PENDING before enqueueing reconciliation.",
+            "We found that the worker checks whether domain status is PENDING before enqueueing reconciliation.",
+            "We confirmed that the worker checks whether domain status is PENDING before enqueueing reconciliation.",
+            "We checked whether the worker stages writes and found that it only pulses domain status.",
+            "We checked whether the worker stages writes and confirmed that it only pulses domain status.",
+        ):
+            with self.subTest(statement=statement):
+                self.assertEqual([], problems(report(findings=[row("finding", statement, ["app/worker.py"])])))
+
 
 class ScopeTests(unittest.TestCase):
     """Only a discussion Requirements would answer itself is held to findings."""
@@ -268,14 +331,19 @@ class ReportCheckParityTests(unittest.TestCase):
     def test_faults_and_report_check_name_the_restatement(self):
         with tempfile.TemporaryDirectory() as temporary:
             state = run_state(Path(temporary))
-            faults = requirements_faults.faults(restated(), requirements_faults.context(state))
             spec = report_check.build_spec(
                 stage="requirements_gather", workspace=Path(temporary), schema={}, state=state
             )
-            errors = report_check.check_report(json.dumps(restated()), spec=spec)
+            for value in (
+                restated(),
+                report(findings=[row("finding", UNANSWERED[0], ["app/worker.py"])]),
+            ):
+                with self.subTest(statement=value["findings"][0]["statement"]):
+                    faults = requirements_faults.faults(value, requirements_faults.context(state))
+                    errors = report_check.check_report(json.dumps(value), spec=spec)
+                    self.assertTrue(any("restates the request" in item for item in faults), faults)
+                    self.assertTrue(any("restates the request" in item for item in errors), errors)
             clean = report_check.check_report(json.dumps(answered()), spec=spec)
-        self.assertTrue(any("restates the request" in item for item in faults), faults)
-        self.assertTrue(any("restates the request" in item for item in errors), errors)
         self.assertFalse(any("findings" in item for item in clean), clean)
 
 

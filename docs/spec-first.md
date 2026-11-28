@@ -45,13 +45,16 @@ Before, the answer was the reply text alone, and admission checked only its sche
 quotes. A read-only review cited seven source files, replied with what the person had asked, and reached
 `TASK_COMPLETE`. Now the report is refused, and repaired like any other refused report, when it has no
 rows, a requirement no row answers, a finding without evidence it read, an evidence gap without
-`would_settle`, or a statement that restates the request: a copy of one of its sentences or clauses, or the
-request's own words framed as asking or process ("You want to know whether ...", "Determine whether
-..."), in whatever inflection ("staged" where you wrote "stages"). `autocode report-check` gives the same
-answer before a stage finishes. The restatement test is
-lexical: a statement that adds a claim of its own (a function, a value, which option holds) passes it, and
-whether the claim is right stays with its evidence and with you. Every other job, and a discussion written
-into a file, keeps `findings` empty (`tools/autocode_discussion_answer.py`).
+`would_settle`, or a statement that restates the request. Question-framed clauses ("You want to know
+whether ...", "The question remains whether ...", "This review checks how ...") do not count as findings,
+even with new descriptive words: they still ask rather than answer. Separate conclusions, including
+"... and found that ...", and explicit evidence gaps ("We cannot determine whether ...") remain answers.
+The remaining assertions must not simply copy a request clause, including inflections ("staged" where
+you wrote "stages"). `autocode report-check` gives the same answer before a stage finishes.
+
+This is a lexical guard, not a semantic proof of relevance or truth: novel assertions and paraphrases
+outside the recognized question frames still need evidence and human judgment. Every other job, and a
+discussion written into a file, keeps `findings` empty (`tools/autocode_discussion_answer.py`).
 
 ### How Requirements would do it (#4171)
 
