@@ -168,6 +168,11 @@ def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queu
     intent_only = clarification_only and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
     if local_refs or (builds_code and not intent_only and not catalog_refs):
         check_code_refs(state, local_refs, "source_refs")
+    # A discussion this report would answer and complete must answer what was asked, in findings, not
+    # restate it (#4237); report-check reads the same answer (autocode_requirements_faults.faults).
+    discussion_faults = requirements_faults.discussion_faults(value, requirements_faults.discussion_context(state))
+    if discussion_faults:
+        raise ValueError("; ".join(discussion_faults))
     # The answers this handoff was written with: an answer given after it sends Requirements back
     # (requirements_review.after_answers); one it already had does not.
     state["requirements_handoff"] = {

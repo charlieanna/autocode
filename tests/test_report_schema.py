@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_discussion_answer as discussion_answer
 import autocode_resolver_recommendation as recommendation
 import autocode_role_schema as role_schema
 from autocode_report_schema import (
@@ -367,7 +368,17 @@ class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
             self.assertEqual(raw, normalize_absent_authority(raw, self.schema, {"stage": "review_plan"}))
 
 
-class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
+class RequirementsListDefaultCases:
+    """A Requirements list field the strict wire schema requires loads as empty when a report omits it.
+
+    Only Requirements stages and their repairs gain it, only under a saved schema that declares it, and a
+    supplied value is never replaced, so a malformed one still fails.
+    """
+
+    FIELD = ""
+    ACCEPTED: tuple = ()
+    MALFORMED: tuple = ()
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -377,9 +388,7 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
             role_schema.obj(
                 {
                     "summary": {"type": "string"},
-                    "project_conventions": copy.deepcopy(
-                        autoplanner.SCHEMAS["requirements_gather"]["properties"]["project_conventions"]
-                    ),
+                    self.FIELD: copy.deepcopy(autoplanner.SCHEMAS["requirements_gather"]["properties"][self.FIELD]),
                 }
             )
         )
@@ -396,8 +405,8 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
             record["original_stage"] = original_stage
         return record, output
 
-    def test_absent_tags_default_to_empty_for_requirements_and_repair_preserving_raw(self):
-        raw = {"summary": "No reusable human conventions were tagged."}
+    def test_absent_field_defaults_to_empty_for_requirements_and_repair_preserving_raw(self):
+        raw = {"summary": f"The report leaves {self.FIELD} out."}
         before = copy.deepcopy((self.schema, raw))
         for stage in ("requirements_gather", "requirements"):
             for recorded, original in (
@@ -407,7 +416,7 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
             ):
                 with self.subTest(stage=recorded, original_stage=original):
                     record, output = self.files(self.schema, raw, recorded, original)
-                    expected = {**raw, "project_conventions": []}
+                    expected = {**raw, self.FIELD: []}
                     self.assertEqual(expected, runner.load_stage_report(record))
                     self.assertEqual(expected, json.loads(output.read_text()))
                     preserved = Path(record["reported_output"])
@@ -417,21 +426,21 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
                     self.assertEqual(self.schema, json.loads(Path(record["schema"]).read_text()))
         self.assertEqual(before, (self.schema, raw))
 
-    def test_supplied_tags_are_never_replaced_and_malformed_values_still_fail(self):
-        for supplied in ([], ["PROJECT_TEST_NAMES"], None, "PROJECT_TEST_NAMES", False, {}, [1], ["Q"] * 33):
+    def test_supplied_values_are_never_replaced_and_malformed_values_still_fail(self):
+        for supplied in (*self.ACCEPTED, *self.MALFORMED):
             with self.subTest(supplied=supplied):
-                raw = {"summary": "Current report", "project_conventions": supplied}
+                raw = {"summary": "Current report", self.FIELD: supplied}
                 record, output = self.files(self.schema, raw, "requirements")
                 before = output.read_bytes()
-                if supplied in ([], ["PROJECT_TEST_NAMES"]):
+                if supplied in self.ACCEPTED:
                     self.assertEqual(raw, runner.load_stage_report(record))
                 else:
-                    with self.assertRaisesRegex(ValueError, "project_conventions"):
+                    with self.assertRaisesRegex(ValueError, self.FIELD):
                         runner.load_stage_report(record)
                 self.assertEqual(before, output.read_bytes())
                 self.assertNotIn("reported_output", record)
 
-    def test_saved_schema_without_tags_does_not_gain_a_field(self):
+    def test_saved_schema_without_the_field_does_not_gain_it(self):
         schema = model_output_schema(role_schema.obj({"summary": {"type": "string"}}))
         raw = {"summary": "Existing report"}
         for stage in ("requirements_gather", "requirements_report_repair"):
@@ -442,8 +451,8 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
                 self.assertEqual(before, output.read_bytes())
                 self.assertNotIn("reported_output", record)
 
-    def test_unrelated_stages_do_not_gain_tags_and_original_stage_takes_precedence(self):
-        raw = {"summary": "No tags supplied"}
+    def test_unrelated_stages_do_not_gain_the_field_and_original_stage_takes_precedence(self):
+        raw = {"summary": f"No {self.FIELD} supplied"}
         for stage, original in (
             ("draft_plan", None),
             ("revise_plan", None),
@@ -452,10 +461,16 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
         ):
             with self.subTest(stage=stage, original_stage=original):
                 record, output = self.files(self.schema, raw, stage, original)
-                with self.assertRaisesRegex(ValueError, "missing project_conventions"):
+                with self.assertRaisesRegex(ValueError, f"missing {self.FIELD}"):
                     runner.load_stage_report(record)
                 self.assertEqual(raw, json.loads(output.read_text()))
                 self.assertNotIn("reported_output", record)
+
+
+class ProjectConventionsReportCompatibilityTests(RequirementsListDefaultCases, unittest.TestCase):
+    FIELD = "project_conventions"
+    ACCEPTED = ([], ["PROJECT_TEST_NAMES"])
+    MALFORMED = (None, "PROJECT_TEST_NAMES", False, {}, [1], ["Q"] * 33)
 
     def test_missing_other_required_fields_are_not_invented(self):
         record, output = self.files(self.schema, {}, "requirements")
@@ -516,6 +531,29 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
         )
         legacy = {"summary": "s", "proposed_assumptions": [{"id": "A1"}]}
         self.assertEqual(legacy, normalize_absent_authority(legacy, old, {"stage": "requirements_gather"}))
+
+
+class DiscussionFindingsReportCompatibilityTests(RequirementsListDefaultCases, unittest.TestCase):
+    """#4237: an omitted findings list loads empty instead of costing a report repair.
+
+    Only Claude Code and Codex enforce the wire schema; the other backends see it in the prompt, so a
+    report can leave findings out. Empty findings answer nothing: a discussion Requirements would answer
+    itself is still refused (tests.test_discussion_answer, findings is empty)."""
+
+    FIELD = discussion_answer.FIELD
+    ACCEPTED = (
+        [],
+        [
+            {
+                "requirement_ids": ["R1"],
+                "kind": "negative_finding",
+                "statement": "No caller stages nameserver writes.",
+                "evidence": ["app/worker.py:40"],
+                "would_settle": "",
+            }
+        ],
+    )
+    MALFORMED = (None, "findings", False, {}, [1], [{"kind": "finding", "statement": "Rows need every field."}])
 
 
 class GitDeliveryReportCompatibilityTests(unittest.TestCase):

@@ -132,6 +132,17 @@ open_questions only for facts you cannot find that would change the answer. Leav
 required_behaviors and acceptance_tests empty for discuss, unless the user wants the
 answer written into a file: then describe that file and its content in them, and it
 is planned and written like any other change.
+FINDINGS. When you answer a discussion yourself, put the answer in findings, one row per thing
+you established; the run completes on them, never on a reply that says the request back. kind
+is finding (what is so), negative_finding (what you looked for and did not find) or
+evidence_gap (what cannot be settled from what you read); a supported negative finding or an
+explicit evidence gap answers the question. statement says it in words of your own: never
+copy the question or frame it ("you want to know whether ...", "Determine whether ...").
+evidence cites the source_refs entries it was read from (required for finding and
+negative_finding); an evidence_gap says in would_settle what evidence would settle it.
+requirement_ids names the requirements it answers, and every requirement is named by at
+least one row, a constraint on the finding it shaped. Otherwise (every other job, or a
+discussion written into a file) findings is [].
 When follow_up is in the handoff data, the request continues a finished job in the same
 conversation: follow_up.message is the user's new message and the rest says what came
 before. Name the job of the new message in that context. Acting on a review's findings

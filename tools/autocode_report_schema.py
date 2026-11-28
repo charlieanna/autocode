@@ -14,6 +14,7 @@ try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_changed_code_review as changed_code_review
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_discussion_answer as discussion_answer
     from . import autocode_planning_report_policy as planning_policy
     from . import autocode_tester_probes as tester_probes
 except ImportError:
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_changed_code_review as changed_code_review
     import autocode_design_coverage as design_coverage
+    import autocode_discussion_answer as discussion_answer
     import autocode_planning_report_policy as planning_policy
     import autocode_tester_probes as tester_probes
 
@@ -69,8 +71,11 @@ def normalize_absent_authority(value, schema, record):
         for row in result["concerns"]:
             if isinstance(row, dict):
                 row.setdefault("draft_failure_correction", None)
-    if stage in ("requirements_gather", "requirements") and "project_conventions" in properties:
-        result.setdefault("project_conventions", [])
+    # Requirements lists the strict wire schema requires but a prompt-schema backend may leave out. Empty
+    # findings answer nothing (#4237): a discussion Requirements answers itself is still refused for them.
+    for field in ("project_conventions", discussion_answer.FIELD):
+        if stage in ("requirements_gather", "requirements") and field in properties:
+            result.setdefault(field, [])
     request = result.get("user_request")
     kind = properties.get("user_request", {}).get("properties", {}).get("recommended_revision", {}).get("type")
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
