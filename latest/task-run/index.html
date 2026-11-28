@@ -1896,7 +1896,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0d22f9f357a7cc0e4b4b2054143182203ae002b6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3263,7 +3263,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/0d22f9f357a7cc0e4b4b2054143182203ae002b6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4152,7 +4152,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/0d22f9f357a7cc0e4b4b2054143182203ae002b6/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/92b5fcf0f5280719f85cc16c5f1ec8dc5a5e4fa3/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5759,6 +5759,11 @@ launch for older cores.</p>
 <td><code>--joint-planning --spec-first --plan-only</code></td>
 <td>The same Requirements conversation, Planner and Plan Reviewer, then the run ends at the accepted plan: the Builder, the Tester and the Completion Reviewer never run and nothing is changed (<a href="#plan-only-runs">Plan-only runs</a>).</td>
 </tr>
+<tr>
+<td><code>review</code> ("Review only")</td>
+<td><code>--joint-planning --spec-first --review-only</code></td>
+<td>The review job on the same path as every task: Requirements, a reviewed plan the person approves, then the Builder writes the review as <code>review/findings.json</code> and the Tester and the Completion Reviewer check it. Nothing else in the project changes (<a href="#review-only-runs">Review-only runs</a>).</td>
+</tr>
 </tbody>
 </table>
 <p>Every chat starts with the Requirements conversation (owner decision,
@@ -5787,6 +5792,24 @@ plan is planned and reviewed again under the same choice. <code>autocode plan --
 writes the accepted plan as a file to review or share. The flag needs joint
 planning, cannot be combined with <code>--skip-to-build</code>, and is chosen when the run
 starts; a saved run keeps its choice.</p>
+<h3 id="review-only-runs">Review-only runs<a class="headerlink" href="#review-only-runs" title="Permanent link">&para;</a></h3>
+<p>A run started with <code>--review-only</code> (owner decision, 2026-11-27) reviews a change and changes nothing but
+its findings. It is the review job (<code>workflow</code> <code>review</code>, named by the run rather than read from the
+request) on the path every task takes (#3010): Requirements, the Planner, the Plan Reviewer, the
+person's approval of the displayed plan, the Builder, the Tester and the Completion Reviewer. No
+retired stage runs. Every stage reads one rule: the only deliverable is <code>review/findings.json</code> in a
+fixed shape (<code>verdict</code> <code>approve</code> or <code>request_changes</code>, <code>change_under_review</code>, and <code>findings</code> with <code>id</code>,
+<code>severity</code> <code>blocking</code> or <code>advisory</code>, <code>file</code>, <code>lines</code>, <code>summary</code> and <code>evidence</code>), how to find the change
+under review (a pull request the request names, a branch, a commit range, a patch file or the
+uncommitted change), and that every blocking finding is confirmed by the Tester from its evidence.</p>
+<p>Before the first Builder attempt the runner saves the workspace as a Git object, uncommitted changes
+included. A Builder attempt that changes any file outside <code>review/</code> has that file put back from it and
+goes again at once, its findings kept, and its next prompt names the files; after two such attempts
+under one plan the next is rejected through the ordinary invalid-output path, where the Investigator
+takes it. Completion is refused while the turn has changed a file outside <code>review/</code>. The finished
+chat's result is the verdict, the counts and each blocking finding by file and line. The flag needs
+joint planning, cannot be combined with another <code>--workflow</code>, <code>--plan-only</code> or <code>--skip-to-build</code>, and
+is chosen when the run starts; a saved run keeps its choice, so acting on the findings is a new chat.</p>
 <h3 id="automatic-routes-for-new-runs">Automatic routes for new runs<a class="headerlink" href="#automatic-routes-for-new-runs" title="Permanent link">&para;</a></h3>
 <p>New runs automatically select qualified models from the chosen tool's connected
 accounts, preferring subscriptions and preserving independent checking. No per-role
