@@ -144,7 +144,7 @@ SAME_VENDOR_CHECKS = (
 )
 
 
-def text(found, use) -> str:
+def text(found, use, listed=None) -> str:
     lines = ["AutoCode runs on Claude Code, Codex, Gemini CLI, OpenCode or Kilo. What this machine has:"]
     for row in found:
         state = str(row.get("connection_status") or "unknown")
@@ -171,7 +171,8 @@ def text(found, use) -> str:
     else:
         lines += ["", f'New runs use {use["label"]} ({use["reason"]}). Start a task with: autocode "your idea"']
         if use["id"] in ENGINES:
-            lines.append(second_vendor(found, use["id"], use["label"]) or SAME_VENDOR_CHECKS.format(label=use["label"]))
+            checks = second_vendor(found, use["id"], use["label"], listed)
+            lines.append(checks or SAME_VENDOR_CHECKS.format(label=use["label"]))
     return "\n".join(lines)
 
 
@@ -180,22 +181,44 @@ SAY_WHY = frozenset({"gemini"})
 
 
 # A signed-in one-vendor backend that can check another's work, with the stage flags that move the Tester there.
-def second_vendor(found, engine, own=None) -> str | None:
+def second_vendor(found, engine, own=None, listed=None) -> str | None:
     """What a signed-in second vendor does for new runs on ``engine`` (shown as ``own``), or None
     (autocode_second_vendor). A Codex run plans jointly only when asked, so by default it has no Plan Reviewer
-    to move."""
+    to move. The stages are the ones a launch would move (``second_vendors.taken``): ``listed`` gives a tool's
+    account listing by name, and without it the tool's own catalogue is read."""
     connected = {row["id"]: row for row in found if row.get("connection_status") in CONNECTED}
     for name, _executable in second_vendors.SECOND_VENDORS.get(engine, ()):
         if name in connected:
             own = own or next((row["label"] for row in found if row["id"] == engine), engine)
             label = connected[name]["label"]
-            roles = [role for role in second_vendors.CHECKERS if engine != "codex" or role != "plan_reviewer"]
+            moving = [role for role in second_vendors.CHECKERS if engine != "codex" or role != "plan_reviewer"]
+            roles, left = second_vendors.taken(providers.resolve(name), moving, listed(name) if listed else None)
+            if not roles:
+                continue
             stages = ", ".join(second_vendors.LABELS[role] for role in roles)
+            stay = ""
+            if left:
+                names = " and ".join(second_vendors.LABELS[role] for role in left)
+                stay = (
+                    f"; the {names} {'stay' if len(left) > 1 else 'stays'} on {own} until your account lists a "
+                    f"{label} model for it as new as the one {label} builds with"
+                )
             return (
-                f"{label} is signed in too, so it checks the work of new runs on {own} ({stages}); "
+                f"{label} is signed in too, so it checks the work of new runs on {own} ({stages}){stay}; "
                 "a stage you choose a model for keeps it"
             )
     return None
+
+
+def account_models(name):
+    """The models a second vendor's account lists, for a tool whose checking model follows that listing; else None."""
+    facade = providers.resolve(name)
+    if not callable(getattr(facade, "checker_models", None)):
+        return None
+    try:
+        return sorted(facade.available_models())
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return None  # the tool's own catalogue is read instead
 
 
 # A hub's sign-in connects one of many accounts, in the hub's own picker; the offer says which, so
@@ -450,9 +473,9 @@ def cli(argv=None) -> int:
         if args.json:
             print(json.dumps({"version": 1, "backends": found, "new_runs_use": use}))
         else:
-            print(text(found, use))
+            print(text(found, use, account_models))
     else:
-        print(text(found, new_runs_use(found)))
+        print(text(found, new_runs_use(found), account_models))
         try:
             changed = False
             installed = _install(found, wanted=args.install, ask=input)
@@ -466,7 +489,7 @@ def cli(argv=None) -> int:
         use = new_runs_use(found)
         if changed:
             print()
-            print(text(found, use))
+            print(text(found, use, account_models))
         note = hub_note(installed, found, use)
         if note:
             print(note)

@@ -667,9 +667,9 @@ autocode "Add a --json flag" --engine claude    # Gemini checks the work by itse
 autocode "Add a --json flag" --provider gemini
 ```
 
-With Gemini CLI signed in, a new Claude Code run moves its Plan Reviewer, Tester and Completion
-Reviewer to Gemini 2.5 Pro by itself, and a new Gemini run moves them to Claude Code when it is
-signed in ([checks by a second vendor](models.md#checks-by-a-second-vendor)); `autocode setup` says
+With Gemini CLI signed in, a new Claude Code run moves its Tester to Gemini's Pro by itself, and its
+Plan Reviewer and Completion Reviewer too once your account lists a Pro as new as the model Gemini CLI
+builds with; a new Gemini run moves all three to Claude Code when it is signed in ([checks by a second vendor](models.md#checks-by-a-second-vendor)); `autocode setup` says
 so. `--role-transport tester=gemini --tester-model gemini-2.5-pro` moves only the stages you name. A run that names no backend takes Gemini CLI only when OpenCode, Claude Code, Codex
 and Kilo are all absent or signed out ([default engine](#default-provider)).
 

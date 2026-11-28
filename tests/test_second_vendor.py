@@ -5,6 +5,7 @@ import types
 import unittest
 
 import autocode_second_vendor as second_vendor
+from providers import gemini
 
 GEMINI_MODELS = {"plan_reviewer": "gemini-2.5-pro", "tester": "gemini-2.5-pro", "completion": "gemini-2.5-pro"}
 
@@ -16,6 +17,23 @@ def facade(label, models=GEMINI_MODELS, refusal=None):
         return {}
 
     return types.SimpleNamespace(LABEL=label, DEFAULT_MODELS=models, login_check=login_check)
+
+
+def gemini_facade(listed=None, refusal=None):
+    """Gemini CLI as the launch sees it: its real catalogue and model rules, with a scripted sign-in check."""
+
+    def login_check(workspace=None):
+        if refusal:
+            raise RuntimeError(refusal)
+        return {"loggedIn": True, "models": ["auto", *(listed or gemini.LISTED_MODELS)]}
+
+    return types.SimpleNamespace(
+        LABEL=gemini.LABEL,
+        DEFAULT_MODELS=gemini.DEFAULT_MODELS,
+        login_check=login_check,
+        checker_models=gemini.checker_models,
+        older_than_builder=gemini.older_than_builder,
+    )
 
 
 def args(**given):
@@ -134,6 +152,112 @@ class SecondVendorTests(unittest.TestCase):
         decision = self.apply(given, run_tool="codex", installed=("claude", "gemini"))
         self.assertEqual("claude", decision["provider"])
         self.assertIn("a second vendor checks what Codex plans and builds", decision["reason"])
+
+
+class OlderCheckerTests(unittest.TestCase):
+    """A second vendor never gives a final review to a model older than the one its own tool builds with.
+
+    Gemini CLI's catalogue names gemini-2.5-pro for every checking stage while it builds with gemini-3.5-flash,
+    so on a Claude Code run that Pro replaced Opus as Plan Reviewer and Completion Reviewer on every new run.
+    """
+
+    def setUp(self):
+        self.tools = {"claude": facade("Claude Code"), "gemini": gemini_facade(), "codex": config_facade("Codex", {})}
+        self.said = []
+
+    def apply(self, given, installed=("gemini",), **extra):
+        return second_vendor.apply(
+            given,
+            "claude",
+            say=self.said.append,
+            which=lambda name: f"/bin/{name}" if name in installed else None,
+            resolve=self.tools.__getitem__,
+            environ={},
+            **extra,
+        )
+
+    def test_a_pro_older_than_the_tools_own_builder_takes_the_tester_and_leaves_the_final_reviews(self):
+        given = args()
+        decision = self.apply(given)
+        self.assertEqual(["tester=gemini"], given.role_transport)
+        self.assertEqual((None, "gemini-2.5-pro", None), self.models(given))
+        self.assertEqual(({"tester": "gemini-2.5-pro"}, ["plan_reviewer", "completion"]), self.moved(decision))
+        self.assertIn(
+            "the Plan Reviewer and Completion Reviewer stay on Claude Code, because gemini-2.5-pro is older than "
+            "the model Gemini CLI builds with",
+            decision["reason"],
+        )
+        self.assertIn("Gemini CLI runs the Tester (gemini-2.5-pro). ", self.said[0])
+        self.assertIn("stay on Claude Code", self.said[0])
+
+    def test_the_newest_pro_the_account_lists_takes_every_check(self):
+        listings = {
+            "a released Pro of the builder's generation": (["gemini-2.5-pro", "gemini-3.5-pro"], "gemini-3.5-pro"),
+            "a newer generation": (["gemini-4-pro", "gemini-3.5-pro", "gemini-2.5-pro"], "gemini-4-pro"),
+            "only a preview of it": (
+                ["gemini-2.5-pro", "gemini-3.5-pro-preview-11-20"],
+                "gemini-3.5-pro-preview-11-20",
+            ),
+            "a release beside its preview": (["gemini-3.5-pro-preview", "gemini-3.5-pro"], "gemini-3.5-pro"),
+        }
+        for name, (listed, model) in listings.items():
+            with self.subTest(name):
+                self.tools["gemini"] = gemini_facade(listed)
+                given = args()
+                decision = self.apply(given)
+                self.assertEqual((dict.fromkeys(second_vendor.CHECKERS, model), []), self.moved(decision))
+                self.assertEqual((model,) * 3, self.models(given))
+                self.assertNotIn("stay", decision["reason"])
+
+    def test_a_newer_pro_still_behind_the_builder_leaves_the_final_reviews(self):
+        # gemini-3-pro is newer than the catalogue's Pro and older than gemini-3.5-flash; a -tts variant is no Pro.
+        self.tools["gemini"] = gemini_facade(["gemini-2.5-pro", "gemini-3-pro-preview", "gemini-9-pro-tts"])
+        decision = self.apply(args())
+        self.assertEqual(({"tester": "gemini-3-pro-preview"}, ["plan_reviewer", "completion"]), self.moved(decision))
+        self.assertIn("because gemini-3-pro-preview is older", decision["reason"])
+
+    def test_only_one_final_review_left_is_named_alone(self):
+        decision = self.apply(args(plan_reviewer_model="claude-opus-5-5"))
+        self.assertEqual(({"tester": "gemini-2.5-pro"}, ["completion"]), self.moved(decision))
+        self.assertIn("the Completion Reviewer stays on Claude Code", decision["reason"])
+
+    def test_a_tool_left_no_stage_gives_way_to_the_next_signed_in_one(self):
+        # The person chose the Tester's model, and this Gemini's Pro may take neither final review.
+        given = args(tester_model="claude-sonnet-5-5")
+        self.assertIsNone(self.apply(given))
+        self.assertEqual(([], []), (given.role_transport, self.said))
+        self.tools["codex"] = config_facade("Codex", CODEX_MODELS)
+        decision = self.apply(given, installed=("gemini", "codex"))
+        self.assertEqual("codex", decision["provider"])
+        self.assertEqual(["plan_reviewer", "completion"], list(decision["roles"]))
+
+    def test_a_tool_without_the_model_rules_takes_every_check_as_before(self):
+        self.tools["codex"] = config_facade("Codex", CODEX_MODELS)
+        decision = self.apply(args(), installed=("codex",))
+        self.assertEqual((CODEX_MODELS, []), self.moved(decision))
+        self.assertEqual((CODEX_MODELS, {}), second_vendor.taken(self.tools["codex"], second_vendor.CHECKERS))
+
+    def test_without_a_listing_the_catalogues_own_pro_is_read(self):
+        roles, left = second_vendor.taken(self.tools["gemini"], second_vendor.CHECKERS)
+        self.assertEqual({"tester": "gemini-2.5-pro"}, roles)
+        self.assertEqual(dict.fromkeys(("plan_reviewer", "completion"), "gemini-2.5-pro"), left)
+
+    def test_a_model_id_names_its_generation(self):
+        self.assertEqual((2, 5), gemini.generation("gemini-2.5-pro"))
+        self.assertEqual((3,), gemini.generation("gemini-3-pro-preview"))
+        self.assertEqual((None, None), (gemini.generation("auto"), gemini.generation(None)))
+        self.assertTrue(gemini.older_than_builder("gemini-2.5-pro"))
+        self.assertFalse(gemini.older_than_builder("gemini-3.5-pro"))
+        self.assertFalse(gemini.older_than_builder("auto"))  # an id that names no generation is not judged older
+        self.assertEqual("gemini-2.5-pro", gemini.checker_models(["gemini-1.5-pro", 7])["completion"])
+
+    @staticmethod
+    def models(given):
+        return (given.plan_reviewer_model, given.tester_model, given.completion_model)
+
+    @staticmethod
+    def moved(decision):
+        return (decision["roles"], decision["own"])
 
 
 CODEX_MODELS = {"plan_reviewer": "gpt-6-astra", "tester": "gpt-5.6-sol", "completion": "gpt-5.6-sol"}

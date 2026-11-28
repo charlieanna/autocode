@@ -1219,6 +1219,8 @@ def _configure_transports(settings, args, workspace):
     if moved:
         # Why the checks moved (autocode_second_vendor), as the run's settings show it to reviewers and the report.
         settings["second_vendor"] = {key: moved[key] for key in ("provider", "roles", "kept", "reason")}
+        if moved.get("own"):  # the final reviews an older second-vendor model was refused (second_vendor.taken)
+            settings["second_vendor"]["own"] = moved["own"]
 
 
 def configure_joint(settings, args, *, fresh, planning, opencode=None):

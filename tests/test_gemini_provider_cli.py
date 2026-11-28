@@ -102,16 +102,37 @@ class GeminiProviderCliTests(unittest.TestCase):
             self.assertFalse(set(CANARIES) & set(call["env_names"]), call["argv"])
         self.assertTrue(all(call["prompt_head"].startswith("You are the Validator") for call in stages), stages)
 
-    def test_a_claude_code_run_moves_its_checks_to_a_signed_in_gemini(self):
-        # No transport flag: the launch finds Gemini CLI signed in and gives it the checking stages.
+    def test_a_claude_code_run_moves_only_its_tester_to_a_gemini_whose_pro_is_older_than_its_flash(self):
+        """Every checking stage moved to gemini-2.5-pro, so a model older than the one Gemini CLI itself builds
+        with replaced Claude Code's Opus as Plan Reviewer and Completion Reviewer."""
+        # No transport flag: the launch finds Gemini CLI signed in. Its catalogue's Pro is behind its Flash.
         run = self.start(("--engine", "claude"))
         view = self.finish(run, run.status())
         self.assertEqual("TASK_COMPLETE", view["status"], view)
         stages = self.stages()
         self.assertEqual({"gemini-2.5-pro"}, {call["argv"][call["argv"].index("--model") + 1] for call in stages})
         heads = {call["prompt_head"].split("\n", 1)[0] for call in stages}
+        self.assertEqual(1, len(heads), heads)  # the Tester alone; the final reviews ran on Claude Code
+        self.assertIn("You are the Validator", "\n".join(heads))
+        moved = json.loads((Path(run.run_dir) / "state.json").read_text())["settings"]["second_vendor"]
+        self.assertEqual(
+            ({"tester": "gemini-2.5-pro"}, ["plan_reviewer", "completion"]), (moved["roles"], moved["own"])
+        )
+        self.assertIn("stay on Claude Code, because gemini-2.5-pro is older", moved["reason"])
+
+    def test_a_claude_code_run_moves_its_checks_to_the_newest_pro_a_signed_in_gemini_lists(self):
+        self.env["AUTOCODE_FIXTURE_GEMINI_MODELS"] = "gemini-3.5-pro,gemini-3.5-pro-preview-11-20"
+        run = self.start(("--engine", "claude"))
+        view = self.finish(run, run.status())
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        stages = self.stages()
+        self.assertEqual({"gemini-3.5-pro"}, {call["argv"][call["argv"].index("--model") + 1] for call in stages})
+        heads = {call["prompt_head"].split("\n", 1)[0] for call in stages}
         self.assertGreater(len(heads), 1, heads)
         self.assertIn("You are the Validator", "\n".join(heads))
+        moved = json.loads((Path(run.run_dir) / "state.json").read_text())["settings"]["second_vendor"]
+        self.assertEqual(dict.fromkeys(("plan_reviewer", "tester", "completion"), "gemini-3.5-pro"), moved["roles"])
+        self.assertNotIn("own", moved)
 
     def test_a_run_on_gemini_completes(self):
         run = self.start(("--provider", "gemini"))
@@ -150,7 +171,7 @@ class GeminiProviderCliTests(unittest.TestCase):
         self.assertIn("GOOGLE_CLOUD_PROJECT", checks["engine:gemini"]["detail"])
         self.assertIn("export GOOGLE_CLOUD_PROJECT", checks["engine:gemini"]["fix"])
 
-    def test_setup_lists_a_signed_in_gemini_and_how_it_checks_claude_code(self):
+    def setup_text(self):
         done = subprocess.run(
             [sys.executable, str(TOOLS / "autocode.py"), "setup"],
             env=self.env,
@@ -160,14 +181,26 @@ class GeminiProviderCliTests(unittest.TestCase):
             cwd=self.project,
             stdin=subprocess.DEVNULL,
         )
-        self.assertIn("✔ Gemini CLI: signed in", done.stdout)
-        self.assertIn("New runs use Claude Code", done.stdout)
+        return done.stdout
+
+    def test_setup_lists_a_signed_in_gemini_and_how_it_checks_claude_code(self):
+        shown = self.setup_text()
+        self.assertIn("✔ Gemini CLI: signed in", shown)
+        self.assertIn("New runs use Claude Code", shown)
+        # The stages a launch would move: this account's Pro is older than the model Gemini CLI builds with.
+        self.assertIn(
+            "Gemini CLI is signed in too, so it checks the work of new runs on Claude Code (Tester); the Plan Reviewer "
+            "and Completion Reviewer stay on Claude Code until your account lists a Gemini CLI model for it as new as "
+            "the one Gemini CLI builds with",
+            shown,
+        )
+        self.assertNotIn("own models check each other's work", shown)
+        self.env["AUTOCODE_FIXTURE_GEMINI_MODELS"] = "gemini-3.5-pro"
         self.assertIn(
             "Gemini CLI is signed in too, so it checks the work of new runs on Claude Code (Plan Reviewer, Tester, "
-            "Completion Reviewer)",
-            done.stdout,
+            "Completion Reviewer); a stage",
+            self.setup_text(),
         )
-        self.assertNotIn("own models check each other's work", done.stdout)
 
 
 if __name__ == "__main__":
