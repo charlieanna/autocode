@@ -221,6 +221,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
         "XDG_CONFIG_HOME": str(config_home),
         # A fake run's checks never go to a real tool signed in on this host (autocode_second_vendor).
         "AUTOCODE_SECOND_VENDOR": "off",
+        "AUTOCODE_AUTO_CHOICE": "off",
     }
 
 

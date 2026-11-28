@@ -1171,6 +1171,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         for role, route in auto_selection["routes"].items():
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
+    _record_route_suggestion(settings, state["workspace"])
     role_route.record_efforts(args, settings, fresh=True)
     _list_review_ceilings(settings, provider_mod, state["workspace"], discover_explicit=hasattr(args, "auto_select"))
     verification_config.validate(settings["regression"])
@@ -1181,6 +1182,38 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         ),
         args,
     )
+
+
+def _record_route_suggestion(settings, workspace) -> None:
+    """Record what measured results would suggest for each stage of this new run, changing no route (#4251).
+
+    Shadow only (autocode_route_suggestion): ``settings["route_suggestion"]`` sits beside the routes that run.
+    The switch set to ``off`` records nothing, so the run's settings are exactly as before. A ledger that cannot
+    be read is recorded as unavailable; it never stops a launch.
+    """
+    try:
+        from . import autocode_providers as providers
+        from . import autocode_route_scoreboard as scoreboard
+        from . import autocode_route_suggestion as suggestion
+        from . import autocode_usage_report as usage_report
+    except ImportError:
+        import autocode_providers as providers
+        import autocode_route_scoreboard as scoreboard
+        import autocode_route_suggestion as suggestion
+        import autocode_usage_report as usage_report
+    if suggestion.mode(providers.user_config_path().parent) == suggestion.OFF:
+        return
+    backend = settings.get("provider") or settings.get("engine") or "unknown"
+    try:
+        board = scoreboard.build(usage_report.collect_rows(Path(workspace)))
+        settings["route_suggestion"] = suggestion.suggest(settings, board, backend=backend)
+    except Exception as error:  # noqa: BLE001 - shadow evidence never stops a launch
+        settings["route_suggestion"] = {
+            "schema": suggestion.SCHEMA,
+            "mode": suggestion.SHADOW,
+            "backend": backend,
+            "unavailable": f"{type(error).__name__}: {error}",
+        }
 
 
 def _provider_model(role, requested, mod=None):
