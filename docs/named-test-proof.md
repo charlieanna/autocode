@@ -11,6 +11,18 @@ and `guard:` criteria keep their named fail-to-pass and pass-to-pass requirement
 An explicit test or suite obligation for the same command takes precedence over
 a compile declaration; a Tester cannot reclassify a check in its report.
 
+A plan-only correction does not require a pretend source edit. When both plans
+have authenticated same-turn approvals and unchanged scope, the controller can
+reconcile a no-change Builder report using pinned, owned test receipts for the
+exact source revision. Compile-only receipts cannot establish a tested candidate
+without named passing tests. Missing or changed receipts, source drift and
+changed permission boundaries do not qualify.
+
+This recovers the handoff to a fresh independent Tester, not the old PASS.
+The corrected plan supplies the current checks, and all regression, changed-code
+and completion gates still execute. The handoff records both contract hashes,
+the original receipt pins and the checks that now need verification.
+
 When every criterion the proof covers is a `guard:` and the change adds or edits no test
 (it may change nothing, as a validation-only re-check does),
 the guards rest on tests the project already has: the proof runs the suite on the base and
