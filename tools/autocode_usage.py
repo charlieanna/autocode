@@ -39,6 +39,7 @@ from pathlib import Path
 
 try:
     from . import autocode_attempt_ledger as attempt_ledger
+    from . import autocode_cost_coverage as cost_coverage
     from . import autocode_names as names
     from . import autocode_prices as prices
     from . import autocode_request_usage as request_usage
@@ -52,6 +53,7 @@ try:
     from .autocode_attempt_ledger import finished_records, run_identity, running_stage
 except ImportError:
     import autocode_attempt_ledger as attempt_ledger
+    import autocode_cost_coverage as cost_coverage
     import autocode_names as names
     import autocode_prices as prices
     import autocode_request_usage as request_usage
@@ -475,9 +477,9 @@ def accounting(state: RunState):
         # translator's session total, as a Codex stage's is, not a stream of native request finishes.
         translated = record.get("output_mode") == "codex_events"
         if record.get("engine") == "opencode" and not requests and not translated:
-            issues.append("No native request finishes; unobserved usage is unknown")
+            issues.append(cost_coverage.NO_FINISH_ISSUE)
         if translated and not runner and metrics.get("provider_tokens_partial") is True:
-            issues.append("The stage's event stream was cut; its usage is a lower bound")
+            issues.append(cost_coverage.CUT_STREAM_ISSUE)
         tokens = {
             key: 0 if runner else _count(_dict(metrics.get("provider_tokens")).get(key))
             for key in request_usage.TOKEN_KEYS
