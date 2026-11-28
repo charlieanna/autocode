@@ -733,11 +733,11 @@ class ContentHashes:
 _CONTENT_HASHES = ContentHashes()
 
 
-def _other_entry(path, unborn_ok=True):
+def _other_entry(path, unborn_ok=True, withhold=None):
     """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
     if path.is_dir():
         return (
-            "submodule:" + snapshot(path, nested=True, unborn_ok=unborn_ok)["revision"]
+            "submodule:" + snapshot(path, nested=True, unborn_ok=unborn_ok, withhold=withhold)["revision"]
             if (path / ".git").exists()
             else "uninitialized-submodule"
         )
@@ -812,14 +812,21 @@ def inventory_excluded(name: str) -> bool:
     )
 
 
-def snapshot(workspace, nested=False, unborn_ok=True):
+def snapshot(workspace, nested=False, unborn_ok=True, withhold=None):
     """Hash current source content, executable modes and nested Git worktrees.
 
     A nested repository with no commit yet (a scratch ``git init`` inside the project) has
     head "unborn" rather than stopping the run; the workspace itself still needs a HEAD.
     ``unborn_ok=False`` keeps the refusal for callers that bind an identity to the whole tree.
+    ``withhold(name)`` names files whose bytes are not read: a present one has the identity
+    "withheld", whatever its type, so a sandbox that refuses or masks them sees the same tree.
     """
-    if _SNAPSHOT_SERVICE is not None and unborn_ok and (served := _SNAPSHOT_SERVICE(workspace, nested)) is not None:
+    if (
+        _SNAPSHOT_SERVICE is not None
+        and unborn_ok
+        and withhold is None
+        and (served := _SNAPSHOT_SERVICE(workspace, nested)) is not None
+    ):
         return served
     root = Path(workspace)
     names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
@@ -838,12 +845,14 @@ def snapshot(workspace, nested=False, unborn_ok=True):
             info = os.lstat(full)
         except OSError:
             info = None  # missing or unreadable: _other_entry decides, as the path checks always have
-        if info is not None and stat.S_ISLNK(info.st_mode):
+        if withhold is not None and not name.endswith("/") and withhold(name) and os.path.lexists(full):
+            files[name] = "withheld"
+        elif info is not None and stat.S_ISLNK(info.st_mode):
             files[name] = "symlink:" + os.readlink(full)
         elif info is not None and stat.S_ISREG(info.st_mode):
             content = hashes.content(full, info, known, kept, settled_before)
             files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
-        elif (entry := _other_entry(root / name, unborn_ok)) is not None:
+        elif (entry := _other_entry(root / name, unborn_ok, withhold)) is not None:
             files[name] = entry
     head = (
         "unborn"
