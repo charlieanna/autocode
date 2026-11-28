@@ -12,10 +12,14 @@ its contents reaching the model:
   records it in ``display_input``) and OpenCode/Kilo ``read`` (its ``filePath``);
 - a successful shell command (Codex, Claude Code ``Bash``, OpenCode/Kilo ``bash``, the direct
   runtime) named it as an argument, or printed a ``path:LINE:`` hit for it (grep/rg output);
-- a shell command that failed but still printed it: a file it names whose whole text is in its
-  output (not a ``path:LINE:`` line, which a failed build or test prints as an error). ``cat a b c`` exits 1 when one of the three is missing or denied,
-  and the other two still reached the model (2026-11-17: a sandbox refused one linked file and the
-  two printed beside it were refused as unread, so Requirements paused).
+- a shell command that failed, or whose exit is unknown, but still printed it: a file it names whose
+  whole text, ``SHOWN_RUN`` consecutive non-blank lines, or a line under its own line number is in its
+  output, or a ``path:LINE:text`` hit whose text is that line of the file (a failed build or test
+  prints ``path:LINE:`` errors, whose text is not the line). ``cat a b c`` exits 1 when one of the
+  three is missing or denied, and the other two still reached the model (2026-11-17: a sandbox
+  refused one linked file and the two printed beside it were refused as unread, so Requirements
+  paused); ``sed -n 1,80p a.py; rg x docs`` exits 1 when the search finds nothing, and the excerpt
+  still reached the model (#4236: it was refused, and the repair reused the unusable citations).
 
 A name seen only in a listing (Glob, ``ls``, ``rg -l``, the workspace inventory) is not a read.
 Reads are taken from the current turn's records of the stage, including rejected, timed-out and
@@ -70,7 +74,12 @@ MAX_SHELL_DEPTH = 3
 # A file a failed command names is compared with its output only up to this size.
 MAX_SHOWN_BYTES = 1024 * 1024
 SHOWN_READS = 24
+# Consecutive non-blank lines of a file a failed command must print, in order, to count as its excerpt.
+SHOWN_RUN = 3
 _OUTPUT_HIT = re.compile(r"^(?:\./)?([^\s:]+):\d+[:-]", re.MULTILINE)
+_OUTPUT_LINE = re.compile(r"^(?:\./)?([^\s:]+):(\d+)[:-](.*)$", re.MULTILINE)
+# ``cat -n`` / ``nl`` (number, tab) and ``grep -n`` / ``rg -n`` on one file (number, colon or dash).
+_NUMBERED = re.compile(r"(?:\s*(\d+)\t|(\d+)[:-])(.*)")
 _GREP_BLOCK = re.compile(r"^(?:\./)?([^\s:]+):\r?\n\s+Line \d+:", re.MULTILINE)
 _LINES = re.compile(r"(\d+)(?:-(\d+))?(?:\s+.*)?", re.DOTALL)
 # ``require`` has always refused a line citation whose explanation spans lines; it keeps that syntax.
@@ -293,12 +302,14 @@ def read_targets(raw, workspace) -> list[str]:
         item, part = row.get("item"), row.get("part")
         if row.get("type") == "item.completed" and isinstance(item, dict):
             kind = item.get("type")
-            if kind == "command_execution" and type(item.get("exit_code")) is int:
+            if kind == "command_execution" and (
+                type(item.get("exit_code")) is int or isinstance(item.get("aggregated_output"), str)
+            ):
                 _shell(
                     item.get("command"),
                     item.get("aggregated_output"),
                     add,
-                    None if item["exit_code"] == 0 else root,
+                    None if type(item.get("exit_code")) is int and item["exit_code"] == 0 else root,
                     linked,
                 )
             elif kind == "tool_call" and item.get("name") in NATIVE_READ_TOOLS and item.get("status") == "completed":
@@ -319,37 +330,85 @@ def read_targets(raw, workspace) -> list[str]:
                     for pattern in (_OUTPUT_HIT, _GREP_BLOCK):
                         for hit in pattern.findall(part_state["output"]):
                             add(hit)
-            elif part.get("tool") in SHELL_TOOLS and status == "completed" and _shell_exit(part_state) is not None:
-                failed = root if _shell_exit(part_state) != 0 else None
-                _shell(arguments.get("command"), part_state.get("output"), add, failed, linked)
+            elif part.get("tool") in SHELL_TOOLS and status == "completed":
+                code = _shell_exit(part_state)
+                if code is None and not isinstance(part_state.get("output"), str):
+                    continue
+                _shell(arguments.get("command"), part_state.get("output"), add, None if code == 0 else root, linked)
     return list(found)
 
 
 def _shell(command, output, add, failed=None, linked=None):
-    """Credit a command's reads; ``failed`` (the workspace root) credits a named file only if its text was shown."""
+    """Credit a command's reads; ``failed`` (the workspace root) credits a file only by the text its output shows."""
     if isinstance(command, str):
         for token in _tokens(command, 0):
             if failed is None or isinstance(output, str) and _shown(failed, token, output, linked):
                 add(token)
-    if isinstance(output, str) and failed is None:  # a failed build or test also prints path:LINE: errors
+    if not isinstance(output, str):
+        return
+    if failed is None:
         for hit in _OUTPUT_HIT.findall(output):
             add(hit)
+        return
+    # A failed build or test also prints path:LINE: errors, so a hit counts only when its text is that line.
+    for name, number, text in _OUTPUT_LINE.findall(output.replace("\r\n", "\n")):
+        lines = _file_lines(failed, name, linked)
+        if lines and text.strip() and 0 < int(number) <= len(lines) and lines[int(number) - 1] == text:
+            add(name)
 
 
 def _shown(root: Path, name, output: str, linked=None) -> bool:
-    """Whether the whole, non-blank text of the workspace file ``name`` appears in ``output`` as whole lines."""
+    """Whether ``output`` shows the workspace file ``name``'s text as whole lines.
+
+    The whole file, or an excerpt: ``SHOWN_RUN`` consecutive non-blank lines of it in order (``sed -n``,
+    ``head``), or one non-blank line numbered with its own line number (``cat -n``, ``nl``, ``rg -n FILE``).
+    An error line that names the file or quotes one of its lines is not its text."""
+    lines = _file_lines(root, name, linked)
+    if not lines:
+        return False
+    shown = output.replace("\r\n", "\n")
+    text = "\n".join(lines).strip()
+    return (bool(text) and "\n" + text + "\n" in "\n" + shown + "\n") or _excerpt(lines, shown.split("\n"))
+
+
+def _excerpt(lines: list[str], output: list[str]) -> bool:
+    for row in output:
+        numbered = _NUMBERED.fullmatch(row)
+        if numbered and numbered[3].strip():
+            number = int(numbered[1] or numbered[2])
+            if 0 < number <= len(lines) and lines[number - 1] == numbered[3]:
+                return True
+    starts: dict[str, list[int]] = {}
+    for index, line in enumerate(lines):
+        if line.strip():
+            starts.setdefault(line, []).append(index)
+    for position, row in enumerate(output):
+        for start in starts.get(row, ()):
+            if start and position and lines[start - 1].strip() and lines[start - 1] == output[position - 1]:
+                continue  # inside a run already counted from an earlier non-blank line
+            shown, offset = 0, 0
+            while start + offset < len(lines) and position + offset < len(output):
+                if lines[start + offset] != output[position + offset]:
+                    break
+                shown += bool(lines[start + offset].strip())
+                offset += 1
+                if shown >= SHOWN_RUN:
+                    return True
+    return False
+
+
+def _file_lines(root: Path, name, linked=None) -> list[str]:
+    """The lines of the workspace file ``name`` when it is small enough to compare with output, else []."""
     relative = _workspace_file(root, name, linked)
     if relative is None:
-        return False
+        return []
     try:
         path = root / relative
         if path.stat().st_size > MAX_SHOWN_BYTES:
-            return False
-        text = path.read_text(errors="strict").strip()
+            return []
+        return path.read_text(errors="strict").replace("\r\n", "\n").split("\n")
     except (OSError, UnicodeDecodeError):
-        return False
-    lines = "\n" + output.replace("\r\n", "\n") + "\n"
-    return bool(text) and "\n" + text + "\n" in lines  # whole lines, so a name in an error line is not its text
+        return []
 
 
 def _tokens(command: str, depth: int):
