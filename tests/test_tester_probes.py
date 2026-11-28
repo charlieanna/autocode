@@ -25,6 +25,7 @@ import autocode_report_check as report_check
 import autocode_report_repair_queue as report_repair_queue
 import autocode_report_schema as report_schema
 import autocode_resolve_repair_job as resolve_repair_job
+import autocode_role_launch as role_launch
 import autocode_support as support
 import autocode_util as util
 import autocode_workflow as workflow
@@ -488,6 +489,43 @@ class TesterProbeTests(unittest.TestCase):
         supplied = make_tester_report([check(APPROVED, "event:item_1")], [row("C1", "check:1", probe_reason="Docs")])
         kept = report_schema.normalize_absent_authority(supplied, wire, {"stage": "tester"})
         self.assertEqual("Docs", kept["criterion_results"][0]["probe_reason"])
+
+    def test_the_launched_tester_schema_stays_strict_after_binding(self):
+        # A launch reads the strict wire schema and binds the run to it (review_generation_schema adds
+        # probe_reason). OpenAI structured output, which Codex uses, refuses an object whose required list
+        # leaves out a property, so every object in the saved schema must still require all its properties.
+        role = support.read(SCHEMA_DIR / "v2" / "sol-report.schema.json")
+        offered = self.run / "offered.schema.json"
+        offered.write_text(json.dumps(util.model_output_schema(base.runner.goals.role_schema(role, "tester"))))
+        saved = {}
+        schema, _prompt = role_launch.prepare_schema_and_report_check(
+            self.state,
+            "tester",
+            self.root,
+            self.run,
+            self.run / "tester-01",
+            offered,
+            "prompt",
+            False,
+            True,
+            None,
+            lambda path, value: saved.__setitem__(path, value),
+        )
+        bound = saved[schema]
+        self.assertIn("probe_reason", bound["properties"]["criterion_results"]["items"]["properties"])
+
+        def objects(node):
+            if isinstance(node, dict):
+                if node.get("type") == "object":
+                    yield node
+                for child in node.values():
+                    yield from objects(child)
+            elif isinstance(node, list):
+                for child in node:
+                    yield from objects(child)
+
+        for node in objects(bound):
+            self.assertEqual(sorted(node.get("properties", {})), sorted(node.get("required", [])))
 
     def test_the_combined_review_checkpoint_route_is_gated_like_the_tester(self):
         # review_checkpoint applies its validation as "tester" (workflow.apply_checkpoint) (#3979).

@@ -117,7 +117,12 @@ def prepare_schema_and_report_check(
     """Prepare shared instructions and schemas before provider-specific prompt sealing."""
     prompt = response_language.apply(prompt)
     if not report_only and original_stage in ("tester", "review_completion", "review_checkpoint", "resolve"):
-        bound_schema = support.review_generation_schema(support.read(schema), state, original_stage)
+        offered = support.read(schema)
+        bound_schema = support.review_generation_schema(offered, state, original_stage)
+        if offered == util.model_output_schema(offered):
+            # The offer is the strict wire schema (every property required): keep the fields this binding adds,
+            # such as the Tester's probe_reason, strict too, or OpenAI structured output refuses the schema.
+            bound_schema = util.model_output_schema(bound_schema)
         schema = base.with_suffix(".schema.json")
         save(schema, bound_schema)
     if (
