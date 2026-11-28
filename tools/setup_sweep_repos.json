@@ -426,10 +426,10 @@
       "prepare": [
         "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi"
       ],
-      "note": "npm test runs pnpm scripts by pattern, so only its exit code is read. On the CI runner its lint step fails to resolve an ES module import and the suite fails; on a host where pnpm hoists differently it passes.",
+      "note": "npm test runs pnpm scripts by pattern, so only its exit code is read. Its suite passes at this pin: on CI from 2026-11-26 and on a clean local install with the pnpm corepack resolves (12.23.0). From #4181 to 2026-11-25 CI saw its lint step fail to resolve an ES module import, with the same pin, Node 22.23.5, pnpm release and runner image (#4212); a flip back now prints its prepare log and the toolchains in the job output.",
       "expect": {
         "runner": "node",
-        "base": "failing",
+        "base": "passing",
         "targeted": false,
         "mutation": false,
         "coverage": null
