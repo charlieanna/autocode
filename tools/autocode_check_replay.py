@@ -358,7 +358,7 @@ def replay(
     stem = Path(record.get("output") or "validation").stem
     out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
     out.mkdir(parents=True, exist_ok=False)
-    state = approved_state or {}
+    state = cast("RunState", approved_state or {})
     # The original provider execution, not its repaired JSON formatting, owns
     # this obligation. A later Validator or any final check is new work; the
     # protected-test pair is bound to it too, so a report-only repair of the
@@ -400,7 +400,7 @@ def replay(
         return execution
 
     protected = protected_oracles.replay(
-        cast("RunState", state),
+        state,
         workspace,
         out,
         scratch_run,

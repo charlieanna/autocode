@@ -393,7 +393,7 @@ def _selection_groups(runner, selection, workspace, settings=None) -> list[tuple
 def _build_groups(runner, settings, workspace, run_dir, state: RunState):
     """Every execution provider must be reachable before implementation begins."""
     groups = _selection_groups(runner, {}, workspace, settings)
-    native = {}
+    native: dict[str, tuple[None, dict[str, dict], dict | None]] = {}
     for role, route in settings.get("roles", {}).items():
         if route.get("engine", settings.get("engine")) != "codex":
             continue

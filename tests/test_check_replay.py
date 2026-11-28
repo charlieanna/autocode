@@ -876,7 +876,10 @@ class CliTests(unittest.TestCase):
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        evidence = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]["evidence"]
+        public = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertEqual("READY", public["task_preflight"]["status"])
+        self.assertEqual("isolated_runner", public["task_preflight"]["execution_context"])
+        evidence = public["evidence"]
         replay = evidence["check_replay"]
         self.assertEqual("PASS", replay["verdict"])
         self.assertEqual(state["validation"]["source_revision"], replay["source_revision"])

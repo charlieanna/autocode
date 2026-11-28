@@ -14,6 +14,14 @@ execution and verified cleanup. Its immutable `task_preflight` receipt records
 readiness, never test credit or provider-sandbox attestation. Actual stage
 admission and every regression, acceptance and completion gate still run.
 
+Track delivery separately from readiness: reaching `TASK_COMPLETE` with verified
+output after only Requirements answers and exact-plan approval is delivery
+without operator repair. Record any manual resume, receipt repair or publishing
+repair rather than counting it as an unassisted success. The
+[reliability ledger](reliability-campaign.md#attempt-ledger-and-portfolio-report)
+already separates legitimate decisions from repairs; keep deterministic fixture
+results separate from live-provider pilot outcomes.
+
 Use `--task-preflight MANIFEST.json` for additional operator-declared
 prerequisites before planning, building or validation.
 
