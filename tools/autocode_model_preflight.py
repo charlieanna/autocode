@@ -247,6 +247,8 @@ def probe(
     checkpoint=None,
     deadline=None,
     role=None,
+    native_options=None,
+    require_completed=False,
 ) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome.
 
@@ -280,6 +282,7 @@ def probe(
             prepare=lambda argv, env: bare(argv, env, home=home.name),
             role=role,
             access_probe=True,
+            **({"native_options": native_options} if native_options is not None else {}),
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(
@@ -297,6 +300,17 @@ def probe(
         status, message = _classify(events_path, withheld_env=withheld_env)
         if status is None and result.get("exit_code"):
             status, message = "PAUSED_PROVIDER_UNCERTAIN", f"provider exited {result['exit_code']}"
+        if (
+            status is None
+            and require_completed
+            and not any(
+                row.get("type") == "turn.completed"
+                or row.get("type") == "step_finish"
+                and (row.get("part") or {}).get("reason") == "stop"
+                for row in result.get("rows") or []
+            )
+        ):
+            status, message = "PAUSED_PROVIDER_UNCERTAIN", "provider stream ended without a completed turn"
     return {
         "model": model,
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -374,6 +388,28 @@ def _selection_groups(runner, selection, workspace, settings=None) -> list[tuple
             identity = _receipt_identity(facade, facade._config)
         groups.append((facade, by_tool[tool], identity))
     return groups
+
+
+def _build_groups(runner, settings, workspace, run_dir, state: RunState):
+    """Every execution provider must be reachable before implementation begins."""
+    groups = _selection_groups(runner, {}, workspace, settings)
+    native = {}
+    for role, route in settings.get("roles", {}).items():
+        if route.get("engine", settings.get("engine")) != "codex":
+            continue
+        binding = access_evidence.launch_binding(settings, role, None, route.get("model"), None)
+        identity = binding["identity"] if binding else None
+        key = digest(identity) if identity else role
+        if key not in native:
+            native[key] = (None, {}, identity)
+        native[key][1][role] = {**route, "engine": "codex"}
+    groups.extend(native.values())
+    earlier = [root for root in (build_worktree.origin(state, run_dir),) if root is not None]
+    return [
+        group
+        for group in groups
+        if not access_evidence.connected(state.get("stages", []), group[2], run_dir, earlier_dirs=earlier)
+    ]
 
 
 def due(routes: dict, next_stage) -> dict:
@@ -492,6 +528,7 @@ def check(
     checkpoint=None,
     before_probe=None,
     selection=None,
+    before_build=False,
 ) -> bool:
     """Run admitted, charged probes; unbound legacy passes are probed again.
 
@@ -516,9 +553,13 @@ def check(
     settings = state.get("settings") or {}
     route_fit.guard(settings)
     groups = (
-        _selection_groups(runner, selection, workspace, settings)
-        if selection is not None
-        else _billing_groups(runner, settings, workspace)
+        _build_groups(runner, settings, workspace, run_dir, state)
+        if before_build
+        else (
+            _selection_groups(runner, selection, workspace, settings)
+            if selection is not None
+            else _billing_groups(runner, settings, workspace)
+        )
     )
     groups = [(facade, fitted_routes(settings, routes), identity) for facade, routes, identity in groups]
     # A successful low-level probe cannot certify another role's higher level. Bind the
@@ -628,7 +669,8 @@ def check(
         if not wanted:
             continue
         try:
-            facade.check_subscription_routes(routes, workspace)
+            if facade is not None:
+                facade.check_subscription_routes(routes, workspace)
         except processes.ProcessError:
             raise
         except RuntimeError as error:
@@ -696,6 +738,20 @@ def check(
                 directory=attempt.directory,
                 checkpoint=attempt.admit,
                 deadline=attempt.started + allowed if finite_time and allowed is not None else None,
+                **({"require_completed": True} if before_build else {}),
+                **(
+                    {
+                        "native_options": {
+                            "provider": (settings.get("roles", {}).get(role) or {}).get(
+                                "provider", settings.get("provider")
+                            ),
+                            "chatgpt": bool(settings.get("joint_planning")),
+                            "arguments": support.transport_arguments(settings),
+                        }
+                    }
+                    if engine == "codex"
+                    else {}
+                ),
             )
         except BaseException as error:
             attempt.finish(error=error)
@@ -707,6 +763,8 @@ def check(
                     "PAUSED_INTERRUPTED", "Model access probe interrupted; evidence retained"
                 ) from error
             raise
+        if before_build and outcome["status"] != "ok":
+            outcome["blocking"] = True
         outcome = attempt.finish(outcome)
         probed[model] = outcome
         for entry in publication:

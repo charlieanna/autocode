@@ -18,20 +18,29 @@ except ImportError:
 
 
 def launch_binding(settings, role, adapter, model, effort) -> dict | None:
-    config = getattr(adapter, "_config", None)
     provider = getattr(adapter, "NAME", None)
-    if not isinstance(settings, dict) or not isinstance(config, dict) or not isinstance(config.get("auth"), dict):
+    if not isinstance(settings, dict) or not isinstance(model, str) or not model:
         return None
-    if not isinstance(model, str) or not model or not isinstance(provider, str):
-        return None
-    selected = role_transport.entry(settings, role)
-    transport = (
-        selected["identity"]
-        if selected
-        else settings.get("transport_identities", {}).get("opencode", settings.get("transport_identity"))
-    )
-    if not role_transport.valid_identity(transport, provider):
-        return None
+    route = (settings.get("roles") or {}).get(role) or {}
+    if route.get("engine", settings.get("engine")) == "codex":
+        transport = settings.get("transport_identities", {}).get("codex", settings.get("transport_identity"))
+        if not isinstance(transport, dict):
+            return None
+        provider = "codex"
+        transport = {
+            "transport": transport,
+            "provider": route.get("provider", settings.get("provider")),
+            "chatgpt": bool(settings.get("joint_planning")),
+        }
+    else:
+        selected = role_transport.entry(settings, role)
+        transport = (
+            selected["identity"]
+            if selected
+            else settings.get("transport_identities", {}).get("opencode", settings.get("transport_identity"))
+        )
+        if not isinstance(provider, str) or not role_transport.valid_identity(transport, provider):
+            return None
     identity = {"provider": provider, "transport_sha256": digest(transport)}
     if effort is not None:
         identity["reasoning_effort"] = effort
@@ -86,7 +95,7 @@ def passed(records, identity, run_dir, *, equivalent=(), earlier_dirs=()) -> dic
     identities = [identity, *equivalent]
     outcomes: dict[str, dict] = {}
     for record in records:
-        if not isinstance(record, dict) or record.get("engine") != "opencode":
+        if not isinstance(record, dict) or record.get("engine") not in ("opencode", "codex"):
             continue
         binding = record.get("access_preflight_identity")
         if not isinstance(binding, dict) or set(binding) != {"schema", "identity", "model"}:
@@ -97,9 +106,8 @@ def passed(records, identity, run_dir, *, equivalent=(), earlier_dirs=()) -> dic
         route = record.get("launch_route") or {}
         if not isinstance(model, str) or not model or not isinstance(route, dict) or route.get("model") != model:
             continue
-        if record.get("provider") != identity.get("provider") or record.get("reasoning_effort") != identity.get(
-            "reasoning_effort"
-        ):
+        provider = "codex" if record["engine"] == "codex" else record.get("provider")
+        if provider != identity.get("provider") or record.get("reasoning_effort") != identity.get("reasoning_effort"):
             continue
         if route.get("reasoning_effort") != identity.get("reasoning_effort"):
             continue
@@ -123,3 +131,22 @@ def passed(records, identity, run_dir, *, equivalent=(), earlier_dirs=()) -> dic
             "evidence": record["events"],
         }
     return outcomes
+
+
+def connected(records, identity, run_dir, *, earlier_dirs=()):
+    """A clean real call proves provider connectivity only, never another model's capability."""
+    if not isinstance(identity, dict):
+        return False
+    transport = {key: value for key, value in identity.items() if key != "reasoning_effort"}
+    for record in reversed(records):
+        binding = record.get("access_preflight_identity") or {}
+        bound = record.get("preflight_identity") or binding.get("identity")
+        if (
+            not isinstance(bound, dict)
+            or {key: value for key, value in bound.items() if key != "reasoning_effort"} != transport
+        ):
+            continue
+        # An explicit failure invalidates earlier connectivity; probe reuse remains
+        # the accounting-aware model preflight's responsibility.
+        return bool(passed([record], bound, run_dir, earlier_dirs=earlier_dirs))
+    return False

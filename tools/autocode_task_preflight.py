@@ -30,6 +30,7 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_builder_preflight as builder_preflight
     from . import autocode_input_preflight as inputs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_package_scope as package_scope
@@ -43,6 +44,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_builder_preflight as builder_preflight
     import autocode_input_preflight as inputs
     import autocode_launch_inputs as launch_inputs
     import autocode_package_scope as package_scope
@@ -283,6 +285,13 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
         workspace, run_dir, source_copy=not storage_budget.conversation_only(state)
     ):
         raise util.Paused("PAUSED_TASK_PREFLIGHT", reason)
+    if automatic := builder_preflight.check(state, workspace, run_dir, worker, persist):
+        path = automatic["receipt"]
+        util.atomic_json(path, automatic)
+        state["task_preflight"] = {**automatic, "receipt_sha256": util.file_hash(path)}
+        persist(Path(run_dir) / "state.json", state)
+        if automatic["errors"]:
+            raise util.Paused("PAUSED_TASK_PREFLIGHT", "; ".join(automatic["errors"]))
     config = state.get("settings", {}).get("task_preflight")
     if not config:
         return

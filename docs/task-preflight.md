@@ -1,8 +1,21 @@
 # Task prerequisites before paid dispatch
 
-Start a run with `--task-preflight MANIFEST.json` to check operator-declared
-prerequisites before planning, building or validation. This is an opt-in gate
-for ordinary runs. Existing runs without a manifest retain their behavior.
+Before Builder starts, ordinary runs check provider connectivity and execute a
+nested command through the actual isolated verification runner, even without a
+manifest. A clean completed call on the same recorded provider identity already
+proves connectivity; it does not certify another model's reasoning level.
+Otherwise access probes use the saved routes, login policy and existing budget
+accounting. An incomplete or failed transport probe prevents Builder dispatch.
+Native held-call providers retain their original launch authority rather than
+borrowing it for a standalone probe.
+
+The isolated command checks source copying, interpreter access, nested process
+execution and verified cleanup. Its immutable `task_preflight` receipt records
+readiness, never test credit or provider-sandbox attestation. Actual stage
+admission and every regression, acceptance and completion gate still run.
+
+Use `--task-preflight MANIFEST.json` for additional operator-declared
+prerequisites before planning, building or validation.
 
 A prerequisite runs in both the project workspace and a source copy beneath
 the actual run's `.autocode/runs/.../preflight/.../scratch/candidate` directory.

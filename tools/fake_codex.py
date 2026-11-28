@@ -60,12 +60,16 @@ if os.environ.get("AUTOCODE_FIXTURE_CODEX_LOG"):
     # One line per stage call: its argv and the start of its prompt, never the environment's values.
     with open(os.environ["AUTOCODE_FIXTURE_CODEX_LOG"], "a") as _log:
         _log.write(json.dumps({"argv": sys.argv[1:], "prompt_head": prompt[:120]}) + "\n")
-data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 schema = (
     json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     if "--output-schema" in sys.argv
     else {}
 )
+if set(schema.get("properties", {})) == {"ok"}:
+    Path(sys.argv[sys.argv.index("-o") + 1]).write_text('{"ok": true}')
+    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}))
+    raise SystemExit(0)
+data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 if "acceptance_criteria_ref" in data:
     data["acceptance_criteria"] = [
         {k: c[k] for k in ("id", "criterion")} for c in data["goal_contract"]["body"]["acceptance_criteria"]
