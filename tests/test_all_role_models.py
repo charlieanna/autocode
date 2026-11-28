@@ -175,6 +175,9 @@ class AllRoleSubprocessTests(unittest.TestCase):
             **models,
             "requirements": models["planner"],
             "resolver": models["task_planner"],
+            # The Investigator classifies the proof that still fails after the Builder's direct round. On
+            # OpenCode, a stage on a GPT model gets GLM 5.3's view (autocode_stuck_job.route).
+            "stuck_investigator": "zai-coding-plan/glm-5.3",
             "plan_reviewer": planning.PINNED_REVIEWER_MODEL,
         }
         flags = [arg for role, model in models.items() for arg in ("--" + role.replace("_", "-") + "-model", model)]
@@ -194,7 +197,9 @@ class AllRoleSubprocessTests(unittest.TestCase):
         stages = [
             "orchestrator",
             "builder",
-            # The unproven change goes back to the Builder once at the Tester's boundary; the Tester follows.
+            # The unproven change goes back to the Builder once at the Tester's boundary. Its proof still
+            # fails, so the Investigator classifies it; it names no cause and the Tester follows.
+            "tester",
             "tester",
             "tester",
             "review_completion",

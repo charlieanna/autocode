@@ -428,13 +428,25 @@ class BuildBlackbox(unittest.TestCase):
         """Review a candidate whose regression proof fails, through to the Tester's verdict.
 
         A failing proof first sends the change back to the same Builder once, before any Tester (#4211).
-        The scripted Builder delivers the same bytes again, so the second failing proof goes to the Tester.
+        The scripted Builder delivers the same bytes again, so the second failing proof goes to the
+        Investigator. The scripted Investigator names no cause, which gives the run back to the Tester.
         """
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         state = self.state()
         self.assertEqual(("builder", "FAIL"), (state["next_stage"], state["regression_proof"]["verdict"]))
         self.build()
         self.candidate()
+        testers = [row for row in self.state()["stages"] if row.get("stage") == "tester"]
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        state = self.state()
+        self.assertEqual(("investigate_stuck", "FAIL"), (state["next_stage"], state["regression_proof"]["verdict"]))
+        self.assertEqual(
+            testers,
+            [row for row in state["stages"] if row.get("stage") == "tester"],
+            "the Tester must not review a change whose proof still fails",
+        )
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        self.assertEqual("tester", self.state()["next_stage"])
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
 
     def candidate(self):

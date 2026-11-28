@@ -22,7 +22,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
     True when the stage must wait for another progressing local verification step,
     its proof sent changed guards back to plan review, or, before the Tester, the
     proof of this source sent the run to the wrong-implementations study first, or a proof of it that does not pass
-    went back to the Builder (autocode_proof_findings.builder_round); or, before any launch, the
+    went back to the Builder (autocode_proof_findings.builder_round) or, its round spent, to the failure
+    Investigator (autocode_proof_investigation); or, before any launch, the
     approved plan runs a program the tool boundary refuses and went back to the Planner (#4015), or an approved
     bug-fix plan with a milestone the proof can never accept went back to planning (#3962).
     """
@@ -45,13 +46,14 @@ def before_review(state: RunState, stage, workspace, run_dir):
         import autocode_wrong_implementations as wrong_implementations
     # Only here does the Tester's proof of the current source exist: it was made just above (#3977).
     revision = source_scope.snapshot(workspace, state)["revision"]
-    if _builder_first(state, revision):
+    if _builder_first(state, revision, stage):
         return True
     return stage == "tester" and wrong_implementations.route(state, revision)
 
 
-def _builder_first(state: RunState, revision) -> bool:
-    """A proof of ``revision`` that does not pass goes to the Builder before any Tester (autocode_proof_findings).
+def _builder_first(state: RunState, revision, stage="tester") -> bool:
+    """A proof of ``revision`` that does not pass goes to the Builder before any Tester (autocode_proof_findings),
+    and, once that round is spent, to the failure Investigator (autocode_proof_investigation).
 
     Not when the Tester wrote the tests (spec-first: the Builder may not change them), or when the proof judged
     nothing because what it ran on changed while it ran (autocode_proof_infrastructure.disturbed), which it
@@ -68,7 +70,14 @@ def _builder_first(state: RunState, revision) -> bool:
         return False
     if infrastructure.disturbed(state.get("regression_proof")):
         return False
-    return proof_findings.builder_round(state, revision)
+    if proof_findings.builder_round(state, revision):
+        return True
+    try:
+        from . import autocode_proof_investigation as proof_investigation
+    except ImportError:
+        import autocode_proof_investigation as proof_investigation
+    # The Builder's direct round is spent and its source fails too: the Investigator classifies it next.
+    return proof_investigation.route(state, revision, stage)
 
 
 def _before_review(state: RunState, stage, workspace, run_dir):

@@ -76,7 +76,13 @@ class ResolverRecoveryLifecycleCliTests(unittest.TestCase):
         self.assertGreaterEqual(stages.count("resolve"), 2, stages)
         self.assertLessEqual(stages.count("resolve"), 3, stages)
         self.assertTrue(all(row["timed_out"] for row in attempts if row["stage"] == "resolve"))
-        self.assertEqual(1, stages.count(stuck_job.STAGE), f"{stages}: {view['stop_reason']}")
+        # The proof that still fails after the Builder's direct round is classified first
+        # (autocode_proof_investigation); the offline fixture names no cause, so the Tester runs as before.
+        checked = [stage for stage in stages if stage in ("builder", stuck_job.STAGE, "tester")]
+        self.assertEqual(["builder", "builder", stuck_job.STAGE, "tester"], checked[:4], stages)
+        # The stuck Resolver is then investigated once.
+        after_tester = stages[stages.index("tester") :]
+        self.assertEqual(1, after_tester.count(stuck_job.STAGE), f"{stages}: {view['stop_reason']}")
         self.assertEqual(["resolve", stuck_job.STAGE], stages[-2:])
         self.assertNotEqual("TASK_COMPLETE", view["status"])
         self.assertIn("Offline fixture: it cannot diagnose", view["stop_reason"])
