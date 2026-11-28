@@ -344,6 +344,8 @@ class Translator:
         self._message: str | None = None
         self._streamed: set[str] = set()
         self._usage: dict[str, dict] = {}
+        # Each API message the provider answered, with the model it resolved when it said (#4239).
+        self._receipts: dict[str, str | None] = {}
         self._assistant_count = 0
         self._blocks: dict[tuple, dict] = {}
         self._progress: dict[Any, dict] = {}
@@ -540,6 +542,7 @@ class Translator:
             self._message = identifier if isinstance(identifier, str) else None
             if self._message:
                 self._streamed.add(self._message)
+                self._receipt(self._message, message.get("model"))
                 if isinstance(message.get("usage"), dict):
                     self._usage[self._message] = dict(message["usage"])
             return []
@@ -623,6 +626,7 @@ class Translator:
             self._refused = True
         self._assistant_count += 1
         msg_id = message.get("id")
+        self._receipt(msg_id, message.get("model"))
         if isinstance(msg_id, str) and msg_id and msg_id not in self._usage and isinstance(message.get("usage"), dict):
             self._usage[msg_id] = dict(message["usage"])
         streamed = message.get("id") in self._streamed
@@ -827,6 +831,13 @@ class Translator:
         kept = FAILED_DIAGNOSTICS if failed else values
         return {key: value for key, value in values.items() if value is not None and key in kept}
 
+    def _receipt(self, identifier: Any, model: Any) -> None:
+        if not isinstance(identifier, str) or not identifier:
+            return
+        resolved = model if isinstance(model, str) and model and model != "<synthetic>" else None
+        if self._receipts.get(identifier) is None:
+            self._receipts[identifier] = resolved
+
     def _first_request_usage(self) -> dict | None:
         if self._usage:
             return usage_of(next(iter(self._usage.values())))
@@ -844,6 +855,7 @@ class Translator:
             "first_request_usage": self._first_request_usage(),
             "cost_usd": self._cost(),
             "cost_state": self._cost_state(),
+            "provider_requests": [{"id": key, "model": model} for key, model in self._receipts.items()] or None,
             "claude": self._diagnostics(exit_code, failed=bool(error)),
         }
         return {key: value for key, value in values.items() if value is not None}

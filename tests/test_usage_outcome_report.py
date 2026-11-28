@@ -646,6 +646,66 @@ class OutcomeReportAggregationTests(unittest.TestCase):
             self.assertIn("codex:gpt-5.4@medium: 1/1 accepted (100.0%)", text)
             self.assertIn("Requirements report repair: 4 attempts, >=17.5s (incomplete); not recorded=1", text)
 
+    def test_cost_coverage_keeps_reported_estimated_and_unknown_amounts_apart_per_provenance(self):
+        def model_attempt(*, reported=None, historical=None, observed=True):
+            return {
+                "stage": "builder",
+                "job": "Builder",
+                "model": "claude-opus-5-5",
+                "tokens": {"input_tokens": 1000 if observed else None, "output_tokens": 100 if observed else None},
+                "reported_cost_usd": reported,
+                "historical_estimated_cost_usd": historical,
+                "finished_at": "2026-11-27T11:00:00+00:00",
+                "duration_seconds": 30.0,
+                "exit_code": 0,
+                "usage_truncated": False,
+                "provider_request_ids": ["msg_1"] if observed else None,
+                "resolved_models": ["claude-opus-5-5"] if observed else None,
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            ledger = project / ".autocode" / "usage.jsonl"
+            ledger.parent.mkdir()
+            live = _make_live_row("live-run")
+            live["accounting"] = {
+                "attempts": [model_attempt(reported=1.25), model_attempt(historical=0.5), model_attempt(observed=False)]
+            }
+            fake = _make_live_row("fake-run", provenance="fake")
+            fake["accounting"] = {"attempts": [model_attempt(reported=9.0)]}
+            ledger.write_text("".join(json.dumps(row) + "\n" for row in (live, fake)))
+
+            payload = usage_report.build_report(project)
+            live_coverage = payload["by_provenance"]["live"]["cost_coverage"]
+            self.assertEqual(
+                {
+                    "reported_usd": 1.25,
+                    "reported_attempts": 1,
+                    "estimated_usd": 0.5,
+                    "estimated_attempts": 1,
+                    "unknown_attempts": 1,
+                    "known_usd": 1.75,
+                    "total_usd": None,
+                    "complete": False,
+                },
+                live_coverage["usd"],
+            )
+            self.assertEqual("partial", live_coverage["by_run"][0]["coverage"])
+            fake_coverage = payload["by_provenance"]["fake"]["cost_coverage"]
+            self.assertEqual((9.0, 9.0), (fake_coverage["usd"]["reported_usd"], fake_coverage["usd"]["total_usd"]))
+
+            text = usage_report.format_report(payload)
+            self.assertIn(
+                "Cost coverage (1 runs): complete=0 partial=1 unknown=0 no model stages=0 not recorded=0", text
+            )
+            self.assertIn(
+                "Model stages: 3; provider-reported $1.25 (1); API-equivalent estimate $0.50 (1); "
+                "unknown, not zero: 1; total >=$1.75 (incomplete)",
+                text,
+            )
+            self.assertIn("Completion events: complete=2 truncated=0 missing=1 running=0", text)
+            self.assertIn("Provider request ids: recorded=2 none named=1 not recorded=0; resolved model=2", text)
+
     def test_requirements_without_observations_do_not_report_perfect_acceptance_or_zero_repair_time(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)

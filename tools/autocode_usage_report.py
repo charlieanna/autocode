@@ -19,12 +19,14 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_cost_coverage as cost_coverage
     from . import autocode_quota_report as quota_report
     from . import autocode_registry as registry
     from . import autocode_rejection_classes as rejection_classes
     from . import autocode_roles as roles
     from . import autocode_route_scoreboard as scoreboard
 except ImportError:
+    import autocode_cost_coverage as cost_coverage
     import autocode_quota_report as quota_report
     import autocode_registry as registry
     import autocode_rejection_classes as rejection_classes
@@ -901,6 +903,8 @@ def _aggregate_cohort(rows: list[dict[str, Any]], targets_doc: dict[str, Any]) -
         "first_interaction": first_interaction,
         "completed_tasks": completed_tasks,
         "stage_prompts": stage_prompts,
+        # How much of each run's model cost is known, kept apart by provenance (#4239).
+        "cost_coverage": cost_coverage.summarise(rows),
         "targets": targets,
     }
 
@@ -945,6 +949,72 @@ def _fmt_num(value: float | int | None, suffix: str = "") -> str:
     if isinstance(value, int):
         return f"{value}{suffix}"
     return f"{value:.1f}{suffix}"
+
+
+def _fmt_usd(value: float | None) -> str:
+    return "none" if value is None else f"${value:.2f}"
+
+
+def _fmt_total(money: dict[str, Any]) -> str:
+    if money["complete"]:
+        return _fmt_usd(money["total_usd"])
+    return "unknown" if money["known_usd"] is None else f">={_fmt_usd(money['known_usd'])} (incomplete)"
+
+
+def _fmt_money(money: dict[str, Any]) -> str:
+    return (
+        f"provider-reported {_fmt_usd(money['reported_usd'])} ({money['reported_attempts']}); "
+        f"API-equivalent estimate {_fmt_usd(money['estimated_usd'])} ({money['estimated_attempts']}); "
+        f"unknown, not zero: {money['unknown_attempts']}; total {_fmt_total(money)}"
+    )
+
+
+def _format_cost_coverage(coverage: dict[str, Any]) -> list[str]:
+    runs, events, receipts = coverage["runs"], coverage["completion_events"], coverage["receipts"]
+    lines = [
+        f"  Cost coverage ({sum(runs.values())} runs): complete={runs['complete']} partial={runs['partial']} "
+        f"unknown={runs['unknown']} no model stages={runs['no_model_attempts']} not recorded={runs['not_recorded']}",
+        f"    Model stages: {coverage['attempts']}; {_fmt_money(coverage['usd'])}",
+        f"    Completion events: complete={events['complete']} truncated={events['truncated']} "
+        f"missing={events['missing']} running={events['running']}"
+        + (f"; with accounting issues={coverage['uncertain_attempts']}" if coverage["uncertain_attempts"] else ""),
+        f"    Provider request ids: recorded={receipts['recorded']} none named={receipts['none_named']} "
+        f"not recorded={receipts['not_recorded']}; resolved model={receipts['resolved_model']}",
+    ]
+    if not coverage["attempts"]:
+        return lines
+    statuses = " ".join(f"{name}={count}" for name, count in coverage["terminal_status"].items() if count)
+    lines.append(f"    Terminal status: {statuses}")
+    lines.append("    By stage:")
+    for item in coverage["by_stage"]:
+        lines.append(f"      {item['stage']:<22} n={item['attempts']} {_fmt_money(item)}")
+    lines.append("    By model:")
+    for item in coverage["by_model"]:
+        resolved = ", ".join(item["resolved_models"] or ()) or "not reported"
+        lines.append(f"      {item['model']:<22} n={item['attempts']} {_fmt_money(item)}; served as {resolved}")
+    lines.append("    Per delivered run (only runs whose every model stage was priced):")
+    for item in coverage["delivered"]:
+        usd, wall = item["usd_per_delivered_run"], item["wall_seconds_per_delivered_run"]
+        per_delivery = _fmt_usd(item["usd_per_delivery"]) if item["usd_per_delivery"] is not None else "unknown"
+        lines.append(
+            f"      {item['workflow']:<12} delivered={item['delivered_runs']}/{item['runs']} "
+            f"usd_med={_fmt_usd(usd['median'])} p90={_fmt_usd(usd['p90'])} "
+            f"(priced={usd['priced_runs']} excluded={usd['excluded_runs']}) "
+            f"wall_med={_fmt_num(wall['median'], 's')} p90={_fmt_num(wall['p90'], 's')} "
+            f"all spend per delivery={per_delivery} (incomplete runs={item['incomplete_runs']})"
+        )
+    if coverage["matched_workloads"]:
+        lines.append("    Matched workloads (same stage and plan size, not identical inputs):")
+        for workload in coverage["matched_workloads"]:
+            lines.append(f"      {workload['stage']}/{workload['plan_size']}:")
+            for item in workload["models"]:
+                usd, secs = item["usd_per_attempt"], item["seconds_per_attempt"]
+                lines.append(
+                    f"        {item['model']:<22} n={item['attempts']} completed={item['completed_attempts']} "
+                    f"priced={item['priced_attempts']} usd_med={_fmt_usd(usd['median'])} p90={_fmt_usd(usd['p90'])} "
+                    f"sec_med={_fmt_num(secs['median'], 's')} p90={_fmt_num(secs['p90'], 's')}"
+                )
+    return lines
 
 
 def format_report(payload: dict[str, Any]) -> str:
@@ -1056,6 +1126,8 @@ def format_report(payload: dict[str, Any]) -> str:
             if sp_summary["field_budget_overages"]:
                 overages = ", ".join(f"{k}={v}" for k, v in sp_summary["field_budget_overages"].items())
                 lines.append(f"  Field budget overages: {overages}")
+
+        lines.extend(_format_cost_coverage(cohort["cost_coverage"]))
 
         tm = cohort["targets"]["metrics"]
         lines.append("  Targets (observational only):")

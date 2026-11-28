@@ -523,6 +523,60 @@ class VerificationSourceTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "darwin" and shutil.which("go"), "requires macOS and Go")
 class VerificationCopyTests(unittest.TestCase):
+    def test_capture_runs_when_the_project_tracks_a_file_the_sandbox_refuses(self):
+        # #4246: a tracked .env.example is refused inside the sandbox (Seatbelt) or masked (bubblewrap).
+        # The capture's freshness check read its bytes, so every contained capture failed before running.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "project"
+            root.mkdir()
+            (root / "app.py").write_text("print('bound source')\n")
+            secret = root / ".env.example"
+            secret.write_text("DATABASE_URL=postgres://example\n")
+            for args in [
+                ("init", "-q"),
+                ("add", "."),
+                ("-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "-qm", "source"),
+            ]:
+                subprocess.run(["/usr/bin/git", *args], cwd=root, check=True, capture_output=True)
+            selected = toolchain.discover(root, [shlex.join([sys.executable, "app.py"])], os.environ)
+            tools = Path(containment.__file__).parent
+            boundary = containment.prepare(
+                root, environment=os.environ, read_roots=[*selected["read_roots"], tools], verification_copy=True
+            )
+            scratch = Path(boundary["scratch"])
+            entry = (
+                "import sys; sys.path.insert(0, "
+                + repr(str(tools))
+                + "); import autocode_capture_command as c; sys.exit(c.cli())"
+            )
+
+            def capture(name, *command):
+                argv = [sys.executable, "-c", entry, "--output", str(scratch / (name + ".json")), "--", *command]
+                return subprocess.run(
+                    [boundary["shell"], "-c", shlex.join(argv)], cwd=root, text=True, capture_output=True, timeout=90
+                )
+
+            refused = subprocess.run(
+                [boundary["shell"], "-c", "cat " + shlex.quote(str(secret))],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            self.assertNotIn("postgres://example", refused.stdout)  # the sandbox still withholds it
+            result = capture("run", sys.executable, "app.py")
+            self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+            self.assertIn("bound source", Path(json.loads(result.stdout)["full_output"]).read_text())
+            (root / "app.py").write_text("print('changed after copy')\n")
+            drifted = capture("drift", "/bin/echo", "SHOULD_NOT_RUN")
+            self.assertEqual(2, drifted.returncode, drifted.stderr)
+            self.assertIn("Verification source changed", drifted.stderr)
+            (root / "app.py").write_text("print('bound source')\n")
+            secret.unlink()
+            removed = capture("removed", "/bin/echo", "SHOULD_NOT_RUN")
+            self.assertEqual(2, removed.returncode, removed.stderr)
+            self.assertIn("Verification source changed", removed.stderr)
+
     def test_capture_builds_current_source_and_rejects_source_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / "project"
